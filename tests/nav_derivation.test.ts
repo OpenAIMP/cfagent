@@ -62,10 +62,10 @@ describe("nav derivation", () => {
     const byId = new Map(NAVIGATION_ITEMS.map((i) => [i.id, i]));
     expect(byId.get("autopilot")!.label).toBe("Autopilot Control");
     expect(byId.get("order")!.label).toBe("Fast Order Ticket");
-    expect(byId.get("screeners")!.label).toBe("Screening");
+    expect(byId.get("screeners")!.label).toBe("Screeners");
     expect(byId.get("social")!.label).toBe("Social Posting");
     expect(byId.get("approvals")!.label).toBe("Approvals");
-    expect(byId.get("docs")!.label).toBe("Docs and Reports");
+    expect(byId.get("docs")!.label).toBe("Docs & Reports");
   });
 
   it("active states follow nav groups, not hand-coded cases", () => {

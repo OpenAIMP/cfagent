@@ -118,7 +118,7 @@ export const ROUTES = [
     icon: "Audit",
     description: "W3C Agent DID verification, memory vault, and immutable audit logs",
     navEntry: {
-      label: "AI Transparency",
+      label: "Audit Vault",
       shortLabel: "Audit Log",
       navOrder: 15,
       defaultVisible: true,
@@ -185,7 +185,7 @@ export const ROUTES = [
     description:
       "Every document set a screener-workflow run produced — stock, options, goal and strategy — with its PDF, XLSX and CSV downloads and run id",
     navEntry: {
-      label: "Docs and Reports",
+      label: "Docs & Reports",
       shortLabel: "Docs",
       navOrder: 22,
       defaultVisible: true,
@@ -234,7 +234,7 @@ export const ROUTES = [
     icon: "Database",
     description: "Natural language records analytics, enterprise schema inspector & data browser",
     navEntry: {
-      label: "Records & Ledger Explorer",
+      label: "Records NLQ",
       shortLabel: "Records",
       navOrder: 14,
       defaultVisible: true,
@@ -271,13 +271,13 @@ export const ROUTES = [
   {
     id: "options-flows",
     navGroup: "options-flows",
-    crumb: "Options Flow",
+    crumb: "Options Flows",
     category: "Execution",
     icon: "Options",
     description: "Options flows, dark pool prints, institutional sweeps, blocks, and insider disclosures",
     navEntry: {
-      label: "Hedging (F&O)",
-      shortLabel: "Hedging",
+      label: "Options Flows",
+      shortLabel: "Flows",
       navOrder: 5,
       defaultVisible: true,
       badge: "Sweeps",
@@ -335,8 +335,8 @@ export const ROUTES = [
     icon: "Payments",
     description: "x402 protocol, MPP micropayments, Stripe, PayPal, and DID billing",
     navEntry: {
-      label: "Billing & Accounts",
-      shortLabel: "Billing",
+      label: "Payments",
+      shortLabel: "Payments",
       navOrder: 16,
       defaultVisible: true,
       badge: "x402",
@@ -446,8 +446,8 @@ export const ROUTES = [
     icon: "Screeners",
     description: SCREENERS_DESC,
     navEntry: {
-      label: "Screening",
-      shortLabel: "Screening",
+      label: "Screeners",
+      shortLabel: "Screeners",
       navOrder: 6,
       defaultVisible: true,
       badge: "Multi",
