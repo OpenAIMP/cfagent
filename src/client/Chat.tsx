@@ -322,6 +322,12 @@ export function Chat({ user }: { user: User }) {
   const [adBannerConfig, setAdBannerConfig] = useState<AdBannerConfig>(() => getStoredAdBannerConfig());
   const [showPartnerDealsModal, setShowPartnerDealsModal] = useState<boolean>(false);
 
+  // One shared confirm Modal for the three Chat-owned deletes (referral,
+  // category, memory). Previously the category delete used a native
+  // confirm() and the other two deleted silently on click.
+  type ChatDeleteTarget = { kind: "referral" | "category" | "memory"; id: string; label: string };
+  const [deleteTarget, setDeleteTarget] = useState<ChatDeleteTarget | null>(null);
+
   const handleUpdateAdBannerConfig = (newConfig: AdBannerConfig) => {
     setAdBannerConfig(newConfig);
     saveStoredAdBannerConfig(newConfig);
@@ -611,12 +617,11 @@ export function Chat({ user }: { user: User }) {
   };
 
   const handleDeleteReferral = async (id: string) => {
-    try {
-      await fetch(`/api/referrals?id=${encodeURIComponent(id)}`, { method: "DELETE" });
-      setReferrals((prev) => prev.filter((r) => r.id !== id));
-    } catch {
-      // Ignore
-    }
+    setDeleteTarget({
+      kind: "referral",
+      id,
+      label: referrals.find((r) => r.id === id)?.title ?? id,
+    });
   };
 
   const handleCreateReferral = async (e: React.FormEvent) => {
@@ -851,13 +856,11 @@ export function Chat({ user }: { user: User }) {
   };
 
   const handleDeleteCategory = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this category?")) return;
-    try {
-      await fetch(`/api/categories?id=${encodeURIComponent(id)}`, { method: "DELETE" });
-      setCategories((prev) => prev.filter((c) => c.id !== id));
-    } catch {
-      // Ignore
-    }
+    setDeleteTarget({
+      kind: "category",
+      id,
+      label: categories.find((c) => c.id === id)?.name ?? id,
+    });
   };
 
   const handleCreateExternalAd = async (e: React.FormEvent) => {
@@ -904,9 +907,24 @@ export function Chat({ user }: { user: User }) {
   };
 
   const handleDeleteMemory = async (key: string) => {
+    setDeleteTarget({ kind: "memory", id: key, label: key });
+  };
+
+  const confirmDeleteTarget = async () => {
+    const target = deleteTarget;
+    setDeleteTarget(null);
+    if (!target) return;
     try {
-      await fetch(`/api/memory?key=${encodeURIComponent(key)}`, { method: "DELETE" });
-      setMemories((prev) => prev.filter((m) => m.key !== key));
+      if (target.kind === "referral") {
+        await fetch(`/api/referrals?id=${encodeURIComponent(target.id)}`, { method: "DELETE" });
+        setReferrals((prev) => prev.filter((r) => r.id !== target.id));
+      } else if (target.kind === "category") {
+        await fetch(`/api/categories?id=${encodeURIComponent(target.id)}`, { method: "DELETE" });
+        setCategories((prev) => prev.filter((c) => c.id !== target.id));
+      } else {
+        await fetch(`/api/memory?key=${encodeURIComponent(target.id)}`, { method: "DELETE" });
+        setMemories((prev) => prev.filter((m) => m.key !== target.id));
+      }
     } catch {
       // Ignore
     }
@@ -1516,6 +1534,35 @@ export function Chat({ user }: { user: User }) {
 
   return (
     <div className={`app-container ${navLayout === "left" ? "layout-sidebar" : "layout-top"} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+      <Modal
+        open={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        title={
+          deleteTarget?.kind === "memory"
+            ? "Delete memory?"
+            : deleteTarget?.kind === "category"
+              ? "Delete category?"
+              : "Delete referral?"
+        }
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="danger"
+              onClick={() => void confirmDeleteTarget()}
+            >
+              Delete
+            </Button>{" "}
+            <Button type="button" variant="secondary" onClick={() => setDeleteTarget(null)}>
+              Cancel
+            </Button>
+          </>
+        }
+      >
+        <p>
+          Delete {deleteTarget?.kind} &quot;{deleteTarget?.label}&quot;? This cannot be undone.
+        </p>
+      </Modal>
       {/* 1. Left Sidebar Navigation (When layout === 'left') */}
       {navLayout === "left" && (
         <NavigationMenu

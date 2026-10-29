@@ -29,7 +29,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
-import { Button, TextInput, useToast } from "./components/ui";
+import { Button, TextInput, useToast, Modal } from "./components/ui";
 import { apiFetch as fetch } from "./apiFetch";
 import "./reports.css";
 
@@ -177,6 +177,7 @@ export function SchedulesPanel({ activeEnv, userLogin, onPreviewTrade }: Schedul
   // whose one structured create form lives in the screening section.
   // These counters are the host signals that open it / refresh it.
   const [openCreateSignal, setOpenCreateSignal] = useState(0);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [refreshSignal, setRefreshSignal] = useState(0);
 
   const envHeaders = activeEnv ? { "x-environment": activeEnv } : undefined;
@@ -221,10 +222,7 @@ export function SchedulesPanel({ activeEnv, userLogin, onPreviewTrade }: Schedul
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Delete this schedule? This cannot be undone.")) return;
-    await runAction(() =>
-      fetch(`/api/schedules/${id}`, { method: "DELETE", headers: envHeaders })
-    );
+    setDeleteTarget(id);
   };
 
   const handleTriggerNow = async (id: string) => {
@@ -290,6 +288,34 @@ export function SchedulesPanel({ activeEnv, userLogin, onPreviewTrade }: Schedul
 
   return (
     <div className="schedules-panel">
+      <Modal
+        open={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete schedule?"
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="danger"
+              onClick={async () => {
+                const target = deleteTarget;
+                setDeleteTarget(null);
+                if (target)
+                  await runAction(() =>
+                    fetch(`/api/schedules/${target}`, { method: "DELETE", headers: envHeaders })
+                  );
+              }}
+            >
+              Delete schedule
+            </Button>{" "}
+            <Button type="button" variant="secondary" onClick={() => setDeleteTarget(null)}>
+              Cancel
+            </Button>
+          </>
+        }
+      >
+        <p>Delete this schedule? This cannot be undone.</p>
+      </Modal>
       {userLogin && (
         <div className="schedule-context">
           Schedules for <strong>{userLogin}</strong>{activeEnv ? ` · E*TRADE ${activeEnv}` : ""}

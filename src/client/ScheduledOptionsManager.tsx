@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { Button } from "./components/ui";
+import { Button, Modal } from "./components/ui";
 import { apiFetch as fetch } from "./apiFetch";
 import { listProfiles } from "./scannerApi";
 import type { StrategyProfile } from "../trading";
@@ -109,6 +109,7 @@ export function ScheduledOptionsManager({
 
   // Modal State
   const [modalOpen, setModalOpen] = useState(false);
+  const [cancelTarget, setCancelTarget] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
 
@@ -523,8 +524,7 @@ export function ScheduledOptionsManager({
   };
 
   const handleCancelSchedule = async (scheduleId: string) => {
-    if (!confirm(`Cancel scheduled task ${scheduleId}?`)) return;
-    await doCancelSchedule(scheduleId);
+    setCancelTarget(scheduleId);
   };
 
   // S7: pause/resume folded in from the nav panel (issue #273
@@ -777,6 +777,33 @@ export function ScheduledOptionsManager({
 
   return (
     <div className="scheduled-options-manager">
+      <Modal
+        open={cancelTarget !== null}
+        onClose={() => setCancelTarget(null)}
+        title="Cancel scheduled task?"
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="danger"
+              onClick={async () => {
+                const target = cancelTarget;
+                setCancelTarget(null);
+                if (target) await doCancelSchedule(target);
+              }}
+            >
+              Cancel task
+            </Button>{" "}
+            <Button type="button" variant="secondary" onClick={() => setCancelTarget(null)}>
+              Keep task
+            </Button>
+          </>
+        }
+      >
+        <p>
+          Cancel scheduled task {cancelTarget}? This cannot be undone.
+        </p>
+      </Modal>
       {/* Top Hero Banner */}
       <div className="sched-hero-banner">
         <div className="sched-hero-info">

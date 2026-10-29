@@ -19,7 +19,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { apiFetch as fetch } from "./apiFetch";
-import { Badge, Button, Card, EmptyState, Notice, Spinner } from "./components/ui";
+import { Badge, Button, Card, EmptyState, Modal, Notice, Spinner } from "./components/ui";
 
 export interface PendingReviewItem {
   confirmationId: string;
@@ -89,8 +89,10 @@ export function PendingReviewQueue() {
     return () => clearInterval(timer);
   }, []);
 
-  const decide = async (confirmationId: string, decision: "approved" | "rejected") => {
-    setActingId(confirmationId);
+  type DecideTarget = { id: string; decision: "approved" | "rejected"; detail: string };
+  const [decideTarget, setDecideTarget] = useState<DecideTarget | null>(null);
+
+  const decide = async (confirmationId: string, decision: "approved" | "rejected") => {    setActingId(confirmationId);
     setError(null);
     try {
       const res = await fetch("/api/trading/reports/confirm", {
@@ -123,6 +125,36 @@ export function PendingReviewQueue() {
 
   return (
     <section className="pending-review-queue" aria-label="Pending review">
+      <Modal
+        open={decideTarget !== null}
+        onClose={() => setDecideTarget(null)}
+        title={decideTarget?.decision === "approved" ? "Approve held delivery?" : "Let delivery expire?"}
+        footer={
+          <>
+            <Button
+              type="button"
+              variant={decideTarget?.decision === "approved" ? "primary" : "danger"}
+              onClick={() => {
+                const target = decideTarget;
+                setDecideTarget(null);
+                if (target) void decide(target.id, target.decision);
+              }}
+            >
+              {decideTarget?.decision === "approved" ? "Approve and send" : "Let expire"}
+            </Button>{" "}
+            <Button type="button" variant="secondary" onClick={() => setDecideTarget(null)}>
+              Cancel
+            </Button>
+          </>
+        }
+      >
+        <p>
+          {decideTarget?.decision === "approved"
+            ? "Send this held delivery now?"
+            : "Discard this held delivery unsent?"}{" "}
+          {decideTarget?.detail}
+        </p>
+      </Modal>
       <div className="pending-review-header">
         <h3>Pending review</h3>
         <Badge tone="neutral" size="sm">
@@ -178,7 +210,9 @@ export function PendingReviewQueue() {
                     variant="primary"
                     size="sm"
                     loading={acting}
-                    onClick={() => void decide(item.confirmationId, "approved")}
+                    onClick={() =>
+                      setDecideTarget({ id: item.confirmationId, decision: "approved", detail: item.detail })
+                    }
                   >
                     Approve
                   </Button>
@@ -186,7 +220,9 @@ export function PendingReviewQueue() {
                     variant="secondary"
                     size="sm"
                     disabled={acting}
-                    onClick={() => void decide(item.confirmationId, "rejected")}
+                    onClick={() =>
+                      setDecideTarget({ id: item.confirmationId, decision: "rejected", detail: item.detail })
+                    }
                   >
                     Let expire
                   </Button>

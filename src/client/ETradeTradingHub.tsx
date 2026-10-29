@@ -738,8 +738,13 @@ export function ETradeTradingHub({
     }
   };
 
+  const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState(false);
+
   const handleRevokeOAuth = async () => {
-    if (!confirm("Are you sure you want to disconnect your E*TRADE account?")) return;
+    setDisconnectConfirmOpen(true);
+  };
+
+  const doRevokeOAuth = async () => {
     setOauthLoading(true);
     try {
       await fetch("/api/etrade/oauth/revoke", {
@@ -1345,6 +1350,30 @@ export function ETradeTradingHub({
 
   return (
     <div className="etrade-trading-hub">
+      <Modal
+        open={disconnectConfirmOpen}
+        onClose={() => setDisconnectConfirmOpen(false)}
+        title="Disconnect E*TRADE account?"
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="danger"
+              onClick={() => {
+                setDisconnectConfirmOpen(false);
+                void doRevokeOAuth();
+              }}
+            >
+              Disconnect
+            </Button>{" "}
+            <Button type="button" variant="secondary" onClick={() => setDisconnectConfirmOpen(false)}>
+              Cancel
+            </Button>
+          </>
+        }
+      >
+        <p>Disconnect your E*TRADE account? You can reconnect at any time.</p>
+      </Modal>
       {/* OAuth PIN Verification Modal */}
       {showPinModal && (
         <Modal open size="none" panelClassName="etrade-pin-modal" title="Authorize E*TRADE Application" onClose={() => setShowPinModal(false)}>

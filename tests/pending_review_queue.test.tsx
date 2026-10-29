@@ -129,6 +129,15 @@ describe("Issue #1324 — PendingReviewQueue", () => {
     await act(async () => {
       approve[0].click();
     });
+    // #2283 stream 1: Approve now opens the shared confirm Modal
+    // (portaled to document.body) instead of dispatching immediately.
+    const modal = document.querySelector(".modal-backdrop") as HTMLElement;
+    const send = Array.from(modal.querySelectorAll("button")).find(
+      (b) => b.textContent?.trim() === "Approve and send"
+    ) as HTMLButtonElement;
+    await act(async () => {
+      send.click();
+    });
     await flush();
     const confirm = calls.find(
       (c) => c.url.endsWith("/trading/reports/confirm") && c.method === "POST"
@@ -144,6 +153,14 @@ describe("Issue #1324 — PendingReviewQueue", () => {
     expect(letExpire.length).toBe(2);
     await act(async () => {
       letExpire[1].click();
+    });
+    // #2283 stream 1: Let expire now opens the shared confirm Modal.
+    const modal = document.querySelector(".modal-backdrop") as HTMLElement;
+    const expire = Array.from(modal.querySelectorAll("button")).find(
+      (b) => b.textContent?.trim() === "Let expire"
+    ) as HTMLButtonElement;
+    await act(async () => {
+      expire.click();
     });
     await flush();
     const confirm = calls.find(
