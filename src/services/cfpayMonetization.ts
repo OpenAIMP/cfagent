@@ -31,20 +31,19 @@
  *   intent id is rejected. Identity, price, and network are fail-closed.
  * - cfpay cannot refund: a failed paid run gets a one-time replacement
  *   credit, disclosed before payment.
- * - Proposed prices, NOT approved: stock $0.02, goal $0.10,
- *   options $0.05 (existing), strategy $0.10.
+ * - Prices are operator data, not code (#2185, sub-issue of
+ *   #2012): the gate reads them through the PriceCatalogue port
+ *   (src/data/priceCataloguePorts.ts), seeded with PROPOSED
+ *   defaults pending owner approval (stock $0.02, goal $0.10,
+ *   options $0.05, strategy $0.10). Missing or empty price data
+ *   is fail-closed: NO charge, never a hardcoded fallback charge.
+ *   This module holds no price table at all.
  */
+import type { PriceCatalogue } from "../data/priceCataloguePorts";
 
 export type ScreenerFamily = "stock" | "goal" | "options" | "strategy";
 export type RunTrigger = "manual" | "scheduled";
 export type ScheduleKind = "one_off" | "recurring";
-
-export const FAMILY_PRICES: Record<ScreenerFamily, number> = {
-  stock: 0.02,
-  goal: 0.1,
-  options: 0.05,
-  strategy: 0.1,
-};
 
 /**
  * Networks the gate accepts when monetization is enabled, as the
@@ -62,14 +61,19 @@ export const ALLOWED_NETWORKS = ["base-sepolia", "ethereum-sepolia", "base", "ei
 /**
  * The failure policy, disclosed BEFORE any payment (gate + pricing
  * route share this one string so the UI can never drift from the
- * gate). Prices above are PROPOSED, not owner-approved. Text kept
- * truthful after #2140: mainnet on Base is admitted when the
+ * gate). Catalogue prices are PROPOSED, not owner-approved. Text
+ * kept truthful after #2140: mainnet on Base is admitted when the
  * operator configures MONETIZATION_NETWORK=base; the default
  * remains testnet (base-sepolia).
  */
 export const PAYMENT_DISCLOSURE =
   "One charge per run-request. Shards, stages, retries and re-serves are free. Automated refunds are not available in v1; a paid run that fails gets a one-time replacement-run credit. Mainnet payments are accepted on Base (MONETIZATION_NETWORK=base); testnets remain available. Settlement chain follows the cfpay deployment configuration.";
 
+/**
+ * @deprecated superseded by src/services/nativeMonetization.ts (NativeMonetizationGate + CheckoutPort).
+ * Kept in place for in-flight cfpay runs to drain (the gate is built at workflow-instance start);
+ * new runs use the native gate. Never delete this interface in the migration slices.
+ */
 export interface CfPayCheckoutClient {
   createCheckout(input: { requestId: string; email: string; request: string }): Promise<unknown>;
   checkoutStatus(requestId: string): Promise<{ status?: string; state?: string; paid?: boolean }>;
@@ -87,7 +91,13 @@ export interface CommercialAccount {
 export interface MonetizationConfig {
   monetizationEnabled: boolean;
   network: string;
-  familyPrices?: Partial<Record<ScreenerFamily, number>>;
+  /**
+   * The operator price catalogue (#2185). Required for any price
+   * resolution: a null/absent catalogue, or a family with no
+   * stored price, makes priceFor throw fail-closed. There is no
+   * fallback price anywhere in this module.
+   */
+  priceCatalogue?: PriceCatalogue | null;
 }
 
 export type GateDecision =
@@ -105,6 +115,11 @@ interface LedgerRow {
   paidVia?: string;
 }
 
+/**
+ * @deprecated superseded by src/services/nativeMonetization.ts (NativeMonetizationGate + CheckoutPort).
+ * Kept in place for in-flight cfpay runs to drain (the gate is built at workflow-instance start);
+ * new runs use the native gate. Never delete this class in the migration slices.
+ */
 export class CfPayMonetizationGate {
   private byRun = new Map<string, LedgerRow>();
   private byClaim = new Map<string, string>();
@@ -119,13 +134,26 @@ export class CfPayMonetizationGate {
     }
   }
 
-  priceFor(family: ScreenerFamily): number {
-    const override = this.config.familyPrices?.[family];
-    if (override !== undefined) {
-      if (!Number.isFinite(override) || override <= 0) throw new Error(`Price for ${family} is invalid`);
-      return override;
+  /**
+   * Resolve the per-run price for a family through the catalogue
+   * port (#2185). Fail-closed, exactly: no catalogue configured,
+   * no stored row, or an invalid stored value all throw before
+   * any checkout is minted or any coverage is consumed. There is
+   * no hardcoded fallback price — a throw here means "no charge",
+   * never "charge a guessed price".
+   */
+  async priceFor(family: ScreenerFamily): Promise<number> {
+    const catalogue = this.config.priceCatalogue;
+    if (!catalogue) {
+      throw new Error(
+        "Price catalogue is not configured: refusing to price a run without operator price data (fail-closed).",
+      );
     }
-    return FAMILY_PRICES[family];
+    const price = await catalogue.getPrice(family);
+    if (price === null || !Number.isFinite(price) || price <= 0) {
+      throw new Error(`No valid stored price for family ${family}: refusing to charge (fail-closed).`);
+    }
+    return price;
   }
 
   async check(run: { id: string; family: ScreenerFamily; trigger: RunTrigger; scheduleKind?: ScheduleKind; authorizedAtSubmission?: boolean; tenantId?: string; account: CommercialAccount }): Promise<GateDecision> {
@@ -136,7 +164,7 @@ export class CfPayMonetizationGate {
     if (existing?.status === "paid") {
       return { allowed: true, status: "already_paid", runRequestId: run.id, priceUSD: existing.priceUSD, paidVia: existing.paidVia };
     }
-    const priceUSD = this.priceFor(run.family);
+    const priceUSD = await this.priceFor(run.family);
 
     const coverage =
       account.tier === "Subscribed" && account.includedRunsRemaining > 0

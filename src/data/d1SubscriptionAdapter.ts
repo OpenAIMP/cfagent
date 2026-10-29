@@ -19,6 +19,7 @@ import { agentSubscriptionPlans, agentSubscriptions } from "./drizzleSchema";
 import {
   applyMigrations,
   MIGRATION_0008_SUBSCRIPTIONS,
+  MIGRATION_0013_SUBSCRIPTION_STRIPE_IDS,
   type MigrationDb,
 } from "./migrationRunner";
 import {
@@ -45,9 +46,9 @@ export function createD1SubscriptionDb(d1: D1Database): SubscriptionDb {
   });
 }
 
-/** Idempotent schema-ensure: applies migration 0008 if unapplied. */
+/** Idempotent schema-ensure: applies migrations 0008 + 0013 if unapplied (0013 adds the native Stripe id columns). */
 export async function ensureSubscriptionSchema(db: SubscriptionDb): Promise<number[]> {
-  return applyMigrations(db as unknown as MigrationDb, [MIGRATION_0008_SUBSCRIPTIONS]);
+  return applyMigrations(db as unknown as MigrationDb, [MIGRATION_0008_SUBSCRIPTIONS, MIGRATION_0013_SUBSCRIPTION_STRIPE_IDS]);
 }
 
 function toPlan(raw: typeof agentSubscriptionPlans.$inferSelect): SubscriptionPlanRecord {
@@ -71,6 +72,8 @@ function toSubscription(raw: typeof agentSubscriptions.$inferSelect): Subscripti
     planId: raw.planId,
     provider: raw.provider,
     providerPaymentRef: raw.providerPaymentRef,
+    stripeSessionId: raw.stripeSessionId ?? null,
+    stripePaymentIntentId: raw.stripePaymentIntentId ?? null,
     status: assertSubscriptionStatus(raw.status),
     periodStartMs: raw.periodStartMs,
     periodEndMs: raw.periodEndMs,
@@ -154,6 +157,8 @@ export class D1SubscriptionAdapter implements SubscriptionStore {
     planId: string;
     provider: string;
     providerPaymentRef: string;
+    stripeSessionId?: string | null;
+    stripePaymentIntentId?: string | null;
     periodStartMs: number;
     periodEndMs: number;
   }): Promise<SubscriptionRecord> {
@@ -166,6 +171,8 @@ export class D1SubscriptionAdapter implements SubscriptionStore {
     const now = Date.now();
     const record: SubscriptionRecord = {
       ...input,
+      stripeSessionId: input.stripeSessionId ?? null,
+      stripePaymentIntentId: input.stripePaymentIntentId ?? null,
       status: "active",
       canceledAtMs: null,
       createdAtMs: now,
@@ -179,6 +186,8 @@ export class D1SubscriptionAdapter implements SubscriptionStore {
         planId: record.planId,
         provider: record.provider,
         providerPaymentRef: record.providerPaymentRef,
+        stripeSessionId: record.stripeSessionId,
+        stripePaymentIntentId: record.stripePaymentIntentId,
         status: record.status,
         periodStartMs: record.periodStartMs,
         periodEndMs: record.periodEndMs,
@@ -219,6 +228,20 @@ export class D1SubscriptionAdapter implements SubscriptionStore {
       .where(eq(agentSubscriptions.providerPaymentRef, providerPaymentRef))
       .limit(1);
     return rows.length === 0 ? null : toSubscription(rows[0]);
+  }
+
+  async revokeSubscription(subscriptionId: string, nowMs: number): Promise<SubscriptionRecord | null> {
+    const rows = await this.db
+      .select()
+      .from(agentSubscriptions)
+      .where(eq(agentSubscriptions.id, subscriptionId))
+      .limit(1);
+    if (rows.length === 0) return null;
+    await this.db
+      .update(agentSubscriptions)
+      .set({ status: "canceled", canceledAtMs: nowMs, periodEndMs: nowMs, updatedAtMs: nowMs })
+      .where(eq(agentSubscriptions.id, subscriptionId));
+    return { ...toSubscription(rows[0]), status: "canceled", canceledAtMs: nowMs, periodEndMs: nowMs, updatedAtMs: nowMs };
   }
 
   async cancelUnexpiredSubscriptions(userId: string, nowMs: number): Promise<SubscriptionRecord[]> {

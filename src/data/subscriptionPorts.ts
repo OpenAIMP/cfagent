@@ -48,6 +48,16 @@ export interface SubscriptionRecord {
   planId: string;
   provider: string;
   providerPaymentRef: string;
+  /**
+   * Issue #2198 (slice 2, #2146) — native Stripe join keys, stored
+   * alongside providerPaymentRef (which stays the route-minted
+   * `sub-` draft id and the replay-guard key). The session id
+   * alone cannot be refunded (POST /v1/refunds needs the
+   * payment-intent id), so both are kept: null on pre-native
+   * (cfpay-era) rows, which have neither.
+   */
+  stripeSessionId: string | null;
+  stripePaymentIntentId: string | null;
   status: SubscriptionStatus;
   periodStartMs: number;
   periodEndMs: number;
@@ -149,6 +159,8 @@ export interface SubscriptionStore {
     planId: string;
     provider: string;
     providerPaymentRef: string;
+    stripeSessionId?: string | null;
+    stripePaymentIntentId?: string | null;
     periodStartMs: number;
     periodEndMs: number;
   }): Promise<SubscriptionRecord>;
@@ -159,4 +171,15 @@ export interface SubscriptionStore {
   findByPaymentRef(providerPaymentRef: string): Promise<SubscriptionRecord | null>;
   /** Cancel every unexpired row for the user (cancel-at-period-end: access continues to periodEnd). */
   cancelUnexpiredSubscriptions(userId: string, nowMs: number): Promise<SubscriptionRecord[]>;
+  /**
+   * Issue #2204 (refunds) — revoke ONE subscription immediately:
+   * status canceled AND periodEndMs moved to nowMs, so the
+   * effective tier stops conferring Subscribed at the next read
+   * (resolveEffectiveTier keys on periodEndMs, not on status, so
+   * cancel alone cannot revoke). Returns the updated row, or null
+   * when the id is unknown. This is the full-refund consequence
+   * for policy effect "revoke_immediately"; it changes no other
+   * subscription semantics.
+   */
+  revokeSubscription(subscriptionId: string, nowMs: number): Promise<SubscriptionRecord | null>;
 }

@@ -54,8 +54,10 @@
  *   - Failure credit: still throws (Phase 4). A screener failure
  *     after payment is loud, never a silent credit claim.
  *   - Params carry ids only — never credentials, never secrets, never
- *     a card, never a cfpay key. The cfpay key is read from env here,
- *     never from params, never logged.
+ *     a card, never a Stripe key or x402 recipient. Checkout
+ *     configuration is read from env in the composition root
+ *     (src/services/createCheckoutPorts.ts), never from params, never
+ *     logged.
  */
 
 import { ThinkWorkflow } from "@cloudflare/think/workflows";
@@ -63,10 +65,11 @@ import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers";
 import type { DefaultProgress } from "agents/workflows";
 import type { Env } from "../types";
 import {
-  CfPayMonetizationGate,
-  type CommercialAccount,
-  type ScreenerFamily,
-} from "../services/cfpayMonetization";
+  NativeMonetizationGate,
+  type NativeCommercialAccount,
+  type NativeScreenerFamily,
+} from "../services/nativeMonetization";
+import { createCheckoutPorts } from "../services/createCheckoutPorts";
 import {
   PAYMENT_VERIFICATION_TIMEOUT,
   runPaymentWorkflowFlow,
@@ -86,6 +89,10 @@ import {
   ensureCommercialSchema,
 } from "../data/createCommercialPorts";
 import {
+  createPriceCatalogueAdapter,
+  ensurePriceCatalogueSchema,
+} from "../data/createPriceCataloguePorts";
+import {
   createJournalAdapter,
   ensureJournalSchema,
 } from "../data/createJournalPorts";
@@ -94,7 +101,6 @@ import {
   mapFailureCreditToJournalEntries,
 } from "../data/journalPorts";
 import { postJournalBestEffort } from "../services/journalPosting";
-import { getCfpayConfig, cfpayA2AOperation } from "../services/cfpayA2A";
 import { createFeatureFlagPort } from "../features/createFeatureFlagPort";
 import { createWorkflowPorts, type WorkflowEnv } from "./createWorkflowPorts";
 import type { WorkflowJobCommand } from "./workflowPorts";
@@ -115,7 +121,7 @@ export const PAYMENT_WORKFLOW_BINDING = "PAYMENT_WORKFLOW" as const;
  * service, e.g. buildGoalScreenCommand) — never invented here.
  */
 export interface PaymentWorkflowEventParams extends PaymentWorkflowParams {
-  account: CommercialAccount;
+  account: NativeCommercialAccount;
   screenerCommand: WorkflowJobCommand;
 }
 
@@ -140,29 +146,49 @@ export class PaymentWorkflow extends ThinkWorkflow<
       throw new Error("Tenant mismatch: run tenant must equal the verified account tenant.");
     }
 
-    const cfpay = getCfpayConfig(this.env as unknown as Record<string, unknown>);
-    if (!cfpay && p.trigger !== "scheduled") {
-      // A checkout path needs cfpay; coverage-only scheduled runs do not.
-      // Fail closed rather than starting a screener for free at scale.
-      throw new Error("Payment workflow: cfpay is not configured (CFPAY_URL / token missing).");
+    // Issue #2193 (slice 1, #2146): the cfpay gate construction
+    // that lived here is deprecated in place, superseded by
+    // src/services/nativeMonetization.ts (NativeMonetizationGate +
+    // CheckoutPort). The cfpay gate class itself is kept, deprecated
+    // in place, for in-flight cfpay runs to drain: the gate is built
+    // at workflow-instance start, so a running instance keeps its
+    // gate to completion while new submissions use the native gate.
+    // No cfpay client is constructed here anymore, and
+    // MONETIZATION_NETWORK is no longer read for the gate (the
+    // native crypto network is governed by X402_NETWORK inside the
+    // x402 adapter). The durable cfpay ledger writes in recordEvent
+    // below stay cfpay-era until the ledger slice lands; only the
+    // gate — the checkout + confirm path — goes native here.
+    const checkoutPorts = createCheckoutPorts(this.env as unknown as {
+      STRIPE_SECRET_KEY?: string;
+      STRIPE_TEST_SECRET_KEY?: string;
+      STRIPE_LIVE_SECRET_KEY?: string;
+      STRIPE_MCP_SERVER_URL?: string;
+      APP_BASE_URL?: string;
+      X402_RECIPIENT_ADDRESS?: string;
+      X402_NETWORK?: string;
+      X402_FACILITATOR_URL?: string;
+    });
+    if (!checkoutPorts && p.trigger !== "scheduled") {
+      // A checkout path needs a configured native rail; coverage-only
+      // scheduled runs do not. Fail closed rather than starting a
+      // screener for free at scale.
+      throw new Error("Payment workflow: native checkout is not configured (no Stripe key and no X402_RECIPIENT_ADDRESS).");
     }
-    const gate = new CfPayMonetizationGate(
-      {
-        createCheckout: async (input) => {
-          if (!cfpay) throw new Error("cfpay not configured");
-          return cfpayA2AOperation(cfpay, "/a2a/payments", "checkout.create", {
-            requestId: input.requestId,
-            email: input.email,
-            request: input.request,
-          });
-        },
-        checkoutStatus: async (requestId) => {
-          if (!cfpay) return { status: "unknown" };
-          const res = await cfpayA2AOperation(cfpay, "/a2a/payments", "checkout.status", { requestId });
-          const data = res.data as { status?: string; state?: string; paid?: boolean } | undefined;
-          return { status: data?.status, state: data?.state, paid: data?.paid };
-        },
-      },
+    // Issue #2185: prices come from the operator catalogue port,
+    // never from a code constant. When AGENT_DB is bound the
+    // schema is ensured first (migration 0011 seeds the proposed
+    // defaults on a fresh store, INSERT OR IGNORE so operator
+    // edits survive). When it is unbound the catalogue is null
+    // and the gate fails closed on price resolution — a money
+    // path never charges without operator price data. The ensure
+    // failure is loud for the same reason: a money path must not
+    // proceed on an unverified store.
+    const priceCatalogue = createPriceCatalogueAdapter(this.env as { AGENT_DB?: unknown });
+    if (priceCatalogue) {
+      await ensurePriceCatalogueSchema(priceCatalogue.db);
+    }
+    const gate = new NativeMonetizationGate(
       {
         // Flagship feature flag "monetization" (#2043): OFF = free
         // path (no checkout), ON = payment gate. Fail-closed: an
@@ -172,7 +198,8 @@ export class PaymentWorkflow extends ThinkWorkflow<
           "monetization",
           { userId: p.userId, userLogin: p.userId },
         ),
-        network: ((this.env as unknown as Record<string, unknown>).MONETIZATION_NETWORK as string) ?? "base-sepolia",
+        priceCatalogue,
+        checkout: checkoutPorts,
       },
     );
 
@@ -370,7 +397,7 @@ export class PaymentWorkflow extends ThinkWorkflow<
     return runPaymentWorkflowFlow(
       {
         runRequestId: p.runRequestId,
-        family: p.family as ScreenerFamily,
+        family: p.family as NativeScreenerFamily,
         trigger: p.trigger,
         scheduleKind: p.scheduleKind,
         authorizedAtSubmission: p.authorizedAtSubmission,

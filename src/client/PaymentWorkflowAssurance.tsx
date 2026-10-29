@@ -51,12 +51,16 @@
 import React, { useState } from "react";
 import {
   CfPayMonetizationGate,
-  FAMILY_PRICES,
   type CommercialAccount,
   type RunTrigger,
   type ScheduleKind,
   type ScreenerFamily,
 } from "../services/cfpayMonetization";
+import {
+  PROPOSED_SEED_PRICES,
+  type PriceCatalogue,
+  type PriceEntry,
+} from "../data/priceCataloguePorts";
 import {
   runPaymentWorkflowFlow,
   type PaymentWorkflowOutcome,
@@ -123,9 +127,26 @@ export async function runAssuranceScenario(cfg: FakeConfig): Promise<ScenarioRes
     createCheckout: async () => ({ checkoutId: "chk-fake-1" }),
     checkoutStatus: async () => ({ status: cfg.checkoutStatus }),
   };
+  // The simulation charges nobody: its catalogue is an inline
+  // port implementation over the proposed seed prices (#2185) —
+  // the gate never reads a code price table, even in this demo.
+  const demoCatalogue: PriceCatalogue = {
+    async getPrice(family: string) {
+      return (PROPOSED_SEED_PRICES as Record<string, number>)[family] ?? null;
+    },
+    async getAllPrices(): Promise<PriceEntry[]> {
+      return (Object.entries(PROPOSED_SEED_PRICES) as Array<[ScreenerFamily, number]>).map(
+        ([family, priceUSD]) => ({ family, priceUSD, updatedAtMs: Date.now() }),
+      );
+    },
+    async setPrice(input: { family: unknown; priceUSD: unknown }): Promise<PriceEntry> {
+      throw new Error(`Demo catalogue is read-only (family ${String(input.family)} not set).`);
+    },
+  };
   const gate = new CfPayMonetizationGate(fakeCfpay, {
     monetizationEnabled: cfg.monetizationOn,
     network: "base-sepolia",
+    priceCatalogue: demoCatalogue,
   });
   const account: CommercialAccount = {
     userId: "assurance-user",
@@ -411,7 +432,7 @@ export function PaymentWorkflowAssurance({ userLogin }: { userLogin?: string }) 
         </Notice>
         <p style={{ margin: "var(--space-3) 0 0", color: "var(--color-text-muted)" }}>
           Price for the selected family (proposed, not approved):{" "}
-          <strong>${FAMILY_PRICES[cfg.family].toFixed(2)}</strong> per
+          <strong>${PROPOSED_SEED_PRICES[cfg.family].toFixed(2)}</strong> per
           run-request — never per stage, shard, leg, retry, or re-serve.
           A paid run that fails gets a one-time replacement-run credit,
           never a cash refund (cfpay cannot refund; refund capability is

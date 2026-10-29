@@ -437,6 +437,106 @@ CREATE INDEX IF NOT EXISTS agent_journal_entries_ref_idx ON agent_journal_entrie
 `,
 };
 
+/**
+ * Migration 0011 — externalized price catalogue (#2185, sub-issue
+ * of #2012). Portable subset (same rules as migrations
+ * 0001-0010): `?` params only where params exist (DDL has none),
+ * epoch-ms integers, no dialect date functions, no RETURNING.
+ * Seeding is data, not schema: the proposed seed rows are written
+ * by ensurePriceCatalogueSchema (INSERT OR IGNORE), not by DDL,
+ * so an operator-edited price survives re-ensure.
+ */
+export const MIGRATION_0011_PRICE_CATALOGUE: DataMigration = {
+  version: 11,
+  name: "0011_price_catalogue",
+  sql: `
+CREATE TABLE IF NOT EXISTS agent_price_catalogue (
+  family TEXT PRIMARY KEY,
+  price_usd REAL NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);
+`,
+};
+
+/**
+ * Migration 0013 — native subscription payment ids (#2198,
+ * sub-issue of #2012, slice 2 of #2146). Number claimed
+ * deliberately, not next-in-line: 0010 is claimed by #2187/#2188,
+ * 0011 by the price catalogue (#2189, in this stack), and 0012 by
+ * the native-ledger draft — so this slice claims 0013 to avoid a
+ * merge-sequencing collision. Portable subset (same rules as
+ * migrations 0001-0011): DDL only, no params, no dialect date
+ * functions, no RETURNING. Both columns are nullable: pre-native
+ * (cfpay-era) subscription rows have no Stripe ids, and the
+ * replay guard stays the UNIQUE index on provider_payment_ref,
+ * unchanged. The Drizzle mapping in drizzleSchema.ts must agree
+ * with this DDL.
+ */
+export const MIGRATION_0013_SUBSCRIPTION_STRIPE_IDS: DataMigration = {
+  version: 13,
+  name: "0013_subscription_stripe_ids",
+  sql: `
+ALTER TABLE agent_subscriptions ADD COLUMN stripe_session_id TEXT;
+ALTER TABLE agent_subscriptions ADD COLUMN stripe_payment_intent_id TEXT;
+`,
+};
+
+/**
+ * Migration 0014 — refund records + externalized refund policy
+ * (#2204, sub-issue of #2012, implementation of #2147). Number
+ * claimed deliberately, not next-in-line: 0010 is claimed by
+ * #2187/#2188, 0011 by the price catalogue (#2189, in this stack),
+ * 0012 by the native ledger (#2194), and 0013 by the subscription
+ * Stripe ids (#2200, in this stack) — so this slice claims 0014
+ * to avoid a merge-sequencing collision. Portable subset (same
+ * rules as migrations 0001-0013): DDL only, no params, no dialect
+ * date functions, no RETURNING. Policy seeding is data, not
+ * schema: the proposed policy row is written by
+ * ensureRefundSchema (INSERT OR IGNORE), not by DDL, so an
+ * operator-edited policy survives re-ensure. The Drizzle mapping
+ * in drizzleSchema.ts must agree with this DDL.
+ */
+export const MIGRATION_0014_REFUNDS: DataMigration = {
+  version: 14,
+  name: "0014_refunds",
+  sql: `
+CREATE TABLE IF NOT EXISTS agent_refund_policy (
+  id TEXT PRIMARY KEY,
+  window_days INTEGER NOT NULL,
+  approver TEXT NOT NULL,
+  allow_partial INTEGER NOT NULL,
+  subscription_full_effect TEXT NOT NULL,
+  subscription_partial_effect TEXT NOT NULL,
+  pay_per_run_effect TEXT NOT NULL,
+  credit_effect TEXT NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS agent_refunds (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  rail TEXT NOT NULL,
+  tenant_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  original_payment_ref TEXT NOT NULL,
+  subscription_id TEXT,
+  payment_intent_id TEXT,
+  family TEXT,
+  original_amount_usd REAL NOT NULL,
+  amount_usd REAL NOT NULL,
+  original_paid_at_ms INTEGER NOT NULL,
+  reason TEXT NOT NULL,
+  status TEXT NOT NULL,
+  approver_login TEXT,
+  decision_note TEXT,
+  gateway_refund_id TEXT,
+  executed_at_ms INTEGER,
+  entitlement_consequence TEXT,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);
+`,
+};
+
 export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0001_AGENT_GOVERNANCE,
   MIGRATION_0002_AGENT_CHAINS_SCHEDULES,
@@ -447,6 +547,9 @@ export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0007_COMMERCIAL_STORE,
   MIGRATION_0008_SUBSCRIPTIONS,
   MIGRATION_0009_JOURNAL,
+  MIGRATION_0011_PRICE_CATALOGUE,
+  MIGRATION_0013_SUBSCRIPTION_STRIPE_IDS,
+  MIGRATION_0014_REFUNDS,
 ];
 
 function splitStatements(sqlText: string): string[] {

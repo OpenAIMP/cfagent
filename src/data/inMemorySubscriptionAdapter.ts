@@ -60,6 +60,8 @@ export class InMemorySubscriptionAdapter implements SubscriptionStore {
     planId: string;
     provider: string;
     providerPaymentRef: string;
+    stripeSessionId?: string | null;
+    stripePaymentIntentId?: string | null;
     periodStartMs: number;
     periodEndMs: number;
   }): Promise<SubscriptionRecord> {
@@ -74,6 +76,8 @@ export class InMemorySubscriptionAdapter implements SubscriptionStore {
     const now = Date.now();
     const record: SubscriptionRecord = {
       ...input,
+      stripeSessionId: input.stripeSessionId ?? null,
+      stripePaymentIntentId: input.stripePaymentIntentId ?? null,
       status: "active",
       canceledAtMs: null,
       createdAtMs: now,
@@ -98,6 +102,14 @@ export class InMemorySubscriptionAdapter implements SubscriptionStore {
       if (s.providerPaymentRef === providerPaymentRef) return s;
     }
     return null;
+  }
+
+  async revokeSubscription(subscriptionId: string, nowMs: number): Promise<SubscriptionRecord | null> {
+    const record = this.subscriptions.get(subscriptionId);
+    if (!record) return null;
+    const updated = { ...record, status: "canceled" as const, canceledAtMs: nowMs, periodEndMs: nowMs, updatedAtMs: nowMs };
+    this.subscriptions.set(subscriptionId, updated);
+    return { ...updated };
   }
 
   async cancelUnexpiredSubscriptions(userId: string, nowMs: number): Promise<SubscriptionRecord[]> {
