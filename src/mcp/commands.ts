@@ -73,6 +73,7 @@ import {
   QuantBacktestCommand,
   ThinkTradeValidationCommand,
   AISearchFinancialDocsCommand,
+  AISearchAgentSearchCommand,
   DurableTWAPOrderCommand,
 } from "./cloudflareAgentCommands";
 import {
@@ -1661,6 +1662,7 @@ export class McpToolFactory {
     this.registerTool(new QuantBacktestCommand());
     this.registerTool(new ThinkTradeValidationCommand());
     this.registerTool(new AISearchFinancialDocsCommand());
+    this.registerTool(new AISearchAgentSearchCommand());
     this.registerTool(new DurableTWAPOrderCommand());
 
     // Agentic goal/chain tools (#1362 Phase 5, #1466): compiled from
