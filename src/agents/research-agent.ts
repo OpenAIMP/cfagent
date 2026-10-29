@@ -748,7 +748,7 @@ export class ResearchAgent extends PortThink {
       outcome.xlsxKey = key;
       outcome.xlsxStatus = "generated";
     } catch (err) {
-      outcome.xlsxError = err instanceof Error ? err.message : String(err);
+      outcome.xlsxError = codedMessage("REPORT_002", err instanceof Error ? err.message : String(err));
       console.error("[ResearchAgent] Research XLSX generation failed:", outcome.xlsxError);
     }
 

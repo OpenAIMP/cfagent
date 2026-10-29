@@ -52,6 +52,13 @@ class PdfFailingStorage extends FakeStorage {
   }
 }
 
+class XlsxFailingStorage extends FakeStorage {
+  async put(key: string, value: unknown): Promise<void> {
+    if (String(key).includes(":xlsx:")) throw new Error("r2 unavailable");
+    return super.put(key, value);
+  }
+}
+
 function leg(over: Record<string, unknown> = {}) {
   return {
     symbol: "NVDA  261120C00180000",
@@ -293,6 +300,19 @@ describe("discovery report storage (#2180)", () => {
     expect(outcome.csvKey).toBe("discovery:csv:disc-1");
   });
 
+  it("records a failed workbook from the catalog while the PDF and CSV still land (#2262)", async () => {
+    const outcome = await generateAndStoreDiscoveryReport({
+      env: {},
+      storage: new XlsxFailingStorage() as any,
+      input: input(),
+    });
+    expect(outcome.xlsxStatus).toBe("failed");
+    expect(outcome.xlsxKey).toBeUndefined();
+    expect(outcome.xlsxError).toContain("REPORT_002");
+    expect(outcome.pdfKey).toBe("discovery:pdf:disc-1");
+    expect(outcome.csvKey).toBe("discovery:csv:disc-1");
+  });
+
   it("records every artifact as failed when storage is not configured", async () => {
     const outcome = await generateAndStoreDiscoveryReport({ env: {}, storage: undefined, input: input() });
     expect(outcome).toMatchObject({
@@ -303,6 +323,7 @@ describe("discovery report storage (#2180)", () => {
     expect(outcome.pdfError).toContain("storage");
     expect(outcome.csvError).toContain("storage");
     expect(outcome.csvError).toContain("REPORT_004");
+    expect(outcome.xlsxError).toContain("REPORT_002");
   });
 
   it("builds a canonical body that carries every key and status", () => {
