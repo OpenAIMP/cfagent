@@ -203,13 +203,16 @@ export async function handleMemoryResetRoutes(
   // Clear active conversation transcript and reset session state
   if ((path.endsWith("/clear") || path.endsWith("/reset")) && (request.method === "POST" || request.method === "DELETE" || request.method === "GET")) {
     try {
-      const sql = ctx.ensureTables();
+      ctx.ensureTables();
       ctx.abortAllRequests("Session reset requested by user");
       ctx.resetTurnState();
       await ctx.clearConversationMessages();
       const purge = url.searchParams.get("purge") !== "false";
       if (purge) {
-        sql.exec("DELETE FROM mas_messages WHERE session_id = ?", sessionId);
+        // #2345: the purge is the message port's session delete
+        // now — the raw DELETE that used to run here is retired.
+        const orm = ctx.getOrm?.() ?? new DatabaseORM(ctx.ensureTables());
+        orm.messages.deleteBySessionId(sessionId);
         ctx.audit("history.purged", "orchestrator", {});
       } else {
         ctx.audit("history.cleared", "orchestrator", {});
