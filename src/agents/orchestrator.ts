@@ -54,6 +54,7 @@ import { SqlScanRunStore, diffScanRuns } from "../trading";
 import { SqlStrategyProfileStore } from "../trading";
 import { createDidAttestation, resolveAgentDidDocument } from "./did";
 import { createMAS } from "./mas";
+import { dispatchOrchestratorA2A, orchestratorA2AOutcome, type OrchestratorA2AOutcome } from "./orchestrator/a2aDispatch";
 import { buildChatErrorFallback, type ChatErrorFallbackContext } from "./chatErrorFallback";
 import { getScreenerExecutionContext, migrateLegacyScreenSchedules, removeUnownedBaselineSchedules, ensureStrategyScanSchedule, resolveScheduledLogin, type ScheduleMaintenanceContext } from "./orchestrator/scheduleMaintenance";
 import { autoRenewETradeTokens, autonomousGoalScreen, autonomousMarketScreen, autonomousStrategyDiscovery, collectIvHistory, expireStaleOrderDraft, sendScheduledReminder, type ScheduledCallbacksContext } from "./orchestrator/scheduledCallbacks";
@@ -662,6 +663,36 @@ export class OrchestratorAgent extends PortThink {
       setBy,
       nowMs: Date.now(),
     });
+  }
+
+  /**
+   * Issue #2223 (slice 1): A2A door, cfpay signature — the edge
+   * dispatcher (src/a2a) resolves the orchestrator-family names to
+   * this class on the SHARED_ORCHESTRATOR_INSTANCE instance and
+   * calls this with the parsed body + origin (a Request cannot
+   * cross the DO RPC boundary). Thin delegation to the dispatch
+   * module (./orchestrator/a2aDispatch), which serves the MAS tools;
+   * the NLQ executor is injected here because its ports are
+   * class-bound. Returns the collected { text, data } outcome.
+   */
+  async handleA2A(body: unknown, origin: string): Promise<OrchestratorA2AOutcome> {
+    void origin; // reserved for per-origin policy (cfpay parity); unused in v1
+    this.ensureTables();
+    const sessionId = this.sessionKey();
+    const data = await dispatchOrchestratorA2A(this.env, body, {
+      sessionId,
+      sql: this.ctx.storage.sql,
+      audit: (type, agent, payload) => this.audit(type, agent, payload),
+      nlqExecute: async (query: string) => {
+        const plan = await planNLQ(this.env, query);
+        return executeNLQQueryAsync(this.getOrm(), sessionId, plan, this.env, undefined, undefined, {
+          schedulingPort: this.nlqSchedulingPort(),
+          stockScreenPort: this.nlqStockScreenPort(),
+          socialBriefPort: this.nlqSocialBriefPort() ?? undefined,
+        });
+      },
+    });
+    return orchestratorA2AOutcome(data);
   }
   /** Cloudflare Agents lifecycle: initialize SQLite and recover durable work. */
   async onStart(props?: Record<string, unknown>): Promise<void> {
