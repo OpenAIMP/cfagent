@@ -15,6 +15,11 @@
  */
 
 import { PortThink } from "../actors/thinkAdapter";
+import {
+  dispatchReportAssetA2A,
+  reportAssetA2AOutcome,
+  type ReportAssetA2AOutcome,
+} from "./reportAssetA2aDispatch";
 import type { ScreenerPdfOptions } from "../trading";
 import type { Env } from "../types";
 import { getServiceUserLogin } from "../security/serviceIdentity";
@@ -105,6 +110,28 @@ export class ReportAssetAgent extends PortThink {
       console.warn(`[ReportAssetAgent] getAsset(${key}) failed:`, err);
       return null;
     }
+  }
+
+  /**
+   * Issue #2223 (final slice): A2A door, cfpay signature — the edge
+   * dispatcher (src/a2a) resolves the hyphenated "report-asset"
+   * name to this class on the service instance "default" and calls
+   * this with the parsed body + origin (a Request cannot cross the
+   * DO RPC boundary). Thin delegation to the dispatch module
+   * (./reportAssetA2aDispatch), which threads the service identity
+   * as generated assets' user scope; the methods' null failure
+   * signal surfaces as an honest failure there, never a success.
+   * Returns the collected { text, data } outcome.
+   */
+  async handleA2A(body: unknown, origin: string): Promise<ReportAssetA2AOutcome> {
+    void origin; // reserved for per-origin policy (cfpay parity); unused in v1
+    const data = await dispatchReportAssetA2A(this.env, body, {
+      executor: {
+        generateAsset: (request) => this.generateAsset(request),
+        getAsset: (key) => this.getAsset(key),
+      },
+    });
+    return reportAssetA2AOutcome(data);
   }
 }
 
