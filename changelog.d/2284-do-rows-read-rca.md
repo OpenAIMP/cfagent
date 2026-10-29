@@ -1,0 +1,3 @@
+### Added
+
+- **Durable Object rows-read RCA (2026-10-29 login outage)** in `docs/architecture/security/do-rows-read-rca-2280.md`: measured per-object `rowsRead` from the Cloudflare metrics API (two per-user `SearchAgent` DOs = 98.5% of ~5.14M rows/day, `SessionStore` = 0.11%), the scan-cost mechanism, the table inventory whose history is read per request, why the session-scoped 70% alert could not fire, and the P0/P1/P2 remediation plan.
