@@ -242,7 +242,7 @@ export function ScreenerPresetManager<C>({
           </Badge>
         )}
       </div>
-      <p style={{ fontSize: "0.85rem", color: "var(--color-text-muted)", marginBottom: "0.75rem" }}>
+      <p style={{ fontSize: "var(--font-size-body)", color: "var(--color-text-muted)", marginBottom: "0.75rem" }}>
         Save the current criteria to reuse them later. Loading a preset puts
         its criteria into the panel; the form&apos;s Run button then sends
         them. Runs never carry a preset id — the run request schema would
@@ -265,7 +265,7 @@ export function ScreenerPresetManager<C>({
             <li key={preset.id} className="preset-list-item">
               <div className="preset-item-meta">
                 <span className="preset-item-name">{preset.name}</span>{" "}
-                <span style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
+                <span style={{ fontSize: "var(--font-size-body-sm)", color: "var(--color-text-muted)" }}>
                   ({Object.keys(preset.criteria).length} criteria)
                 </span>
                 {Object.entries(preset.criteria).slice(0, 3).map(([k, v]) => (

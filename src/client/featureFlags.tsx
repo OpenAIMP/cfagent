@@ -94,7 +94,7 @@ export function FeatureDisabledNotice({
               gap: "var(--space-3, 0.75rem)",
             }}
           >
-            <div style={{ fontSize: "2.5rem" }}>🔒</div>
+            <div style={{ fontSize: "var(--font-size-display)" }}>🔒</div>
             <h3
               style={{
                 margin: 0,
@@ -108,7 +108,7 @@ export function FeatureDisabledNotice({
             <p
               style={{
                 margin: 0,
-                fontSize: "0.9rem",
+                fontSize: "var(--font-size-body)",
                 color: "var(--color-text-muted)",
                 lineHeight: 1.5,
               }}
