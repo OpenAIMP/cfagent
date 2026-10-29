@@ -208,12 +208,13 @@ export const subscriptionCheckout = (body: {
   planId: string;
   tenantId: string;
   email: string;
-}): Promise<{ checkoutRequestId: string; checkout: unknown; plan: PlanView }> =>
+}): Promise<{ checkoutRequestId: string; checkoutUrl: string; checkoutSessionId: string; plan: PlanView }> =>
   post("/subscription/checkout", body);
 export const subscriptionPurchase = (body: {
   planId: string;
   tenantId: string;
   checkoutRequestId: string;
+  checkoutSessionId: string;
 }): Promise<{ subscription: SubscriptionView; account: CommercialAccountView; effectiveTier: string }> =>
   post("/subscription/purchase", body);
 export const subscriptionCancel = (): Promise<{ userId: string; canceled: SubscriptionView[]; accessThroughMs: number | null }> =>

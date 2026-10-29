@@ -128,6 +128,10 @@ export function CheckoutPanel({ userLogin }: { userLogin: string }) {
   const [buyPlan, setBuyPlan] = React.useState<PlanView | null>(null);
   const [buyCheckoutId, setBuyCheckoutId] = React.useState<string | null>(null);
   const [buyCheckoutUrl, setBuyCheckoutUrl] = React.useState<string | null>(null);
+  // #2198: the native purchase route retrieves the Stripe session by id, so the panel carries the
+  // session id the checkout route returned alongside the draft id (compatibility carry-through only
+  // — the slice-3 UI rework owns presenting the checkoutUrl / 402 flow).
+  const [buySessionId, setBuySessionId] = React.useState<string | null>(null);
   const [buying, setBuying] = React.useState(false);
   const [buyError, setBuyError] = React.useState<string | null>(null);
   const [buyDone, setBuyDone] = React.useState<string | null>(null);
@@ -298,6 +302,7 @@ export function CheckoutPanel({ userLogin }: { userLogin: string }) {
     setBuyDone(null);
     setBuyCheckoutId(null);
     setBuyCheckoutUrl(null);
+    setBuySessionId(null);
     if (!email.trim()) {
       setBuyError("Enter the checkout contact email.");
       return;
@@ -314,8 +319,8 @@ export function CheckoutPanel({ userLogin }: { userLogin: string }) {
       // The native subscription checkout always returns a URL (slice
       // 2); the legacy cfpay checkout carried none. Present the link
       // only when the server provides one — never invent one.
-      const checkout = res.checkout as { checkoutUrl?: unknown } | null | undefined;
-      setBuyCheckoutUrl(typeof checkout?.checkoutUrl === "string" ? checkout.checkoutUrl : null);
+      setBuyCheckoutUrl(typeof res.checkoutUrl === "string" ? res.checkoutUrl : null);
+      setBuySessionId(res.checkoutSessionId);
     } catch (err) {
       setBuyError(errText(err));
     } finally {
@@ -324,7 +329,7 @@ export function CheckoutPanel({ userLogin }: { userLogin: string }) {
   };
 
   const handleBuyPurchase = async () => {
-    if (!buyPlan || !buyCheckoutId) return;
+    if (!buyPlan || !buyCheckoutId || !buySessionId) return;
     setBuying(true);
     setBuyError(null);
     try {
@@ -332,12 +337,14 @@ export function CheckoutPanel({ userLogin }: { userLogin: string }) {
         planId: buyPlan.id,
         tenantId: tenantId.trim(),
         checkoutRequestId: buyCheckoutId,
+        checkoutSessionId: buySessionId,
       });
       setBuyDone(
         `Subscription active through ${formatPeriodEnd(res.subscription.periodEndMs)}. Effective tier: ${res.effectiveTier}.`
       );
       setBuyCheckoutId(null);
       setBuyCheckoutUrl(null);
+      setBuySessionId(null);
       await refreshSubscription();
     } catch (err) {
       setBuyError(errText(err));

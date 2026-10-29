@@ -2,8 +2,11 @@
  * Issues #2020/#2127 — purchase activation service.
  *
  * Port-level logic with no fetch and no flag reads, so it is
- * unit-testable without cfpay: the route verifies the payment
- * (flag ON, cfpay checkout.status fulfilled) and then calls here.
+ * unit-testable without a payment rail: the route verifies the
+ * payment (flag ON, provider state re-read and judged paid) and
+ * then calls here. Native callers pass provider "stripe" plus the
+ * Stripe session/payment-intent ids; legacy callers pass nothing
+ * and keep provider "cfpay" with null Stripe ids.
  *
  * Activation, in order:
  * 1. The plan must exist and be active (an operator-deactivated
@@ -38,6 +41,11 @@ export interface ActivationInput {
   tenantId: string;
   plan: SubscriptionPlanRecord;
   providerPaymentRef: string;
+  /** Native only: defaults to "cfpay" so existing callers are unchanged. */
+  provider?: string;
+  /** Native only: the Stripe session + payment-intent ids, stored for refunds (#2198). Null when absent. */
+  stripeSessionId?: string | null;
+  stripePaymentIntentId?: string | null;
   nowMs?: number;
 }
 
@@ -70,8 +78,10 @@ export async function activateSubscription(input: ActivationInput): Promise<Acti
     userId,
     tenantId,
     planId: plan.id,
-    provider: "cfpay",
+    provider: input.provider ?? "cfpay",
     providerPaymentRef,
+    stripeSessionId: input.stripeSessionId ?? null,
+    stripePaymentIntentId: input.stripePaymentIntentId ?? null,
     periodStartMs,
     periodEndMs,
   });
