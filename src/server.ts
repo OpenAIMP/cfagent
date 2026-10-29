@@ -206,12 +206,21 @@ import {
 import { resolveSnapIdentity } from "./config/restTwinsModes";
 import { buildDataProviderPorts } from "./data/buildDataProviderPorts";
 import { registerDataProviderPortsBuilder } from "./data/dataProviderPortsProvider";
+import { aspectTransactionRunner } from "./data/transactionRunner";
+import { registerTransactionRunner } from "./data/transactionRunnerProvider";
 
 // #2303 (#1976 step 1): register the data-provider ports
 // builder for the client-bundle-reachable consumers
 // (ETradeService, ETradeTradingPlatform) that cannot import
 // the builder themselves — see dataProviderPortsProvider.ts.
 registerDataProviderPortsBuilder(buildDataProviderPorts);
+
+// #2337 (#1976 step 2): register the transaction runner for
+// the options/discovery adapters' withTransaction wraps — the
+// adapters resolve it through transactionRunnerProvider.ts
+// because their module graph is client-bundle-reachable and
+// the aspect (node:async_hooks) is server-only.
+registerTransactionRunner(aspectTransactionRunner);
 import {
   filterLiveFlowItems,
   filterNewsFlowItems,
