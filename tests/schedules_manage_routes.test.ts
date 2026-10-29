@@ -194,7 +194,7 @@ describe("POST /api/schedules/:id/trigger (#273)", () => {
     const res = await call("POST", "/api/schedules/job-cron/trigger");
     expect(res?.status).toBe(200);
     expect(callbackRuns).toEqual([
-      { callback: "autonomousMarketScreen", payload: { universe: "SP500", userLogin: "venus", trigger: "manual" } },
+      { callback: "autonomousMarketScreen", payload: { universe: "SP500", userLogin: "venus", trigger: "manual", scheduleId: "job-cron" } },
     ]);
   });
 
