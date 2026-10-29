@@ -5,7 +5,7 @@
 export * from "./agent-cards";
 
 import { A2A_CARDS, A2A_CARD_PATHS, getAgentCard } from "./agent-cards";
-import { catalogAgent } from "../orchestrate";
+import { resolveA2AAgent, resolveA2AInstanceName } from "./resolution";
 import { timingSafeEqual } from "../security/webhookSecurity";
 
 /**
@@ -51,15 +51,33 @@ export async function handleA2A(request: Request, env: any): Promise<Response> {
       );
     }
 
-    const match = path.match(/^\/a2a\/(\w+)$/);
+    const match = path.match(/^\/a2a\/([\w-]+)$/);
     if (!match) return new Response("Not found", { status: 404 });
-    const entry = catalogAgent(match[1]);
-    if (!entry) return new Response(`Unknown agent: ${match[1]}`, { status: 404 });
+    // Resolution is A2A's own map (#2223, src/a2a/resolution.ts) —
+    // NOT the planner's OPERATION_CATALOG, whose entries and
+    // behavior belong to the planner.
+    const resolution = resolveA2AAgent(match[1]);
+    if (!resolution) return new Response(`Unknown agent: ${match[1]}`, { status: 404 });
 
-    const namespace = (env as any)[entry.binding];
-    if (!namespace) return new Response(`Binding not configured: ${entry.binding}`, { status: 500 });
+    const namespace = (env as any)[resolution.binding];
+    if (!namespace) return new Response(`Binding not configured: ${resolution.binding}`, { status: 500 });
 
-    const stub = namespace.get(namespace.idFromName(match[1]));
+    // The instance name comes from the resolution map, not the URL:
+    // some agents' live state sits on a fixed instance (the shared
+    // orchestrator address; ScheduledAgent's "default"), and
+    // dispatching to the bare URL name would start a virgin
+    // instance holding wrong state. A null
+    // resolution means the agent is not configured here — fail
+    // honestly instead of guessing an instance.
+    const instanceName = resolveA2AInstanceName(resolution, match[1], env);
+    if (instanceName === null) {
+      return Response.json(
+        { jsonrpc: "2.0", id: null, error: { code: -32003, message: `Agent is not configured: ${match[1]}` } },
+        { status: 500 },
+      );
+    }
+
+    const stub = namespace.get(namespace.idFromName(instanceName));
     if (typeof stub.handleA2A !== "function") {
       return new Response("Agent does not expose handleA2A", { status: 500 });
     }
