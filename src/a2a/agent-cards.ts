@@ -44,8 +44,8 @@ export const AGENT_CARDS: AgentCard[] = [
     version: "1.0.0",
     endpoint: "/a2a/payments",
     cardPath: "/a2a/payments/agent-card.json",
-    capabilities: ["payment-draft", "payment-process", "budget-check"],
-    operations: ["payments.draft"],
+    capabilities: ["budget-check", "payment-process", "payment-list"],
+    operations: ["payments.budget_check", "payments.today_spent", "payments.list", "payments.process"],
   },
   {
     name: "tasks",
