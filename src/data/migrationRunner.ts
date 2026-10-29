@@ -924,6 +924,81 @@ CREATE INDEX IF NOT EXISTS agent_iv_history_symbol_date_idx ON agent_iv_history 
 `,
 };
 
+/**
+ * Migration 0021 — the marketplace tables on D1 (issue #2345,
+ * #1976 step 3a; ADR 0022 D-0 + D-I step 3a).
+ *
+ * mas_categories / mas_referrals / mas_ads / mas_external_ads
+ * are fleet-global reference data: seeded identically into
+ * every DO instance, with counters (clicks / impressions /
+ * signups / earnings) that diverge per instance today. They
+ * move to the shared database as agent_* tables with the
+ * identical columns, so the marketplace counters become
+ * fleet-wide (the disclosed counter-semantics change on
+ * #2345). The DO tables are NOT dropped — the unbound
+ * composition keeps serving them, and initializeSchema still
+ * creates them; this migration only creates the D1 home.
+ */
+export const MIGRATION_0021_MARKETPLACE: DataMigration = {
+  version: 21,
+  name: "0021_marketplace",
+  sql: `
+CREATE TABLE IF NOT EXISTS agent_categories (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  slug TEXT NOT NULL,
+  description TEXT NOT NULL,
+  icon TEXT NOT NULL,
+  is_active INTEGER DEFAULT 1,
+  sort_order INTEGER DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS agent_referrals (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  url TEXT NOT NULL,
+  category TEXT NOT NULL,
+  reward_text TEXT NOT NULL,
+  clicks INTEGER DEFAULT 0,
+  signups INTEGER DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS agent_ads (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  tagline TEXT NOT NULL,
+  sponsor TEXT NOT NULL,
+  badge TEXT NOT NULL,
+  url TEXT NOT NULL,
+  cta_text TEXT NOT NULL,
+  accent_color TEXT NOT NULL,
+  impressions INTEGER DEFAULT 0,
+  clicks INTEGER DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS agent_external_ads (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  network TEXT NOT NULL,
+  placement TEXT NOT NULL,
+  title TEXT NOT NULL,
+  tagline TEXT NOT NULL,
+  cta_text TEXT NOT NULL,
+  target_url TEXT NOT NULL,
+  banner_image_url TEXT,
+  cpm_rate REAL DEFAULT 15.0,
+  cpc_rate REAL DEFAULT 1.25,
+  impressions INTEGER DEFAULT 0,
+  clicks INTEGER DEFAULT 0,
+  earnings REAL DEFAULT 0.0,
+  is_active INTEGER DEFAULT 1,
+  created_at TEXT NOT NULL
+);
+`,
+};
+
 export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0001_AGENT_GOVERNANCE,
   MIGRATION_0002_AGENT_CHAINS_SCHEDULES,
@@ -944,6 +1019,7 @@ export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0018_REFUNDS,
   MIGRATION_0019_DATA_PROVIDER_PLATFORM,
   MIGRATION_0020_IV_HISTORY,
+  MIGRATION_0021_MARKETPLACE,
 ];
 
 function splitStatements(sqlText: string): string[] {
