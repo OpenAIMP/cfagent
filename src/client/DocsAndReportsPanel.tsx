@@ -1,5 +1,5 @@
 /**
- * Docs and Reports — the document index for the screener workflow.
+ * Docs & Reports — the document index for the screener workflow.
  *
  * Every run of the screener workflow records the artifacts it produced
  * (PDF / XLSX / CSV) in the Runs read surface (GET /api/runs). This page
@@ -287,7 +287,7 @@ export function DocsAndReportsPanel() {
     <div className="docs-report-page">
       <header className="docs-header">
         <div>
-          <h2 className="docs-title">Docs and Reports</h2>
+          <h2 className="docs-title">Docs & Reports</h2>
           <p className="docs-scope">
             Every document set produced by a screener-workflow run — stock, options, goal and
             strategy — with the PDF, XLSX and CSV that run generated. Links are shown only when
