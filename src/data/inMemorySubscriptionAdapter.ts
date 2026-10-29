@@ -60,6 +60,8 @@ export class InMemorySubscriptionAdapter implements SubscriptionStore {
     planId: string;
     provider: string;
     providerPaymentRef: string;
+    stripeSessionId?: string | null;
+    stripePaymentIntentId?: string | null;
     periodStartMs: number;
     periodEndMs: number;
   }): Promise<SubscriptionRecord> {
@@ -74,6 +76,8 @@ export class InMemorySubscriptionAdapter implements SubscriptionStore {
     const now = Date.now();
     const record: SubscriptionRecord = {
       ...input,
+      stripeSessionId: input.stripeSessionId ?? null,
+      stripePaymentIntentId: input.stripePaymentIntentId ?? null,
       status: "active",
       canceledAtMs: null,
       createdAtMs: now,
