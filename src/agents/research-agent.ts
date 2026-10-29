@@ -17,6 +17,7 @@
  */
 
 import { PortThink } from "../actors/thinkAdapter";
+import { codedMessage } from "../errors/errorAspects";
 import {
   dispatchResearchA2A,
   researchA2AOutcome,
@@ -770,7 +771,7 @@ export class ResearchAgent extends PortThink {
       outcome.csvKey = key;
       outcome.csvStatus = "generated";
     } catch (err) {
-      outcome.csvError = err instanceof Error ? err.message : String(err);
+      outcome.csvError = codedMessage("REPORT_004", err instanceof Error ? err.message : String(err));
       console.error("[ResearchAgent] Research CSV generation failed:", outcome.csvError);
     }
 
