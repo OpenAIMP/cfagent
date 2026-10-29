@@ -78,6 +78,15 @@ import {
   registerDraftOwner,
   resolveDraftOwner,
 } from "../../payments/draftOwners";
+import {
+  createNativeLedgerAdapter,
+  ensureNativeLedgerSchema,
+} from "../../data/createNativeLedgerPorts";
+import {
+  isNativeScreenerDraft,
+  isNativeSubscriptionDraft,
+  nativeWebhookRecordInput,
+} from "../../services/nativeWebhook";
 import type { AgentName, Env } from "../../types";
 import { DatabaseORM, type SqlStorage } from "../../orm";
 import { executeMCPTool } from "../../mcp/index";
@@ -909,6 +918,95 @@ export async function handlePaymentsRoutes(
           ctx.audit("payment.settled_webhook", "payments", { draftId, provider, raw: body?.type || body?.event_type });
           return Response.json({ received: true, settled: true, draftId });
         };
+
+        // Issue #2192 (native slice 0): a verified native
+        // screener settlement is recorded + audited HERE and
+        // nowhere else. Recognition is marker-gated (see
+        // src/services/nativeWebhook.ts): only a Stripe
+        // checkout.session.completed, paid, whose session
+        // carries the native metadata marker takes this branch
+        // — every existing draft falls through to the
+        // settlement path below unchanged. This branch never
+        // touches mas_transactions (native rows live in D1),
+        // never forwards to a draft owner (native drafts have
+        // no registry entry), and never delivers
+        // payment_verified to any workflow — that wake-up
+        // belongs to slice 1. Until then the arm records and
+        // audits only; a settlement it cannot record (unbound
+        // store, incomplete session metadata, store error)
+        // is audited loud as native_unrecorded and still
+        // returns received, because confirm-by-retrieve in
+        // slice 1 — not this webhook — is the source of truth.
+        if (isNativeScreenerDraft(body, draftId, provider)) {
+          // Subscription drafts audit only: purchase recording
+          // belongs to slice 2, and a sub- id is not a run.
+          if (isNativeSubscriptionDraft(draftId)) {
+            ctx.audit("payment.settled_webhook", "payments", {
+              draftId,
+              provider,
+              native: true,
+              kind: "subscription",
+              raw: body?.type || body?.event_type,
+            });
+            return Response.json({
+              received: true,
+              settled: true,
+              native: true,
+              draftId,
+              recorded: false,
+              reason: "subscription draft; purchase recording belongs to slice 2",
+            });
+          }
+          const auditNativeUnrecorded = (reason: string): Response => {
+            console.error(
+              `[payments] native webhook settlement unrecorded: draft=${draftId} reason=${reason}`
+            );
+            ctx.audit("payment.settled_webhook_native_unrecorded", "payments", {
+              draftId,
+              provider,
+              native: true,
+              reason,
+              raw: body?.type || body?.event_type,
+            });
+            return Response.json({
+              received: true,
+              settled: true,
+              native: true,
+              draftId,
+              recorded: false,
+              reason,
+            });
+          };
+          const mapped = nativeWebhookRecordInput(body);
+          if ("error" in mapped) return auditNativeUnrecorded(mapped.error);
+          const nativeAdapter = createNativeLedgerAdapter(ctx.env as { AGENT_DB?: unknown });
+          if (!nativeAdapter) {
+            return auditNativeUnrecorded("native ledger unbound (AGENT_DB)");
+          }
+          try {
+            await ensureNativeLedgerSchema(nativeAdapter.db);
+            const { row, duplicate } = await nativeAdapter.recordRow(mapped.input);
+            ctx.audit("payment.settled_webhook", "payments", {
+              draftId,
+              provider,
+              native: true,
+              kind: "run",
+              transactionId: row.id,
+              duplicate,
+              raw: body?.type || body?.event_type,
+            });
+            return Response.json({
+              received: true,
+              settled: true,
+              native: true,
+              draftId,
+              recorded: true,
+              duplicate,
+            });
+          } catch (err) {
+            return auditNativeUnrecorded(err instanceof Error ? err.message : String(err));
+          }
+        }
 
         const routedOwner = request.headers.get(SETTLEMENT_OWNER_HEADER);
         if (routedOwner) {
