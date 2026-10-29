@@ -67,23 +67,40 @@ import {
   DataProviderRegistry,
   DataProviderNotFoundError,
   aggregateProviderHealth,
+  aggregateProviderHealthViaPort,
   listProviderConfigs,
   listCapabilityRoutes,
   getProviderConfig,
   getVerificationEvidence,
   transitionProvider,
+  transitionProviderViaPort,
   ProviderLifecycleError,
   type DataProviderId,
   type ProviderConfigRecord,
   type ProviderConfigureInput,
   type ProviderLifecycleAction,
+  type ProviderLifecycleAuditEvent,
   type ProviderVerifier,
+  type FetchOutcomeRecorder,
 } from "../../trading";
+import type { ProviderConfigStore } from "../../data/providerConfigPorts";
+import type { ProviderCaptureStore } from "../../data/providerCapturePorts";
+
 
 export interface DataProviderRoutesContext {
   env: Env;
   /** The host Durable Object's storage SQL (the platform stores live there). */
   sql: SqlStorage;
+  /**
+   * #2303 (#1976 step 1): the data-layer ports. When the host
+   * supplies them (production wiring — built from env.AGENT_DB
+   * by the composition roots in src/data), config reads/writes,
+   * lifecycle transitions and capture health run on D1 through
+   * the ports; when absent, the legacy DO-store path above is
+   * used unchanged.
+   */
+  configPort?: ProviderConfigStore | null;
+  capturePort?: ProviderCaptureStore | null;
   /**
    * The verified session login (server.ts sets x-user-login only
    * from a verified session; the orchestrator passes it through).
@@ -153,11 +170,12 @@ export function buildDataProviderVerifier(
   userLogin: string,
   providerId: string,
   credentialRef?: string | null,
-  sql?: SqlStorage
+  sql?: SqlStorage,
+  outcomeRecorderOverride?: FetchOutcomeRecorder
 ): ProviderVerifier | undefined {
-  const outcomeRecorder = sql
-    ? createCaptureFetchOutcomeRecorder(sql)
-    : undefined;
+  const outcomeRecorder =
+    outcomeRecorderOverride ??
+    (sql ? createCaptureFetchOutcomeRecorder(sql) : undefined);
   if (providerId === "etrade") {
     return async () => verifyETradeDataProvider(env, userLogin, { outcomeRecorder });
   }
@@ -219,11 +237,12 @@ function routeServability(
   });
 }
 
-function providerView(
+async function providerView(
   registry: DataProviderRegistry,
   record: ProviderConfigRecord,
   routeViews: ReturnType<typeof routeServability>,
-  sql: SqlStorage
+  sql: SqlStorage,
+  capturePort?: ProviderCaptureStore | null
 ) {
   const adapter = registry.get(record.id);
   const serving = routeViews.some(
@@ -252,7 +271,11 @@ function providerView(
     // DO's platform paths write under. A provider with no captures
     // reports status "no-data" with zeroed aggregates — never an
     // invented green.
-    health: aggregateProviderHealth(sql, CAPTURE_TENANT_ID, record.id),
+    // #2303: when the host wires the capture port, the same
+    // derivation runs over the D1 capture log through the port.
+    health: capturePort
+      ? await aggregateProviderHealthViaPort(capturePort, CAPTURE_TENANT_ID, record.id)
+      : aggregateProviderHealth(sql, CAPTURE_TENANT_ID, record.id),
   };
 }
 
@@ -279,28 +302,46 @@ export async function handleDataProviderRoutes(
 
   try {
     // ---- reads ----
+    // #2303: when the host wires the config port, reads run on
+    // D1 through it; otherwise the legacy DO-store reads run.
+    const readConfigs = async (): Promise<ProviderConfigRecord[]> =>
+      ctx.configPort
+        ? ctx.configPort.listProviderConfigs()
+        : listProviderConfigs(ctx.sql);
+    const readRoutes = async () =>
+      ctx.configPort
+        ? ctx.configPort.listCapabilityRoutes()
+        : listCapabilityRoutes(ctx.sql);
+    const readConfig = async (id: DataProviderId) =>
+      ctx.configPort
+        ? ctx.configPort.getProviderConfig(id)
+        : getProviderConfig(ctx.sql, id);
     if (request.method === "GET" && isList) {
-      const configs = listProviderConfigs(ctx.sql);
-      const routes = listCapabilityRoutes(ctx.sql);
+      const configs = await readConfigs();
+      const routes = await readRoutes();
       const registry = buildPlatformRegistry(ctx);
       const routeViews = routeServability(registry, configs, routes);
       return Response.json({
-        providers: configs.map((c) => providerView(registry, c, routeViews, ctx.sql)),
+        providers: await Promise.all(
+          configs.map((c) =>
+            providerView(registry, c, routeViews, ctx.sql, ctx.capturePort)
+          )
+        ),
         routes: routeViews,
       });
     }
     if (request.method === "GET" && oneMatch) {
       const id = decodeURIComponent(oneMatch[1]);
-      const record = getProviderConfig(ctx.sql, id as DataProviderId);
+      const record = await readConfig(id as DataProviderId);
       if (!record) {
         return Response.json({ error: `Unknown data provider "${id}".` }, { status: 404 });
       }
-      const configs = listProviderConfigs(ctx.sql);
-      const routes = listCapabilityRoutes(ctx.sql);
+      const configs = await readConfigs();
+      const routes = await readRoutes();
       const registry = buildPlatformRegistry(ctx);
       const routeViews = routeServability(registry, configs, routes);
       return Response.json({
-        provider: providerView(registry, record, routeViews, ctx.sql),
+        provider: await providerView(registry, record, routeViews, ctx.sql, ctx.capturePort),
         routes: routeViews.filter(
           (r) => r.primaryProviderId === id || r.gapFillProviderId === id
         ),
@@ -331,8 +372,13 @@ export async function handleDataProviderRoutes(
       }
       const input = (body ?? {}) as Record<string, unknown>;
 
-      const record = await transitionProvider(ctx.sql, id, action, ctx.userLogin, {
-        audit: (event) => {
+      // #2303: with the config port wired, the transition runs
+      // over the port (D1; configure/deprovision apply their
+      // write phase as one transactional unit — see
+      // lifecycle.ts). The audit sink and verifier binding are
+      // the same either way.
+      const transitionDeps = {
+        audit: (event: ProviderLifecycleAuditEvent) => {
           ctx.recordAudit("data_provider.lifecycle", "orchestrator", {
             actor: event.actor,
             providerId: event.providerId,
@@ -355,10 +401,18 @@ export async function handleDataProviderRoutes(
                     // #1247: verifiers that resolve a configured
                     // credential reference (public) get the record's
                     // own reference; etrade's ignores it.
-                    getProviderConfig(ctx.sql, id as DataProviderId)?.credentialRef ?? null,
+                    (ctx.configPort
+                      ? await ctx.configPort.getProviderConfig(id as DataProviderId)
+                      : getProviderConfig(ctx.sql, id as DataProviderId)
+                    )?.credentialRef ?? null,
                     // E7 (#1248): probe outcomes are recorded
                     // against the provider's capture log.
-                    ctx.sql
+                    ctx.sql,
+                    // #2303: with the capture port wired, probe
+                    // outcomes land in the D1 capture log.
+                    ctx.capturePort
+                      ? ctx.capturePort.createFetchOutcomeRecorder()
+                      : undefined
                   )) ??
               noAdapterVerifier(id)
             : undefined,
@@ -382,7 +436,10 @@ export async function handleDataProviderRoutes(
                 displayName: input.displayName as string | undefined,
               }
             : undefined,
-      });
+      };
+      const record = ctx.configPort
+        ? await transitionProviderViaPort(ctx.configPort, id, action, ctx.userLogin, transitionDeps)
+        : await transitionProvider(ctx.sql, id, action, ctx.userLogin, transitionDeps);
       return Response.json(
         { provider: record },
         { status: action === "register" ? 201 : 200 }
