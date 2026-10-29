@@ -29,6 +29,10 @@ import {
   shardProvenanceIds,
 } from "./shardJobs";
 import { resolvePipelinePolicy } from "./pipelinePolicy";
+import {
+  buildDataProviderPorts,
+  type DataProviderPorts,
+} from "../data/buildDataProviderPorts";
 import { defaultBreakerRegistry } from "../breakers/createBreakerPorts";
 import { withRetry } from "./resilience";
 
@@ -48,6 +52,31 @@ export interface ShardExecutorDeps {
    * unset and the shard uses the listings module, exactly as before.
    */
   fetchListings?: () => Promise<unknown>;
+}
+
+/**
+ * #2303 (#1976 step 1): the data-provider platform ports for
+ * the shard executors, built from deps.env (AGENT_DB) via the
+ * shared production build and memoized per env object. When
+ * bound, bootstraps/route reads run on D1 through the config
+ * port and captures land through the capture port; unbound,
+ * the executors keep the deps.sql path unchanged.
+ */
+const shardPortsByEnv = new WeakMap<object, Promise<DataProviderPorts>>();
+
+function shardPorts(deps: ShardExecutorDeps): Promise<DataProviderPorts> {
+  let pending = shardPortsByEnv.get(deps.env);
+  if (!pending) {
+    pending = buildDataProviderPorts(deps.env as { AGENT_DB?: never });
+    shardPortsByEnv.set(deps.env, pending);
+  }
+  return pending;
+}
+
+async function shardBootstrap(deps: ShardExecutorDeps): Promise<DataProviderPorts> {
+  const ports = await shardPorts(deps);
+  if (ports.config) await ports.config.bootstrapDataProviders();
+  return ports;
 }
 
 function chainRows(deps: ShardExecutorDeps, chainId: string): ShardRow[] {
@@ -100,9 +129,11 @@ async function feedNasdaq(deps: ShardExecutorDeps, chain: ShardChainContext): Pr
   const policy = resolvePipelinePolicy(deps.env).retry[SHARD_RETRY_BUCKET.feed];
   if (deps.fetchListings) {
     const { bootstrapDataProviders, createNasdaqDataProvider } = await import("../trading");
-    bootstrapDataProviders(deps.sql as any);
+    const ports = await shardPorts(deps);
+    if (ports.config) await ports.config.bootstrapDataProviders();
+    else bootstrapDataProviders(deps.sql as any);
     const adapter = createNasdaqDataProvider(deps.fetchListings as never, {
-      capture: { sql: deps.sql as any, blobStorage: deps.storage as any, env: deps.env as any },
+      capture: { sql: deps.sql as any, blobStorage: deps.storage as any, env: deps.env as any, ...(ports.captures ? { capturePort: ports.captures } : {}) },
     });
     const listings = await withRetry(
       () =>
@@ -119,12 +150,15 @@ async function feedNasdaq(deps: ShardExecutorDeps, chain: ShardChainContext): Pr
     nasdaqUniverseProviderFromRoute,
     bindNasdaqUniverseDeps,
   } = await import("../trading");
+  const bundlePorts = await shardPorts(deps);
   const bundle = await nasdaqUniverseRouteBundle({
     sql: deps.sql as any,
     storage: deps.storage as any,
     env: deps.env as any,
     userLogin: chain.userLogin,
     runId: chain.chainId,
+    ...(bundlePorts.config ? { configPort: bundlePorts.config } : {}),
+    ...(bundlePorts.captures ? { capturePort: bundlePorts.captures } : {}),
   });
   const provider = nasdaqUniverseProviderFromRoute(
     bundle.registry,
@@ -163,17 +197,18 @@ async function feedEtrade(
     listCapabilityRoutes,
     bindEtradeQuoteDeps,
   } = await import("../trading");
-  bootstrapDataProviders(deps.sql as any);
+  const ports = await shardBootstrap(deps);
+  if (!ports.config) bootstrapDataProviders(deps.sql as any);
   const service = deps.createETradeService(chain.userLogin, chain.environment);
   const adapter = createETradeDataProvider(service as any, {
-    capture: { sql: deps.sql, blobStorage: deps.storage, env: deps.env } as any,
+    capture: { sql: deps.sql, blobStorage: deps.storage, env: deps.env, ...(ports.captures ? { capturePort: ports.captures } : {}) } as any,
   });
   const registry = new DataProviderRegistry();
   registry.register(adapter);
   const provider = etradeQuoteProviderFromRoute(
     registry,
-    listProviderConfigs(deps.sql as any),
-    listCapabilityRoutes(deps.sql as any)
+    ports.config ? await ports.config.listProviderConfigs() : listProviderConfigs(deps.sql as any),
+    ports.config ? await ports.config.listCapabilityRoutes() : listCapabilityRoutes(deps.sql as any)
   );
   const quoteDeps = bindEtradeQuoteDeps(provider, {
     runId: chain.chainId,
@@ -217,9 +252,10 @@ async function feedYahoo(
   // binding alone, matching the old fetchTechnicalsBatch contract.
   let historyDeps;
   try {
-    bootstrapDataProviders(deps.sql as any);
+    const ports = await shardBootstrap(deps);
+    if (!ports.config) bootstrapDataProviders(deps.sql as any);
     const historyAdapter = createYahooDataProvider(new YahooFinanceProvider(deps.env as any), deps.env as any, {
-      capture: { sql: deps.sql as any, blobStorage: deps.storage as any, env: deps.env as any },
+      capture: { sql: deps.sql as any, blobStorage: deps.storage as any, env: deps.env as any, ...(ports.captures ? { capturePort: ports.captures } : {}) },
       // Issue #1745: shard Yahoo history runs behind the yahoo breaker.
       breaker: defaultBreakerRegistry().breakerFor("yahoo"),
     });
