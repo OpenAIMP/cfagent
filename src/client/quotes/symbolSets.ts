@@ -5,13 +5,16 @@
  * hardcoded 13; the two shared 9 and had already drifted (DIA tape-only;
  * AMD/AMZN/META/GOOGL search-only). Sets are data here, so a future
  * picker (slice D) resolves a set instead of editing two constants.
- * The landing set joins in slice E, mapped to feed-servable symbols.
+ * The landing set joined in #2312: TAPE_SYMBOLS is the one canonical
+ * tape list for the landing page and the in-app tape default, over the
+ * single TickerAgent feed (#2230) — the old separate lists are
+ * superseded in place by this union, not kept alongside it.
  */
 
 export interface QuoteSymbolMeta {
   symbol: string;
   name?: string;
-  type: "stock" | "crypto" | "etf";
+  type: "stock" | "crypto" | "etf" | "index";
   /** Baseline display values shown until the first live quote arrives. */
   price?: string;
   change?: string;
@@ -20,18 +23,21 @@ export interface QuoteSymbolMeta {
   pe?: string;
 }
 
-/** The in-app tape set (10). */
+/** The canonical tape set (13, #2312): landing tape + in-app tape default. */
 export const TAPE_SYMBOLS: QuoteSymbolMeta[] = [
-  { symbol: "SPY", price: "—", change: "—", isPositive: true, type: "etf" },
-  { symbol: "QQQ", price: "—", change: "—", isPositive: true, type: "etf" },
-  { symbol: "DIA", price: "—", change: "—", isPositive: true, type: "etf" },
-  { symbol: "NVDA", price: "—", change: "—", isPositive: true, type: "stock" },
-  { symbol: "AAPL", price: "—", change: "—", isPositive: true, type: "stock" },
-  { symbol: "MSFT", price: "—", change: "—", isPositive: true, type: "stock" },
-  { symbol: "TSLA", price: "—", change: "—", isPositive: true, type: "stock" },
-  { symbol: "BTC/USD", price: "—", change: "—", isPositive: true, type: "crypto" },
-  { symbol: "ETH/USD", price: "—", change: "—", isPositive: true, type: "crypto" },
-  { symbol: "SOL/USD", price: "—", change: "—", isPositive: true, type: "crypto" },
+  { symbol: "SPY", name: "S&P 500", price: "—", change: "—", isPositive: true, type: "etf" },
+  { symbol: "QQQ", name: "NASDAQ 100", price: "—", change: "—", isPositive: true, type: "etf" },
+  { symbol: "DIA", name: "DOW JONES", price: "—", change: "—", isPositive: true, type: "etf" },
+  { symbol: "IWM", name: "RUSSELL 2000", price: "—", change: "—", isPositive: true, type: "etf" },
+  { symbol: "^VIX", name: "CBOE VIX", price: "—", change: "—", isPositive: true, type: "index" },
+  { symbol: "^TNX", name: "US 10Y YIELD", price: "—", change: "—", isPositive: true, type: "index" },
+  { symbol: "NVDA", name: "NVDA", price: "—", change: "—", isPositive: true, type: "stock" },
+  { symbol: "AAPL", name: "AAPL", price: "—", change: "—", isPositive: true, type: "stock" },
+  { symbol: "MSFT", name: "MSFT", price: "—", change: "—", isPositive: true, type: "stock" },
+  { symbol: "TSLA", name: "TSLA", price: "—", change: "—", isPositive: true, type: "stock" },
+  { symbol: "BTC/USD", name: "BTC / USD", price: "—", change: "—", isPositive: true, type: "crypto" },
+  { symbol: "ETH/USD", name: "ETH / USD", price: "—", change: "—", isPositive: true, type: "crypto" },
+  { symbol: "SOL/USD", name: "SOL / USD", price: "—", change: "—", isPositive: true, type: "crypto" },
 ];
 
 /** A set entry with a display name (search rows, palette labels). */
