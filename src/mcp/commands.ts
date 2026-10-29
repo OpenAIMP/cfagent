@@ -87,6 +87,12 @@ import {
   AgentDbJobsHistoryCommand,
   AgentDbReportsListCommand,
 } from "./agentDbReadCommands";
+import {
+  ListScheduledGoalsCommand,
+  TriggerScheduledGoalCommand,
+  CheckPaymentBudgetCommand,
+  GetPaymentsOverviewCommand,
+} from "./meshDoorCommands";
 
 import { searchPlatformKnowledge } from "../services/platformKnowledge";
 import {
@@ -1681,6 +1687,17 @@ export class McpToolFactory {
     this.registerTool(new AgentDbJobsHistoryCommand());
     this.registerTool(new AgentDbAuditHistoryCommand());
     this.registerTool(new AgentDbReportsListCommand());
+
+    // Agent Mesh G1 doors (#2341, S5 batch A): the chat turn reaches
+    // ScheduledAgent and PaymentsAgent through typed doors
+    // (src/agents/orchestrator/meshDoors.ts). The commands require
+    // the tool context's actingLogin carrier — the identified chat
+    // turn — and fail closed without it; scopes are declared in
+    // MCP_TOOL_SCOPES like every other tool (#1744).
+    this.registerTool(new ListScheduledGoalsCommand());
+    this.registerTool(new TriggerScheduledGoalCommand());
+    this.registerTool(new CheckPaymentBudgetCommand());
+    this.registerTool(new GetPaymentsOverviewCommand());
   }
 
   /**
