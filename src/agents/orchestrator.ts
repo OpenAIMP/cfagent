@@ -104,6 +104,9 @@ import { handleSchemaRoutes } from "./routes/schema";
 import { handleAdsRevenueReferralsRoutes, handleReferralsAdsRoutes } from "./routes/adsRevenueReferrals";
 import { handleAuditRoutes } from "./routes/audit";
 import { handleDataProviderRoutes } from "./routes/dataProviders";
+import { buildDataProviderPorts } from "../data/buildDataProviderPorts";
+import type { D1ProviderConfigAdapter } from "../data/d1ProviderConfigAdapter";
+import type { D1ProviderCaptureAdapter } from "../data/d1ProviderCaptureAdapter";
 import { handleEnrichmentRoutes } from "./routes/enrichment";
 import { handleWorkflowRunsRoutes } from "./routes/workflowRuns";
 import { handleKnowledgeCorpusRoutes } from "./routes/knowledgeCorpus";
@@ -220,6 +223,27 @@ export class OrchestratorAgent extends PortThink {
   private scheduledScreenerSlots = new Set<string>();
   private scheduledOptionsSlots = new Set<string>();
   private scheduledDiscoverySlots = new Set<string>();
+
+  /**
+   * #2303 (#1976 step 1): the data-provider platform ports, built lazily
+   * from env (AGENT_DB), schema-ensured once per instance. Null adapters
+   * (binding absent) leave callers on the legacy DO-store path. Memoized
+   * as a promise so concurrent first uses share one build.
+   */
+  private dataProviderPortsPromise?: Promise<{
+    config: D1ProviderConfigAdapter | null;
+    captures: D1ProviderCaptureAdapter | null;
+  }>;
+
+  private dataProviderPorts(): Promise<{
+    config: D1ProviderConfigAdapter | null;
+    captures: D1ProviderCaptureAdapter | null;
+  }> {
+    if (!this.dataProviderPortsPromise) {
+      this.dataProviderPortsPromise = buildDataProviderPorts(this.env);
+    }
+    return this.dataProviderPortsPromise;
+  }
 
   /**
    * #1724: optional HTTP_DELIVERY_MODE / JOB_LIST_ENVELOPE
@@ -2248,9 +2272,12 @@ export class OrchestratorAgent extends PortThink {
     // audit handler); a non-null return matched. The verified login
     // (set by src/server.ts from the session, #1156) gates mutations
     // and is the audit actor.
+    const dataProviderPorts = await this.dataProviderPorts();
     const dataProvidersResponse = await handleDataProviderRoutes(request, url, path, sessionId, {
       env: this.env,
       sql: this.ctx.storage.sql,
+      configPort: dataProviderPorts.config,
+      capturePort: dataProviderPorts.captures,
       userLogin: request.headers.get("x-user-login") || "",
       recordAudit: (type, agent, payload) => this.recordAudit(type, agent, payload),
     });
