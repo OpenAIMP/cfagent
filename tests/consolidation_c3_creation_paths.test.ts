@@ -81,6 +81,10 @@ const ARMING_SITES: Record<string, { count: number; role: string }> = {
     count: 2,
     role: "actor schedule port bindings onto the agent's SDK schedule methods (delegation, not arming — #1738)",
   },
+  "src/agents/ticker-agent.ts": {
+    count: 1,
+    role: "ticker tick-push arm (pushTicks every 5s — quote streaming, not a screening schedule; no builder payload — #2230)",
+  },
 };
 
 describe("screen-schedule creation paths — enumeration pin", () => {
