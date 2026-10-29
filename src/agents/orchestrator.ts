@@ -30,6 +30,7 @@ import {
 import { assessPortfolioConcentration } from "../services/portfolioConcentration";
 import { sizeCandidateAgainstPortfolio, type SizingCandidate } from "../services/positionSizing";
 import { generateHedgeProposals } from "../services/hedgeProposals";
+import { ensureFrameworkQueueIndexes } from "../services/frameworkQueueIndexes";
 import { sharedCorrelationService } from "../services/correlationService";
 import type { ScreenerAgent } from "./screener-agent";
 import type { ResearchAgent } from "./research-agent";
@@ -707,6 +708,17 @@ export class OrchestratorAgent extends PortThink {
       await this.liftLegacyChatMessages();
     } catch (liftErr) {
       console.warn("[OrchestratorAgent][onStart] Legacy session lift failed:", liftErr);
+    }
+
+    try {
+      // Issue #2280: the framework alarm queue (cf_agents_jobs) has no index
+      // on time, so every alarm scans it. Create the seek indexes last: the
+      // schedule reconciliation above has forced the framework table to
+      // exist by touching the queue, and the framework creates it lazily.
+      // Best-effort: a failure never blocks startup; the next start retries.
+      ensureFrameworkQueueIndexes(this.ctx.storage.sql);
+    } catch (idxErr) {
+      console.warn("[OrchestratorAgent][onStart] Framework queue index setup failed:", idxErr);
     }
   }
 
