@@ -104,6 +104,33 @@ Request sources that hit these objects on a clock:
   `GET /api/workflow-runs` (`routes/workflowRuns.ts:161`), both `listJobOutcomes` scans.
 - The 30-minute `*/30` cron for scheduled market screens (`services/scheduledTasks.ts:773`).
 
+## 4.1 What generates the rows — and what generates the reads
+
+Two different multipliers, routinely conflated:
+
+| | Driven by | Volume |
+|---|---|---|
+| Rows **written** | one per run (scheduled or manual), the same id replaced as the run advances | runs per day for that user |
+| Rows **read** | every request that lists the table, whether or not new data exists | requests per day × table size |
+
+The 4.1M rows on 2026-10-29 were not 4.1M new records. They were the user's ~2,432 existing
+rows re-read by 1,685 requests. A day with zero runs still spends the same rows read, because
+the readers are polling a history that already exists.
+
+Consequences:
+
+- Manual screener use is irrelevant to the read cost. It adds a row occasionally; it does not
+  change the per-request scan.
+- Schedules change the growth rate, not the per-request cost. The shipped defaults are few
+  (`src/schedule.ts:47`: daily QA sweep, 6-hourly opportunity hunt, hourly resource alert, social
+  post disabled). A per-user table of ~2.4k rows therefore means either a user-defined schedule
+  firing frequently or long accumulation. The live inventory is `GET /api/schedule/goals`
+  (`src/server.ts:1038`), unreadable while the DO is blocked by the cap.
+- The "feed"/"gather" stages write rows through the same `recordJobOutcome` path (kind
+  `discovery`). They grow the table; they do not change the multiplier.
+- With a 50-row table, the same 1,685 requests cost ~84k rows instead of 4.1M. That is the whole
+  effect of the index in P0 item 1.
+
 ## 5. Why nothing warned
 
 The #1819 cap alert is explicitly session-scoped: *"Scope: SessionStore projection only — a breach
