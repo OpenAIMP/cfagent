@@ -14,10 +14,10 @@
 
 import { unauthenticatedResponse } from "./routeIdentity";
 import {
-  SqlStrategyProfileStore,
   validateStrategyProfile,
   type StrategyProfileSpec,
 } from "../../trading";
+import { createOptionsDiscoveryPorts } from "../../data/createOptionsDiscoveryPorts";
 import type { SqlStorage } from "../../orm";
 import type { EtradeOptionsRouteContext } from "./etradeOptions";
 
@@ -25,7 +25,7 @@ export async function handleOptionsProfilesList(request: Request, sessionId: str
   try {
     const userLogin = request.headers.get("x-user-login");
     if (!userLogin) return unauthenticatedResponse();
-    const store = new SqlStrategyProfileStore(sql);
+    const store = createOptionsDiscoveryPorts({ sql }).strategyProfiles;
     const profiles = await store.list(userLogin);
     return Response.json({ count: profiles.length, profiles });
   } catch (err) {
@@ -44,7 +44,7 @@ export async function handleOptionsProfilesCreate(request: Request, sessionId: s
     if (validationError) {
       return Response.json({ error: validationError }, { status: 400 });
     }
-    const store = new SqlStrategyProfileStore(sql);
+    const store = createOptionsDiscoveryPorts({ sql }).strategyProfiles;
     try {
       const profile = await store.create(userLogin, profileName, spec as StrategyProfileSpec);
       return Response.json(profile, { status: 201 });
@@ -60,7 +60,7 @@ export async function handleOptionsProfileGet(request: Request, sessionId: strin
   try {
     const userLogin = request.headers.get("x-user-login");
     if (!userLogin) return unauthenticatedResponse();
-    const store = new SqlStrategyProfileStore(sql);
+    const store = createOptionsDiscoveryPorts({ sql }).strategyProfiles;
     const profile = await store.get(userLogin, decodeURIComponent(profileIdMatch[1]));
     if (!profile) {
       return Response.json({ error: "profile not found" }, { status: 404 });
@@ -75,7 +75,7 @@ export async function handleOptionsProfileUpdate(request: Request, sessionId: st
   try {
     const userLogin = request.headers.get("x-user-login");
     if (!userLogin) return unauthenticatedResponse();
-    const store = new SqlStrategyProfileStore(sql);
+    const store = createOptionsDiscoveryPorts({ sql }).strategyProfiles;
     const existing = await store.get(userLogin, decodeURIComponent(profileIdMatch[1]));
     if (!existing) {
       return Response.json({ error: "profile not found" }, { status: 404 });
@@ -104,7 +104,7 @@ export async function handleOptionsProfileDelete(request: Request, sessionId: st
   try {
     const userLogin = request.headers.get("x-user-login");
     if (!userLogin) return unauthenticatedResponse();
-    const store = new SqlStrategyProfileStore(sql);
+    const store = createOptionsDiscoveryPorts({ sql }).strategyProfiles;
     const deleted = await store.delete(userLogin, decodeURIComponent(profileIdMatch[1]));
     if (!deleted) {
       return Response.json({ error: "profile not found" }, { status: 404 });
