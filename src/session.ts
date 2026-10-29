@@ -18,6 +18,8 @@
  */
 export {
   SESSION_TTL,
+  SESSION_MAX_TTL,
+  SESSION_RENEW_WINDOW,
   COOKIE_NAME,
   getSessionId,
   isSessionIdFormat,
@@ -25,6 +27,9 @@ export {
   clearSessionCookie,
   createSession,
   deleteSession,
+  sessionRenewalDue,
+  renewSession,
+  renewSessionWithStore,
   createState,
   verifyState,
 } from "./security/session";

@@ -254,6 +254,7 @@ describe("wired callback on /auth/callback/github (characterization)", () => {
     expect(Object.keys(session).sort()).toEqual([
       "authTimeMs",
       "createdAt",
+      "firstCreatedAt",
       "githubAvatar",
       "githubLogin",
       "githubName",
@@ -271,6 +272,7 @@ describe("wired callback on /auth/callback/github (characterization)", () => {
     expect(session.sessionVersion).toBe(1);
     expect(session.authTimeMs).toBe(session.createdAt);
     expect(session.lastActivityMs).toBe(session.createdAt);
+    expect(session.firstCreatedAt).toBe(session.createdAt);
     expect(typeof session.internalUserId).toBe("string");
     expect(session.internalUserId.length).toBeGreaterThan(0);
 
