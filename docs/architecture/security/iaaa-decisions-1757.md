@@ -50,6 +50,9 @@ by an explicit owner decision at any time.
   The absolute session deadline (7 days, `SESSION_TTL`) is already
   enforced and is recorded here as context only — it was not an F-11
   item and this slice does not re-decide it.
+- **Owner override 2026-10-29:** the idle window is 8 hours in
+  `config/session-limits.json` (the step-up window stays 15 minutes). The
+  decision above records the CISO default, not the deployed value.
 - **Revisit trigger:** an owner decision overriding either value, or a
   CTO-lane #945 wiring slice demonstrating that a specific action needs a
   different window (which then becomes a per-action Q4 answer, not a
