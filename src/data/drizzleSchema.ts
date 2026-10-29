@@ -360,11 +360,26 @@ export const agentSubscriptions = sqliteTable("agent_subscriptions", {
   providerPaymentRef: text("provider_payment_ref").notNull(),
   stripeSessionId: text("stripe_session_id"),
   stripePaymentIntentId: text("stripe_payment_intent_id"),
+  providerSubscriptionId: text("provider_subscription_id"),
+  providerStatus: text("provider_status"),
   status: text("status").notNull(),
   periodStartMs: integer("period_start_ms").notNull(),
   periodEndMs: integer("period_end_ms").notNull(),
   canceledAtMs: integer("canceled_at_ms"),
   createdAtMs: integer("created_at_ms").notNull(),
+  updatedAtMs: integer("updated_at_ms").notNull(),
+});
+
+/**
+ * Billing policy (#2202, sub-issue of #2020, implementation
+ * of design #2145) on D1. One row per policy key; the value
+ * is JSON. This schema MAPS the table; it does not create
+ * it — DDL authority lives in migration 0014
+ * (src/data/migrationRunner.ts).
+ */
+export const agentBillingPolicy = sqliteTable("agent_billing_policy", {
+  key: text("key").primaryKey(),
+  valueJson: text("value_json").notNull(),
   updatedAtMs: integer("updated_at_ms").notNull(),
 });
 

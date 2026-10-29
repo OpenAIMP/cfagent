@@ -58,6 +58,20 @@ export interface SubscriptionRecord {
    */
   stripeSessionId: string | null;
   stripePaymentIntentId: string | null;
+  /**
+   * Issue #2202 (implementation of design #2145) —
+   * provider-managed Billing join keys. Null on
+   * repurchase rows (one-time checkout, no provider
+   * subscription) and on pre-Billing rows: a null
+   * provider id is exactly what makes a row
+   * NOT Billing-managed, so Billing webhooks (looked up
+   * by provider id) can never touch a repurchase row —
+   * the grandfather rule, enforced by the lookup, not
+   * by a flag on the row.
+   */
+  providerSubscriptionId: string | null;
+  /** Provider status string (Stripe: active, past_due, canceled, …); null on non-Billing rows. Recorded verbatim, never judged here. */
+  providerStatus: string | null;
   status: SubscriptionStatus;
   periodStartMs: number;
   periodEndMs: number;
@@ -141,6 +155,16 @@ export function nextPeriodStartMs(existingPeriodEndsMs: number[], nowMs: number)
   return Math.max(nowMs, ...existingPeriodEndsMs);
 }
 
+/** Patch for a Billing-managed row's provider state. Every field is optional; updatedAtMs is always refreshed. Single-statement update in the D1 adapter. */
+export interface ProviderBillingPatch {
+  providerSubscriptionId?: string | null;
+  providerStatus?: string | null;
+  periodStartMs?: number;
+  periodEndMs?: number;
+  status?: SubscriptionStatus;
+  canceledAtMs?: number | null;
+}
+
 export interface SubscriptionStore {
   createPlan(input: {
     id?: unknown;
@@ -161,10 +185,16 @@ export interface SubscriptionStore {
     providerPaymentRef: string;
     stripeSessionId?: string | null;
     stripePaymentIntentId?: string | null;
+    providerSubscriptionId?: string | null;
+    providerStatus?: string | null;
     periodStartMs: number;
     periodEndMs: number;
   }): Promise<SubscriptionRecord>;
   getSubscription(subscriptionId: string): Promise<SubscriptionRecord | null>;
+  /** The Billing-managed row for this provider subscription id, if any — the webhook lookup. Repurchase rows (null id) never match. */
+  findByProviderSubscriptionId(providerSubscriptionId: string): Promise<SubscriptionRecord | null>;
+  /** Apply a provider-state patch to a Billing-managed row (webhook / cancel flows). Refuses a patch on a missing row. */
+  updateProviderBilling(subscriptionId: string, patch: ProviderBillingPatch): Promise<SubscriptionRecord>;
   /** All rows for the user, oldest first. */
   listSubscriptions(userId: string): Promise<SubscriptionRecord[]>;
   /** The subscription activated by this payment reference, if any — the replay guard. */

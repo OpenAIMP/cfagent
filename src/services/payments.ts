@@ -11,6 +11,7 @@
  */
 
 import type { Env } from "../types";
+import type { CreateProviderSubscriptionInput, ProviderSubscription } from "./billingPorts";
 import { AGENT_DIDS, createDidAttestation, type DidAttestationProof } from "../agents/did";
 import {
   PaymentStrategyFactory,
@@ -168,6 +169,34 @@ export class PaymentGatewayService {
   }> {
     const stripeStrategy = PaymentStrategyFactory.getStrategy("stripe") as StripePaymentStrategy;
     return stripeStrategy.retrieveCheckoutSession(this.env, sessionId);
+  }
+
+  /**
+   * Issue #2202 (implementation of design #2145) — Stripe
+   * Billing subscription calls, via the Stripe strategy
+   * (the only Stripe API surface). Used by the Billing
+   * adapter: the adapter never fetches Stripe itself.
+   * Throws on missing configuration or transport failure
+   * (fail closed); never consults a redirect.
+   */
+  async createProviderSubscription(params: CreateProviderSubscriptionInput): Promise<ProviderSubscription> {
+    const stripeStrategy = PaymentStrategyFactory.getStrategy("stripe") as StripePaymentStrategy;
+    return stripeStrategy.createProviderSubscription(this.env, params);
+  }
+
+  async retrieveProviderSubscription(providerSubscriptionId: string): Promise<ProviderSubscription> {
+    const stripeStrategy = PaymentStrategyFactory.getStrategy("stripe") as StripePaymentStrategy;
+    return stripeStrategy.retrieveProviderSubscription(this.env, providerSubscriptionId);
+  }
+
+  async cancelProviderAtPeriodEnd(providerSubscriptionId: string): Promise<ProviderSubscription> {
+    const stripeStrategy = PaymentStrategyFactory.getStrategy("stripe") as StripePaymentStrategy;
+    return stripeStrategy.cancelProviderAtPeriodEnd(this.env, providerSubscriptionId);
+  }
+
+  async cancelProviderImmediately(providerSubscriptionId: string): Promise<ProviderSubscription> {
+    const stripeStrategy = PaymentStrategyFactory.getStrategy("stripe") as StripePaymentStrategy;
+    return stripeStrategy.cancelProviderImmediately(this.env, providerSubscriptionId);
   }
 
   /**

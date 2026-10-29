@@ -26,6 +26,10 @@ import type {
   GatewayStatus,
 } from "../services/payments";
 import type { IPaymentGatewayStrategy } from "./interfaces";
+import type {
+  CreateProviderSubscriptionInput,
+  ProviderSubscription,
+} from "../services/billingPorts";
 import { RemoteMcpClient } from "../services/mcpClient";
 import { computeHmacSha256Hex } from "../services/cryptoUtils";
 import { resolveEnvironmentConfig } from "../config/environment";
@@ -267,6 +271,127 @@ export class StripePaymentStrategy implements IPaymentGatewayStrategy {
             ? ((paymentIntent as { id: string }).id as string)
             : undefined,
     };
+  }
+
+  /**
+   * Issue #2202 (implementation of design #2145) — Stripe
+   * Billing subscription calls. This strategy stays the only
+   * Stripe API surface: the Billing adapter reads provider
+   * subscriptions through PaymentGatewayService, never by
+   * fetching Stripe itself. Endpoints verified against the
+   * Stripe API reference at build time: POST
+   * /v1/subscriptions (customer + items[0][price]),
+   * GET /v1/subscriptions/{id}, POST
+   * /v1/subscriptions/{id} (update, incl.
+   * cancel_at_period_end), DELETE /v1/subscriptions/{id}
+   * (cancel immediately). Transport/config failures THROW
+   * (fail closed); only a successful response yields a
+   * parsed provider subscription. Periods convert from
+   * Stripe epoch-seconds to epoch-ms; when the top-level
+   * current_period_start/end are absent, the first
+   * subscription item's periods are used as a defensive
+   * fallback (never invented when both are absent — then
+   * null, and the service refuses to invent a period).
+   */
+  private parseProviderSubscription(data: Record<string, unknown>, fallbackId: string): ProviderSubscription {
+    const id = typeof data.id === "string" ? data.id : fallbackId;
+    const item = Array.isArray((data.items as { data?: unknown[] } | undefined)?.data)
+      ? ((data.items as { data: Record<string, unknown>[] }).data[0] ?? null)
+      : null;
+    const toMs = (v: unknown): number | null =>
+      typeof v === "number" && Number.isFinite(v) ? v * 1000 : null;
+    const topStart = toMs(data.current_period_start);
+    const topEnd = toMs(data.current_period_end);
+    const customer = data.customer;
+    const price = item?.price as { id?: unknown } | undefined;
+    return {
+      providerSubscriptionId: id,
+      status: typeof data.status === "string" ? data.status : "",
+      currentPeriodStartMs: topStart ?? toMs(item?.current_period_start),
+      currentPeriodEndMs: topEnd ?? toMs(item?.current_period_end),
+      cancelAtPeriodEnd: data.cancel_at_period_end === true,
+      canceledAtMs: toMs(data.canceled_at),
+      customerId: typeof customer === "string" ? customer : ((customer as { id?: unknown } | null)?.id as string | undefined) ?? null,
+      priceId: typeof price?.id === "string" ? price.id : null,
+    };
+  }
+
+  private async stripeBillingRequest(
+    env: Env,
+    method: "GET" | "POST" | "DELETE",
+    path: string,
+    body?: URLSearchParams,
+  ): Promise<Record<string, unknown>> {
+    const { apiKey } = this.resolveApiKey(env);
+    if (!apiKey) {
+      throw new Error("Stripe is not configured: a secret key is required for Stripe Billing.");
+    }
+    const res = await fetch(`https://api.stripe.com${path}`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        ...(body ? { "Content-Type": "application/x-www-form-urlencoded" } : {}),
+      },
+      ...(body ? { body } : {}),
+    });
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      throw new Error(
+        `Stripe Billing request failed: HTTP ${res.status} (${(data.error as { message?: string } | undefined)?.message ?? res.statusText}).`,
+      );
+    }
+    return data;
+  }
+
+  async createProviderSubscription(
+    env: Env,
+    input: CreateProviderSubscriptionInput,
+  ): Promise<ProviderSubscription> {
+    if (!input.customerId?.trim()) throw new Error("customerId is required.");
+    if (!input.priceId?.trim()) throw new Error("priceId is required.");
+    const body = new URLSearchParams({
+      customer: input.customerId,
+      "items[0][price]": input.priceId,
+      collection_method: "charge_automatically",
+    });
+    if (input.defaultPaymentMethodId) body.set("default_payment_method", input.defaultPaymentMethodId);
+    if (input.metadata) {
+      for (const [k, v] of Object.entries(input.metadata)) body.set(`metadata[${k}]`, v);
+    }
+    const data = await this.stripeBillingRequest(env, "POST", "/v1/subscriptions", body);
+    return this.parseProviderSubscription(data, "");
+  }
+
+  async retrieveProviderSubscription(env: Env, providerSubscriptionId: string): Promise<ProviderSubscription> {
+    if (!providerSubscriptionId?.trim()) throw new Error("A provider subscription id is required.");
+    const data = await this.stripeBillingRequest(
+      env,
+      "GET",
+      `/v1/subscriptions/${encodeURIComponent(providerSubscriptionId)}`,
+    );
+    return this.parseProviderSubscription(data, providerSubscriptionId);
+  }
+
+  async cancelProviderAtPeriodEnd(env: Env, providerSubscriptionId: string): Promise<ProviderSubscription> {
+    if (!providerSubscriptionId?.trim()) throw new Error("A provider subscription id is required.");
+    const body = new URLSearchParams({ cancel_at_period_end: "true" });
+    const data = await this.stripeBillingRequest(
+      env,
+      "POST",
+      `/v1/subscriptions/${encodeURIComponent(providerSubscriptionId)}`,
+      body,
+    );
+    return this.parseProviderSubscription(data, providerSubscriptionId);
+  }
+
+  async cancelProviderImmediately(env: Env, providerSubscriptionId: string): Promise<ProviderSubscription> {
+    if (!providerSubscriptionId?.trim()) throw new Error("A provider subscription id is required.");
+    const data = await this.stripeBillingRequest(
+      env,
+      "DELETE",
+      `/v1/subscriptions/${encodeURIComponent(providerSubscriptionId)}`,
+    );
+    return this.parseProviderSubscription(data, providerSubscriptionId);
   }
 
   /**
