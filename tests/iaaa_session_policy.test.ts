@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  DEFAULT_IDLE_TIMEOUT_MS,
   DEFAULT_SESSION_POLICY,
   SESSION_ABSOLUTE_TTL_MS,
   createMemoryRevocationStore,
@@ -13,9 +14,9 @@ import type { SessionState } from "../src/security/sessionPolicy";
  * Issue #945, Slice 2 — session expiry, rotation, revocation.
  *
  * Absolute TTL mirrors the existing SESSION_TTL in
- * src/security/session.ts (7 days); idle timeout is a new policy
- * default (30 minutes, overridable) — it does not change the live
- * session flow, which this pure module does not touch.
+ * src/security/session.ts (7 days); the idle timeout comes from
+ * config/session-limits.json (8 hours, overridable) — this pure
+ * module does not touch the live session flow.
  *
  * Rotation preserves absolute expiry and authentication time: a
  * rotated session must not live longer than the original session,
@@ -51,8 +52,8 @@ describe("iaaa session policy (#945 slice 2)", () => {
     expect(DEFAULT_SESSION_POLICY.absoluteTtlMs).toBe(7 * DAY);
   });
 
-  it("pins the default idle timeout at 30 minutes", () => {
-    expect(DEFAULT_SESSION_POLICY.idleTimeoutMs).toBe(30 * 60 * 1000);
+  it("pins the configured idle timeout", () => {
+    expect(DEFAULT_SESSION_POLICY.idleTimeoutMs).toBe(DEFAULT_IDLE_TIMEOUT_MS);
   });
 
   it("expires a session at its absolute deadline, even if recently active", async () => {
@@ -70,14 +71,14 @@ describe("iaaa session policy (#945 slice 2)", () => {
 
   it("expires an idle session at the idle deadline, even before absolute expiry", async () => {
     const store = createMemoryRevocationStore();
-    const s = session({ lastActivityMs: NOW - 30 * 60 * 1000 });
+    const s = session({ lastActivityMs: NOW - DEFAULT_IDLE_TIMEOUT_MS });
     expect(sessionExpiryReason(s, DEFAULT_SESSION_POLICY, NOW)).toBe("IDLE_EXPIRED");
     const result = await sessionIsUsable(store, s, DEFAULT_SESSION_POLICY, NOW);
     expect(result).toEqual({ usable: false, reason: "IDLE_EXPIRED" });
   });
 
   it("keeps a session usable one millisecond before its idle deadline", () => {
-    const s = session({ lastActivityMs: NOW - 30 * 60 * 1000 + 1 });
+    const s = session({ lastActivityMs: NOW - DEFAULT_IDLE_TIMEOUT_MS + 1 });
     expect(sessionExpiryReason(s, DEFAULT_SESSION_POLICY, NOW)).toBe("OK");
   });
 

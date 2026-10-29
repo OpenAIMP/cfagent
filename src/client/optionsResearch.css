@@ -32,7 +32,7 @@
 .options-results-header h2,
 .options-candidate-header h3 {
   color: var(--color-text-primary);
-  font-size: 1.15rem;
+  font-size: var(--font-size-title-sm);
   font-weight: 700;
   letter-spacing: -0.01em;
   margin: 0;
@@ -43,7 +43,7 @@
 .options-candidate-header p,
 .options-form-footer p {
   color: var(--color-text-muted);
-  font-size: 0.8rem;
+  font-size: var(--font-size-body-sm);
   line-height: 1.5;
   margin: 0.25rem 0 0;
 }
@@ -52,7 +52,7 @@
 .options-rank {
   color: var(--color-accent);
   font-family: var(--font-sans);
-  font-size: 0.7rem;
+  font-size: var(--font-size-caption);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -61,7 +61,7 @@
 .options-scan-meta {
   color: var(--color-text-muted);
   font-family: var(--font-sans);
-  font-size: 0.74rem;
+  font-size: var(--font-size-caption);
   text-align: right;
   padding: 0.35rem 0.65rem;
   background: var(--color-card-elevated);
@@ -258,13 +258,13 @@
 
 .options-nlq-result > strong {
   color: var(--color-text-primary);
-  font-size: 0.9rem;
+  font-size: var(--font-size-body);
   font-weight: 700;
 }
 
 .options-nlq-result > p {
   color: var(--color-text-muted);
-  font-size: 0.8rem;
+  font-size: var(--font-size-body-sm);
   line-height: 1.55;
 }
 
@@ -278,7 +278,7 @@
 .options-field > span,
 .options-strategy-picker legend {
   color: var(--color-text-muted);
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   font-weight: 650;
   letter-spacing: 0.02em;
   text-transform: uppercase;
@@ -295,7 +295,7 @@
   background: var(--color-surface-sunken);
   color: var(--color-text-primary);
   font: inherit;
-  font-size: 0.84rem;
+  font-size: var(--font-size-body-sm);
   transition: all 0.15s ease;
 }
 
@@ -327,7 +327,7 @@
   align-items: center;
   gap: 0.45rem;
   color: var(--color-text-primary);
-  font-size: 0.78rem;
+  font-size: var(--font-size-caption);
   cursor: pointer;
 }
 
@@ -369,7 +369,7 @@
   background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-accent) 100%);
   color: var(--color-text-primary);
   font: inherit;
-  font-size: 0.82rem;
+  font-size: var(--font-size-body-sm);
   font-weight: 700;
   letter-spacing: 0.02em;
   cursor: pointer;
@@ -416,7 +416,7 @@
   color: var(--color-accent);
   border-radius: 6px;
   font: inherit;
-  font-size: 0.78rem;
+  font-size: var(--font-size-caption);
   font-weight: 600;
   padding: 0.45rem 0.85rem;
   cursor: pointer;
@@ -452,7 +452,7 @@
   border-radius: 6px;
   background: var(--color-danger-subtle);
   color: var(--color-danger-subtle);
-  font-size: 0.82rem;
+  font-size: var(--font-size-body-sm);
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -482,7 +482,7 @@
 
 .options-comparison-note {
   color: var(--color-text-muted);
-  font-size: 0.76rem;
+  font-size: var(--font-size-caption);
   line-height: 1.5;
 }
 
@@ -500,14 +500,14 @@
 .options-llm-answer h4 {
   margin: 0;
   color: var(--color-text-primary);
-  font-size: 0.95rem;
+  font-size: var(--font-size-body);
   font-weight: 700;
 }
 
 .options-llm-answer > p {
   margin: 0;
   color: var(--color-text-muted);
-  font-size: 0.82rem;
+  font-size: var(--font-size-body-sm);
   line-height: 1.55;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
@@ -532,7 +532,7 @@
   background: var(--color-surface-sunken);
   color: var(--color-text-primary);
   font: inherit;
-  font-size: 0.84rem;
+  font-size: var(--font-size-body-sm);
   resize: vertical;
   transition: all 0.15s ease;
 }
@@ -586,12 +586,12 @@
 
 .llm-ideas-ranking > strong {
   color: var(--color-accent);
-  font-size: 0.82rem;
+  font-size: var(--font-size-body-sm);
 }
 
 .llm-ideas-ranking > span {
   color: var(--color-text-primary);
-  font-size: 0.82rem;
+  font-size: var(--font-size-body-sm);
   font-weight: 600;
 }
 
@@ -599,7 +599,7 @@
   margin: 0;
   line-height: 1.55;
   color: var(--color-text-muted);
-  font-size: 0.78rem;
+  font-size: var(--font-size-caption);
 }
 
 /* ==========================================================================
@@ -624,7 +624,7 @@
   width: 100%;
   border-collapse: collapse;
   color: var(--color-text-muted);
-  font-size: 0.76rem;
+  font-size: var(--font-size-caption);
 }
 
 .options-table-scroll th,
@@ -636,7 +636,7 @@
   z-index: 2;
   background: var(--color-surface-sunken);
   color: var(--color-text-muted);
-  font-size: 0.7rem;
+  font-size: var(--font-size-caption);
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -714,7 +714,7 @@
   padding: 0.3rem 0.6rem;
   border-left: 3px solid currentColor;
   border-radius: 4px;
-  font-size: 0.74rem;
+  font-size: var(--font-size-caption);
 }
 
 .ledger-candidate a {
@@ -725,7 +725,7 @@
 
 .ledger-verdict {
   font-weight: 700;
-  font-size: 0.68rem;
+  font-size: var(--font-size-micro);
   letter-spacing: 0.04em;
 }
 
@@ -778,7 +778,7 @@
   color: var(--color-danger-subtle);
   background: var(--color-danger-subtle);
   font-family: var(--font-sans);
-  font-size: 0.74rem;
+  font-size: var(--font-size-caption);
   font-weight: 600;
 }
 
@@ -795,7 +795,7 @@
   border: 1px solid currentColor;
   border-radius: 6px;
   font-family: var(--font-sans);
-  font-size: 0.68rem;
+  font-size: var(--font-size-micro);
   font-weight: 700;
 }
 
@@ -831,7 +831,7 @@
 
 .options-summary-strip span {
   color: var(--color-text-muted);
-  font-size: 0.66rem;
+  font-size: var(--font-size-micro);
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -841,13 +841,13 @@
   overflow-wrap: anywhere;
   color: var(--color-text-primary);
   font-family: var(--font-sans);
-  font-size: 0.95rem;
+  font-size: var(--font-size-body);
   font-weight: 700;
 }
 
 .options-summary-strip small {
   color: var(--color-text-muted);
-  font-size: 0.62rem;
+  font-size: var(--font-size-micro);
   font-weight: 400;
 }
 
@@ -871,7 +871,7 @@
 
 .options-risk-grid span {
   color: var(--color-text-muted);
-  font-size: 0.68rem;
+  font-size: var(--font-size-micro);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -880,7 +880,7 @@
   overflow-wrap: anywhere;
   color: var(--color-text-primary);
   font-family: var(--font-sans);
-  font-size: 0.85rem;
+  font-size: var(--font-size-body);
   font-weight: 700;
 }
 
@@ -924,7 +924,7 @@
   border: 1px solid var(--color-border-subtle);
   border-radius: 4px;
   color: var(--color-text-primary);
-  font-size: 0.8rem;
+  font-size: var(--font-size-body-sm);
 }
 
 .options-leg-strike input[type="range"] {
@@ -941,7 +941,7 @@
   background: var(--color-surface-sunken);
   border: 1px solid var(--color-border-subtle);
   color: var(--color-accent);
-  font-size: 0.78rem;
+  font-size: var(--font-size-caption);
   font-weight: 650;
   transition: all 0.15s ease;
   user-select: none;
@@ -971,7 +971,7 @@
   align-content: start;
   color: var(--color-text-muted);
   font-family: var(--font-sans);
-  font-size: 0.74rem;
+  font-size: var(--font-size-caption);
 }
 
 .options-score-grid span {
@@ -1006,13 +1006,13 @@
 
 .options-workflow-step h4 {
   margin: 0 0 0.35rem;
-  font-size: 0.86rem;
+  font-size: var(--font-size-body);
   color: var(--color-text-primary);
 }
 
 .options-workflow-step p {
   margin: 0 0 0.6rem;
-  font-size: 0.76rem;
+  font-size: var(--font-size-caption);
   color: var(--color-text-muted);
   line-height: 1.45;
 }
@@ -1051,7 +1051,7 @@
   background: var(--color-surface-sunken);
   color: var(--color-text-primary);
   font: inherit;
-  font-size: 0.74rem;
+  font-size: var(--font-size-caption);
   cursor: pointer;
   transition: all 0.15s ease;
 }
@@ -1074,7 +1074,7 @@
   margin-top: 0.4rem;
   color: var(--color-text-muted);
   font-family: var(--font-sans);
-  font-size: 0.74rem;
+  font-size: var(--font-size-caption);
 }
 
 .options-range-control input {
@@ -1120,7 +1120,7 @@
   align-items: center;
   gap: 0.35rem;
   padding: 0.32rem 0.65rem;
-  font-size: 0.78rem;
+  font-size: var(--font-size-caption);
   font-weight: 600;
   border-radius: 6px;
   background: var(--color-card);
@@ -1144,7 +1144,7 @@
 }
 
 .options-refresh-timestamp {
-  font-size: 0.68rem;
+  font-size: var(--font-size-micro);
   color: var(--color-text-muted);
   font-weight: 400;
 }
@@ -1171,7 +1171,7 @@
   background: transparent;
   border: 0;
   padding: 0.25rem 0.45rem;
-  font-size: 0.76rem;
+  font-size: var(--font-size-caption);
   font-weight: 600;
   color: var(--color-text-secondary);
   display: inline-flex;
@@ -1190,7 +1190,7 @@
   color: var(--color-accent);
   border-radius: 5px;
   padding: 0.2rem 0.4rem;
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   font-weight: 600;
   cursor: pointer;
   outline: none;
@@ -1210,7 +1210,7 @@
   background: var(--color-surface-sunken);
   border: 1px solid var(--color-border-subtle);
   border-radius: 10px;
-  font-size: 0.8rem;
+  font-size: var(--font-size-body-sm);
   color: var(--color-text-secondary);
   line-height: 1.45;
   margin-bottom: 0.25rem;

@@ -26,7 +26,7 @@ export function AuditTrailSection({ auditLogs, loadingAudit, fetchAudit }: Audit
         </header>
 
         {auditLogs.length === 0 ? (
-          <p style={{ color: "var(--color-text-dim)", fontSize: "0.85rem", margin: "0.5rem 0" }}>
+          <p style={{ color: "var(--color-text-dim)", fontSize: "var(--font-size-body)", margin: "0.5rem 0" }}>
             No recent options scheduling audit logs found. Run a screen or wait for the next scheduled interval to populate this ledger.
           </p>
         ) : (

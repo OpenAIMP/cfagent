@@ -34,7 +34,7 @@
 
 .docs-title {
   margin: 0;
-  font-size: 1.35rem;
+  font-size: var(--font-size-title);
   font-weight: 700;
   color: var(--color-text-primary);
 }
@@ -42,7 +42,7 @@
 .docs-scope {
   margin: 0.35rem 0 0;
   max-width: 72ch;
-  font-size: 0.85rem;
+  font-size: var(--font-size-body);
   line-height: 1.5;
   color: var(--color-text-muted);
 }
@@ -67,7 +67,7 @@
 }
 
 .docs-count {
-  font-size: 0.8rem;
+  font-size: var(--font-size-body-sm);
   font-weight: 600;
   color: var(--color-text-muted);
 }

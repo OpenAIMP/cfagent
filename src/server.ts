@@ -1,7 +1,14 @@
 import type { Env, SessionData, TransactionSnapData } from "./types";
-import { clearSessionCookie, getSessionId, isSessionIdFormat, setSessionCookie } from "./session";
+import {
+  clearSessionCookie,
+  getSessionId,
+  isSessionIdFormat,
+  renewSession,
+  setSessionCookie,
+} from "./session";
 import { getServiceUserLogin, isLoginShaped, SHARED_ORCHESTRATOR_INSTANCE } from "./security/serviceIdentity";
 import { getSessionCached, invalidateSessionCache } from "./security/sessionCache";
+import { resolveIdleTimeoutMs } from "./security/sessionPolicy";
 import { deleteSession, getSession, sessionStore, updateSession } from "./security/session";
 import { listStoreEntries, type DoNamespaceLike } from "./security/durableKv";
 import { zonedDateParts } from "./schedule";
@@ -3694,6 +3701,19 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         const modified = html.replace("</head>", `${userScript}</head>`);
         const sessionId = getSessionId(request)!;
 
+        // Sliding session (#2215 follow-up): an active user should not be
+        // forced to sign in every 7 days. When the absolute window is
+        // within two days of expiry (and the 30-day cap is not reached),
+        // slide it in place — same session id, so other tabs stay valid.
+        // Best-effort: a failed renewal must never fail the page load.
+        try {
+          if (await renewSession(env, sessionId, session)) {
+            invalidateSessionCache(sessionId);
+          }
+        } catch (renewErr) {
+          console.warn("[session] renewal failed; page served with the existing session", renewErr);
+        }
+
         return new Response(modified, {
           headers: {
             "Content-Type": "text/html; charset=utf-8",
@@ -3982,6 +4002,7 @@ async function requireAuth(request: Request, env: Env): Promise<SessionData | nu
       cached,
       sessionId,
       Date.now(),
+      { idleTimeoutMs: resolveIdleTimeoutMs(env.SESSION_IDLE_TIMEOUT_MS) },
     );
     if (result.wired) return result.session;
   }

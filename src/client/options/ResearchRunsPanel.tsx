@@ -214,7 +214,7 @@ function TradeCardDetail({ card }: { card: TradeCardView }) {
               <li key={i} style={{ color: "var(--color-text-muted)" }}>{l}</li>
             ))}
           </ul>
-          <div style={{ color: "var(--color-text-dim)", fontSize: 11 }}>Sources: {card.sources.join(", ")}</div>
+          <div style={{ color: "var(--color-text-dim)", fontSize: "var(--font-size-micro)" }}>Sources: {card.sources.join(", ")}</div>
         </div>
       )}
     </div>
@@ -386,7 +386,7 @@ export function ResearchRunsPanel({ userLogin, onSendPrompt }: ResearchRunsPanel
                   onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}
                 />
               )}
-              <span style={{ fontSize: 11, color: "var(--color-text-dim)" }}>{f.hint}</span>
+              <span style={{ fontSize: "var(--font-size-micro)", color: "var(--color-text-dim)" }}>{f.hint}</span>
             </div>
           ))}
           <Button onClick={() => void save()} disabled={saving}>{saving ? "Saving…" : "Save filters"}</Button>

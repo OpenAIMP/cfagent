@@ -141,8 +141,8 @@ const boxStyle: React.CSSProperties = {
   borderRadius: "8px",
 };
 
-const muted: React.CSSProperties = { color: "var(--color-text-muted)", fontSize: "0.85rem" };
-const bodyText: React.CSSProperties = { color: "var(--color-text-secondary)", fontSize: "0.9rem", lineHeight: 1.5 };
+const muted: React.CSSProperties = { color: "var(--color-text-muted)", fontSize: "var(--font-size-body)" };
+const bodyText: React.CSSProperties = { color: "var(--color-text-secondary)", fontSize: "var(--font-size-body)", lineHeight: 1.5 };
 
 function pct(value: number | null | undefined): string {
   return value === null || value === undefined ? "—" : `${(value * 100).toFixed(1)}%`;
@@ -319,7 +319,7 @@ export function ScreeningReviewPanel({ userLogin }: { userLogin?: string }) {
 
   return (
     <section aria-label="Screening proposal review" style={{ margin: "1rem 0" }}>
-      <h3 style={{ margin: "0 0 0.5rem", color: "var(--color-accent)", fontSize: "1.15rem" }}>
+      <h3 style={{ margin: "0 0 0.5rem", color: "var(--color-accent)", fontSize: "var(--font-size-title-sm)" }}>
         🗳️ Proposal Review
       </h3>
       <p style={{ margin: "0 0 1rem", ...bodyText }}>
@@ -328,12 +328,12 @@ export function ScreeningReviewPanel({ userLogin }: { userLogin?: string }) {
         produced them. Nothing activates, promotes, or trades without a recorded human decision.
       </p>
       {actionMessage && (
-        <p role="status" style={{ margin: "0 0 0.75rem", color: "var(--color-success)", fontSize: "0.88rem" }}>
+        <p role="status" style={{ margin: "0 0 0.75rem", color: "var(--color-success)", fontSize: "var(--font-size-body)" }}>
           {actionMessage}
         </p>
       )}
       {actionError && (
-        <p role="alert" style={{ margin: "0 0 0.75rem", color: "var(--color-danger)", fontSize: "0.88rem" }}>
+        <p role="alert" style={{ margin: "0 0 0.75rem", color: "var(--color-danger)", fontSize: "var(--font-size-body)" }}>
           {actionError}
         </p>
       )}
@@ -380,7 +380,7 @@ export function ScreeningReviewPanel({ userLogin }: { userLogin?: string }) {
             }}
           >
             <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)", alignItems: "baseline" }}>
-              <strong style={{ color: "var(--color-text-primary)", fontSize: "0.92rem" }}>
+              <strong style={{ color: "var(--color-text-primary)", fontSize: "var(--font-size-body)" }}>
                 {challenger.title}
               </strong>
               <span style={muted}>
@@ -557,7 +557,7 @@ export function ScreeningReviewPanel({ userLogin }: { userLogin?: string }) {
         {goals?.map((goal) => (
           <div key={goal.id} style={{ padding: "var(--space-3) 0", borderTop: "1px solid var(--color-border-subtle)" }}>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)", alignItems: "baseline" }}>
-              <strong style={{ color: "var(--color-text-primary)", fontSize: "0.92rem" }}>{goal.title}</strong>
+              <strong style={{ color: "var(--color-text-primary)", fontSize: "var(--font-size-body)" }}>{goal.title}</strong>
               <span style={muted}>
                 {goal.kind} · from {goal.source} · {goal.scenarios.length} scenario
                 {goal.scenarios.length === 1 ? "" : "s"} · {new Date(goal.createdAt).toLocaleString()}
