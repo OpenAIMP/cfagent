@@ -37,14 +37,30 @@
  * body_r2_key pointer (NULL = body still inline). S1 lands the column
  * and the read plumbing only — writes stay inline until S2.
  *
+ * Issue #2347 (#1976 step 3c, ADR 0022 D-C.3 / D-F2): the fan-out
+ * contract. This fan-out is NOT a transaction candidate — its only
+ * SQL write is one already-atomic INSERT, and the R2 / Vectorize /
+ * AI Search legs cannot join a DO transaction; the declared
+ * contract is D-C.3's cross-store shape (atomic-or-honestly-failed
+ * at the seam, outcomes recorded). Every store through the ONE
+ * seam now records a CanonicalReportFanoutOutcome on the row
+ * (fanout_outcome column, JSON): the body leg, both index legs,
+ * and a catalogued outcome code (DataFoundationCode
+ * REPORT_FANOUT_STORED / _DEGRADED; a failed INSERT stores no row
+ * and surfaces REPORT_FANOUT_FAILED via the logged null). The
+ * divergent persistScheduledReportSql INSERT is retired into
+ * this seam (see its deprecation note).
+ *
  * This module is SDK-free and never throws into scheduled runs: every
  * public function fails closed to null/[] on bad input or SQL errors.
  */
 
 import type { SqlStorage } from "../orm";
 import type { ScheduledReportRecord } from "../types";
+import { DataFoundationCode } from "../aspects/errorCodes";
 import {
   indexCanonicalReport,
+  INDEX_EXCLUDED_SOURCES,
   type IndexEnv,
 } from "./reportSemanticIndex";
 import { indexCanonicalReportInAiSearch } from "./reportAiSearchIndex";
@@ -142,6 +158,11 @@ export function ensureScheduledReportsTable(sql: SqlStorage): void {
   // body still lives inline in the body column (pre-migration rows and,
   // until the S2 write-path slice lands, every new row too).
   ensureColumn(sql, SCHEDULED_REPORTS_TABLE, "body_r2_key", "TEXT");
+  // Issue #2347: the recorded fan-out outcome (JSON, see
+  // CanonicalReportFanoutOutcome). NULL on rows stored before
+  // the contract landed — an absent outcome is a legacy row,
+  // never a fabricated success.
+  ensureColumn(sql, SCHEDULED_REPORTS_TABLE, "fanout_outcome", "TEXT");
 
   sql.exec(
     `CREATE INDEX IF NOT EXISTS idx_mas_reports_created ON ${SCHEDULED_REPORTS_TABLE} (created_at DESC)`
@@ -196,6 +217,219 @@ export interface CanonicalStoreResult {
   reportId: string;
   /** True when this call created the row; false on idempotent dedupe. */
   created: boolean;
+  /**
+   * Issue #2347: the fan-out outcome as known at return time.
+   * Index legs are fire-and-forget, so an attempted leg reads
+   * "pending" here; its final status lands on the report record
+   * (fanout_outcome column) when the leg settles — read it back
+   * with getCanonicalReportFanoutOutcome / ScheduledReportHit.
+   */
+  fanout: CanonicalReportFanoutOutcome;
+}
+
+/** Body-leg outcome of the fan-out (#2347). */
+export type FanoutBodyStatus = "r2" | "inline" | "inline_fallback";
+/** Index-leg outcome of the fan-out (#2347). */
+export type FanoutIndexStatus =
+  | "indexed"
+  | "failed"
+  | "not_attempted"
+  | "pending";
+
+/**
+ * Issue #2347 (#1976 step 3c, ADR 0022 D-C.3 / D-F2.3): the
+ * DECLARED outcome set of the canonical report fan-out. One
+ * shape, recorded on the report record (the fanout_outcome
+ * column, JSON) at insert time and updated in place as the
+ * fire-and-forget index legs settle, and surfaced on the store
+ * result. `outcome` names the row/body disposition; `code` is
+ * the catalogued outcome code (src/aspects/errorCodes.ts,
+ * DataFoundationCode) — REPORT_FANOUT_DEGRADED when any leg
+ * failed or the body fell back inline, REPORT_FANOUT_STORED
+ * otherwise. A failed row INSERT is the remaining member of
+ * the set: it stores no row, the seam returns null, and the
+ * failure is logged with REPORT_FANOUT_FAILED.
+ */
+export interface CanonicalReportFanoutOutcome {
+  outcome: "stored_r2" | "stored_inline" | "stored_inline_fallback" | "deduped";
+  code: DataFoundationCode;
+  body: FanoutBodyStatus;
+  vectorize: FanoutIndexStatus;
+  aiSearch: FanoutIndexStatus;
+  /** The AI Search executor's stable code when that leg did not index. */
+  aiSearchCode?: string;
+}
+
+function fanoutCodeFor(
+  body: FanoutBodyStatus,
+  vectorize: FanoutIndexStatus,
+  aiSearch: FanoutIndexStatus
+): DataFoundationCode {
+  return body === "inline_fallback" || vectorize === "failed" || aiSearch === "failed"
+    ? DataFoundationCode.REPORT_FANOUT_DEGRADED
+    : DataFoundationCode.REPORT_FANOUT_STORED;
+}
+
+function makeFanoutOutcome(
+  outcome: CanonicalReportFanoutOutcome["outcome"],
+  body: FanoutBodyStatus,
+  vectorize: FanoutIndexStatus,
+  aiSearch: FanoutIndexStatus,
+  aiSearchCode?: string
+): CanonicalReportFanoutOutcome {
+  return {
+    outcome,
+    code: fanoutCodeFor(body, vectorize, aiSearch),
+    body,
+    vectorize,
+    aiSearch,
+    ...(aiSearchCode ? { aiSearchCode } : {}),
+  };
+}
+
+/** Parse a recorded fanout_outcome value; null when absent/malformed. */
+export function parseFanoutOutcome(
+  raw: unknown
+): CanonicalReportFanoutOutcome | null {
+  try {
+    if (typeof raw !== "string" || !raw) return null;
+    const parsed = JSON.parse(raw) as CanonicalReportFanoutOutcome;
+    if (!parsed || typeof parsed !== "object" || !parsed.outcome) return null;
+    return parsed;
+  } catch (err) {
+    console.error(
+      `[scheduledReports] parseFanoutOutcome: recorded outcome is malformed: ${err instanceof Error ? err.message : String(err)}`,
+      err
+    );
+    return null;
+  }
+}
+
+/**
+ * Record (merge) leg outcomes onto a stored report row. The
+ * read-modify-write is synchronous over the caller's sql
+ * handle, so two legs settling in sequence cannot clobber
+ * each other. Never throws (#1133 discipline): a recording
+ * failure is logged with its catalog code, never dropped
+ * silently and never thrown into the store's path.
+ */
+function recordFanoutLegOutcome(
+  sql: SqlStorage,
+  reportId: string,
+  patch: Partial<Pick<CanonicalReportFanoutOutcome, "vectorize" | "aiSearch" | "aiSearchCode">>
+): void {
+  try {
+    const rows = Array.from(
+      sql.exec(
+        `SELECT fanout_outcome FROM ${SCHEDULED_REPORTS_TABLE} WHERE id = ? LIMIT 1`,
+        reportId
+      )
+    ) as Array<Record<string, unknown>>;
+    const current = parseFanoutOutcome(rows[0]?.fanout_outcome);
+    if (!current) return;
+    const next: CanonicalReportFanoutOutcome = { ...current, ...patch };
+    next.code = fanoutCodeFor(next.body, next.vectorize, next.aiSearch);
+    sql.exec(
+      `UPDATE ${SCHEDULED_REPORTS_TABLE} SET fanout_outcome = ? WHERE id = ?`,
+      JSON.stringify(next),
+      reportId
+    );
+  } catch (err) {
+    console.error(
+      `[scheduledReports] recordFanoutLegOutcome failed for report ${reportId} (${DataFoundationCode.REPORT_FANOUT_DEGRADED}): ${err instanceof Error ? err.message : String(err)}`,
+      err
+    );
+  }
+}
+
+/** The recorded fan-out outcome for a stored report, or null. Never throws. */
+export function getCanonicalReportFanoutOutcome(
+  sql: SqlStorage,
+  reportId: string
+): CanonicalReportFanoutOutcome | null {
+  try {
+    if (!reportId) return null;
+    ensureScheduledReportsTable(sql);
+    const rows = Array.from(
+      sql.exec(
+        `SELECT fanout_outcome FROM ${SCHEDULED_REPORTS_TABLE} WHERE id = ? LIMIT 1`,
+        reportId
+      )
+    ) as Array<Record<string, unknown>>;
+    return parseFanoutOutcome(rows[0]?.fanout_outcome);
+  } catch (err) {
+    console.error(
+      `[scheduledReports] getCanonicalReportFanoutOutcome failed for report ${reportId}: ${err instanceof Error ? err.message : String(err)}`,
+      err
+    );
+    return null;
+  }
+}
+
+/**
+ * Fire both index legs for a stored report and record each
+ * leg's settled outcome on the report record (#2347). This
+ * replaces the bare `void` calls: the legs stay fire-and-
+ * forget for the caller, but their results are no longer
+ * discarded. The Vectorize leg distinguishes attempted from
+ * not-attempted by its own preconditions (bindings present +
+ * source not excluded) because its boolean result conflates
+ * the two; the AI Search leg's outcome code distinguishes
+ * them itself ("disabled" = not attempted, per #2246).
+ */
+function fireFanoutIndexLegs(
+  sql: SqlStorage,
+  env: IndexEnv | undefined,
+  vecReport: Parameters<typeof indexCanonicalReport>[1],
+  aiReport: Parameters<typeof indexCanonicalReportInAiSearch>[1]
+): void {
+  const vectorizeAttempted =
+    !!env?.AI &&
+    !!env?.VECTOR_MEMORY &&
+    !(INDEX_EXCLUDED_SOURCES as readonly string[]).includes(vecReport.source);
+  if (!vectorizeAttempted) {
+    recordFanoutLegOutcome(sql, vecReport.reportId, { vectorize: "not_attempted" });
+  } else {
+    void indexCanonicalReport(env, vecReport).then(
+      (ok) =>
+        recordFanoutLegOutcome(sql, vecReport.reportId, {
+          vectorize: ok ? "indexed" : "failed",
+        }),
+      () =>
+        recordFanoutLegOutcome(sql, vecReport.reportId, { vectorize: "failed" })
+    );
+  }
+  void indexCanonicalReportInAiSearch(env as never, aiReport).then(
+    (outcome) =>
+      recordFanoutLegOutcome(sql, aiReport.reportId, {
+        aiSearch: outcome.ok
+          ? "indexed"
+          : outcome.code === "disabled"
+            ? "not_attempted"
+            : "failed",
+        ...(outcome.ok ? {} : { aiSearchCode: outcome.code }),
+      }),
+    () =>
+      recordFanoutLegOutcome(sql, aiReport.reportId, {
+        aiSearch: "failed",
+        aiSearchCode: "upload_failed",
+      })
+  );
+}
+
+/** Initial index-leg statuses for a fresh/deduped store (#2347). */
+function initialIndexStatuses(
+  env: IndexEnv | undefined,
+  source: string
+): { vectorize: FanoutIndexStatus; aiSearch: FanoutIndexStatus } {
+  const vectorizeAttempted =
+    !!env?.AI &&
+    !!env?.VECTOR_MEMORY &&
+    !(INDEX_EXCLUDED_SOURCES as readonly string[]).includes(source);
+  return {
+    vectorize: vectorizeAttempted ? "pending" : "not_attempted",
+    aiSearch: "pending",
+  };
 }
 
 /**
@@ -294,10 +528,11 @@ function insertScheduledReportRow(
   rec: ScheduledReportRecord,
   generationId: string | null,
   owner: string,
-  bodyR2Key: string | null
+  bodyR2Key: string | null,
+  fanout: CanonicalReportFanoutOutcome
 ): void {
   sql.exec(
-    `INSERT INTO ${SCHEDULED_REPORTS_TABLE} (id, run_id, title, source, summary, body, created_at, generation_id, user_login, body_r2_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO ${SCHEDULED_REPORTS_TABLE} (id, run_id, title, source, summary, body, created_at, generation_id, user_login, body_r2_key, fanout_outcome) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     rec.id,
     rec.runId,
     rec.title,
@@ -307,7 +542,8 @@ function insertScheduledReportRow(
     rec.createdAt,
     generationId,
     owner,
-    bodyR2Key
+    bodyR2Key,
+    JSON.stringify(fanout)
   );
 }
 
@@ -338,56 +574,95 @@ export function storeReportAtGeneration(
       const id = existingReportIdForGeneration(sql, generationId, owner);
       if (id) {
         const row = existingReportRowForId(sql, id);
+        const dedupeStatuses = initialIndexStatuses(env, row?.source ?? input.source);
+        const dedupedFanout = makeFanoutOutcome(
+          "deduped",
+          row?.bodyR2Key ? "r2" : "inline",
+          dedupeStatuses.vectorize,
+          dedupeStatuses.aiSearch
+        );
         if (row) {
-          void indexCanonicalReport(env, {
-            reportId: id,
-            title: row.title,
-            source: row.source,
-            summary: row.summary,
-            body: row.body,
-            bodyR2Key: row.bodyR2Key,
-          });
-          void indexCanonicalReportInAiSearch(env, {
-            reportId: id,
-            title: row.title,
-            source: row.source,
-            summary: row.summary,
-            body: row.body,
-            bodyR2Key: row.bodyR2Key,
-            runId: input.runId,
-            ownerLogin: owner,
-          });
+          // Record the deduped outcome before re-firing the legs,
+          // so the row never carries a stale pre-#2347 (absent)
+          // outcome after a redelivery.
+          try {
+            sql.exec(
+              `UPDATE ${SCHEDULED_REPORTS_TABLE} SET fanout_outcome = ? WHERE id = ?`,
+              JSON.stringify(dedupedFanout),
+              id
+            );
+          } catch (err) {
+            console.error(
+              `[scheduledReports] storeReportAtGeneration: recording the deduped fan-out outcome failed for report ${id}: ${err instanceof Error ? err.message : String(err)}`,
+              err
+            );
+          }
+          fireFanoutIndexLegs(
+            sql,
+            env,
+            {
+              reportId: id,
+              title: row.title,
+              source: row.source,
+              summary: row.summary,
+              body: row.body,
+              bodyR2Key: row.bodyR2Key,
+            },
+            {
+              reportId: id,
+              title: row.title,
+              source: row.source,
+              summary: row.summary,
+              body: row.body,
+              bodyR2Key: row.bodyR2Key,
+              runId: input.runId,
+              ownerLogin: owner,
+            }
+          );
         }
-        return { reportId: id, created: false };
+        return { reportId: id, created: false, fanout: dedupedFanout };
       }
     }
     const rec = toScheduledReportRecord(input);
-    insertScheduledReportRow(sql, rec, generationId, owner, null);
-    void indexCanonicalReport(env, {
-      reportId: rec.id,
-      title: rec.title,
-      source: rec.source,
-      summary: rec.summary,
-      body: rec.body,
-      bodyR2Key: null,
-    });
-    void indexCanonicalReportInAiSearch(env, {
-      reportId: rec.id,
-      title: rec.title,
-      source: rec.source,
-      summary: rec.summary,
-      body: rec.body,
-      bodyR2Key: null,
-      runId: rec.runId,
-      ownerLogin: owner,
-      storedAt: rec.createdAt,
-    });
-    return { reportId: rec.id, created: true };
+    const statuses = initialIndexStatuses(env, rec.source);
+    const fanout = makeFanoutOutcome(
+      "stored_inline",
+      "inline",
+      statuses.vectorize,
+      statuses.aiSearch
+    );
+    insertScheduledReportRow(sql, rec, generationId, owner, null, fanout);
+    fireFanoutIndexLegs(
+      sql,
+      env,
+      {
+        reportId: rec.id,
+        title: rec.title,
+        source: rec.source,
+        summary: rec.summary,
+        body: rec.body,
+        bodyR2Key: null,
+      },
+      {
+        reportId: rec.id,
+        title: rec.title,
+        source: rec.source,
+        summary: rec.summary,
+        body: rec.body,
+        bodyR2Key: null,
+        runId: rec.runId,
+        ownerLogin: owner,
+        storedAt: rec.createdAt,
+      }
+    );
+    return { reportId: rec.id, created: true, fanout };
   } catch (err) {
     // Issue #876: never silent. The caller (#835's null check) can only
     // say THAT the store failed; the worker log must say WHY.
+    // Issue #2347: this is the fan-out's REPORT_FANOUT_FAILED member —
+    // no row was stored, so no record can carry the outcome.
     console.error(
-      `[scheduledReports] storeReportAtGeneration failed for run ${typeof input?.runId === "string" ? input.runId : "?"}: ${err instanceof Error ? err.message : String(err)}`,
+      `[scheduledReports] storeReportAtGeneration failed for run ${typeof input?.runId === "string" ? input.runId : "?"} (${DataFoundationCode.REPORT_FANOUT_FAILED}): ${err instanceof Error ? err.message : String(err)}`,
       err
     );
     return null;
@@ -418,31 +693,55 @@ export async function storeReportAtGenerationWithR2(
       const id = existingReportIdForGeneration(sql, generationId, owner);
       if (id) {
         const row = existingReportRowForId(sql, id);
+        const dedupeStatuses = initialIndexStatuses(env, row?.source ?? input.source);
+        const dedupedFanout = makeFanoutOutcome(
+          "deduped",
+          row?.bodyR2Key ? "r2" : "inline",
+          dedupeStatuses.vectorize,
+          dedupeStatuses.aiSearch
+        );
         if (row) {
-          void indexCanonicalReport(env, {
-            reportId: id,
-            title: row.title,
-            source: row.source,
-            summary: row.summary,
-            body: row.body,
-            bodyR2Key: row.bodyR2Key,
-          });
-          void indexCanonicalReportInAiSearch(env, {
-            reportId: id,
-            title: row.title,
-            source: row.source,
-            summary: row.summary,
-            body: row.body,
-            bodyR2Key: row.bodyR2Key,
-            runId: input.runId,
-            ownerLogin: owner,
-          });
+          try {
+            sql.exec(
+              `UPDATE ${SCHEDULED_REPORTS_TABLE} SET fanout_outcome = ? WHERE id = ?`,
+              JSON.stringify(dedupedFanout),
+              id
+            );
+          } catch (err) {
+            console.error(
+              `[scheduledReports] storeReportAtGenerationWithR2: recording the deduped fan-out outcome failed for report ${id}: ${err instanceof Error ? err.message : String(err)}`,
+              err
+            );
+          }
+          fireFanoutIndexLegs(
+            sql,
+            env,
+            {
+              reportId: id,
+              title: row.title,
+              source: row.source,
+              summary: row.summary,
+              body: row.body,
+              bodyR2Key: row.bodyR2Key,
+            },
+            {
+              reportId: id,
+              title: row.title,
+              source: row.source,
+              summary: row.summary,
+              body: row.body,
+              bodyR2Key: row.bodyR2Key,
+              runId: input.runId,
+              ownerLogin: owner,
+            }
+          );
         }
-        return { reportId: id, created: false };
+        return { reportId: id, created: false, fanout: dedupedFanout };
       }
     }
     const rec = toScheduledReportRecord(input);
     let bodyR2Key: string | null = null;
+    let bodyStatus: FanoutBodyStatus = "inline";
     const bucket = env?.REPORTS_BUCKET;
     if (bucket) {
       const key = reportBodyR2Key(rec.id);
@@ -451,37 +750,57 @@ export async function storeReportAtGenerationWithR2(
           httpMetadata: { contentType: "application/json" },
         });
         bodyR2Key = key;
+        bodyStatus = "r2";
       } catch (err) {
+        // Issue #2347: the fallback is now a RECORDED outcome
+        // (body: "inline_fallback", code REPORT_FANOUT_DEGRADED
+        // on the row), not only this log line.
+        bodyStatus = "inline_fallback";
         console.error(
           `[scheduledReports] storeReportAtGenerationWithR2: R2 body put failed for report ${rec.id}; storing inline instead: ${err instanceof Error ? err.message : String(err)}`,
           err
         );
       }
     }
-    insertScheduledReportRow(sql, rec, generationId, owner, bodyR2Key);
-    void indexCanonicalReport(env, {
-      reportId: rec.id,
-      title: rec.title,
-      source: rec.source,
-      summary: rec.summary,
-      body: bodyR2Key ? "" : rec.body,
-      bodyR2Key,
-    });
-    void indexCanonicalReportInAiSearch(env, {
-      reportId: rec.id,
-      title: rec.title,
-      source: rec.source,
-      summary: rec.summary,
-      body: bodyR2Key ? "" : rec.body,
-      bodyR2Key,
-      runId: rec.runId,
-      ownerLogin: owner,
-      storedAt: rec.createdAt,
-    });
-    return { reportId: rec.id, created: true };
+    const statuses = initialIndexStatuses(env, rec.source);
+    const fanout = makeFanoutOutcome(
+      bodyStatus === "r2"
+        ? "stored_r2"
+        : bodyStatus === "inline_fallback"
+          ? "stored_inline_fallback"
+          : "stored_inline",
+      bodyStatus,
+      statuses.vectorize,
+      statuses.aiSearch
+    );
+    insertScheduledReportRow(sql, rec, generationId, owner, bodyR2Key, fanout);
+    fireFanoutIndexLegs(
+      sql,
+      env,
+      {
+        reportId: rec.id,
+        title: rec.title,
+        source: rec.source,
+        summary: rec.summary,
+        body: bodyR2Key ? "" : rec.body,
+        bodyR2Key,
+      },
+      {
+        reportId: rec.id,
+        title: rec.title,
+        source: rec.source,
+        summary: rec.summary,
+        body: bodyR2Key ? "" : rec.body,
+        bodyR2Key,
+        runId: rec.runId,
+        ownerLogin: owner,
+        storedAt: rec.createdAt,
+      }
+    );
+    return { reportId: rec.id, created: true, fanout };
   } catch (err) {
     console.error(
-      `[scheduledReports] storeReportAtGenerationWithR2 failed for run ${typeof input?.runId === "string" ? input.runId : "?"}: ${err instanceof Error ? err.message : String(err)}`,
+      `[scheduledReports] storeReportAtGenerationWithR2 failed for run ${typeof input?.runId === "string" ? input.runId : "?"} (${DataFoundationCode.REPORT_FANOUT_FAILED}): ${err instanceof Error ? err.message : String(err)}`,
       err
     );
     return null;
@@ -620,7 +939,7 @@ export function getCanonicalReport(
     ensureScheduledReportsTable(sql);
     const rows = Array.from(
       sql.exec(
-        `SELECT id, run_id, title, source, summary, body, created_at, body_r2_key FROM ${SCHEDULED_REPORTS_TABLE} WHERE id = ? LIMIT 1`,
+        `SELECT id, run_id, title, source, summary, body, created_at, body_r2_key, fanout_outcome FROM ${SCHEDULED_REPORTS_TABLE} WHERE id = ? LIMIT 1`,
         reportId
       )
     ) as Array<Record<string, unknown>>;
@@ -703,37 +1022,39 @@ export function parseResearchReportBody(bodyJson: string): {
   }
 }
 
-/** Persist via raw SQL (for call sites holding SqlStorage). Never throws. */
+/**
+ * Persist via raw SQL (for call sites holding SqlStorage). Never throws.
+ *
+ * @deprecated Superseded by storeReportAtGeneration in
+ * src/services/scheduledReports.ts (the one canonical seam,
+ * #2347). This name is retained for compatibility and now
+ * DELEGATES to that seam: its former divergent INSERT (no
+ * body_r2_key column, no index legs, no generation-id dedupe,
+ * no recorded fan-out outcome) no longer exists as a separate
+ * write path. Callers through this door get the full contract
+ * — the shared INSERT with body_r2_key + fanout_outcome,
+ * generation-id dedupe, and the recorded outcome with both
+ * index legs not_attempted (this door carries no env, so no
+ * leg can be attempted; the S4-1 backfill remains the repair
+ * path, exactly as for any env-less canonical store).
+ */
 export function persistScheduledReportSql(
   sql: SqlStorage,
   input: ScheduledReportInput
 ): string | null {
   try {
-    // Multi-tenant SaaS: a canonical row without a tenant is refused,
-    // never filed under a synthetic owner (throws inside this try).
-    const owner = reportOwnerOf(input);
-    ensureScheduledReportsTable(sql);
-    const rec = toScheduledReportRecord(input);
-    // Issue #901: INSERT must include generation_id and user_login.
-    // The table has these columns (via ensureColumn), but the old INSERT
-    // omitted them, causing the write to fail on strict schemas.
-    sql.exec(
-      `INSERT INTO ${SCHEDULED_REPORTS_TABLE} (id, run_id, title, source, summary, body, created_at, generation_id, user_login) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      rec.id,
-      rec.runId,
-      rec.title,
-      rec.source,
-      rec.summary,
-      rec.body,
-      rec.createdAt,
-      rec.generationId ?? null,
-      owner
-    );
-    return rec.id;
+    const stored = storeReportAtGeneration(sql, input);
+    if (!stored) {
+      // Issue #876: never silent — the seam has already logged
+      // the underlying error; this line names THIS door so a
+      // null from persistScheduledReportSql is attributable.
+      console.error(
+        `[scheduledReports] persistScheduledReportSql failed for run ${typeof input?.runId === "string" ? input.runId : "?"}: the canonical seam (storeReportAtGeneration) returned null; see its log line above for the underlying error`
+      );
+      return null;
+    }
+    return stored.reportId;
   } catch (err) {
-    // Issue #876: never silent. This bare catch is what hid the production
-    // write failure behind "persistScheduledReportSql returned null" —
-    // the underlying SQL error is logged here before returning null.
     console.error(
       `[scheduledReports] persistScheduledReportSql failed for run ${typeof input?.runId === "string" ? input.runId : "?"}: ${err instanceof Error ? err.message : String(err)}`,
       err
@@ -756,6 +1077,12 @@ export interface ScheduledReportHit {
    * S1 plumbing only — readers surface the pointer; S2 resolves it.
    */
   bodyR2Key: string | null;
+  /**
+   * Issue #2347: the recorded fan-out outcome for this report,
+   * or null for rows stored before the contract landed (legacy
+   * rows carry no outcome — never a fabricated one).
+   */
+  fanoutOutcome: CanonicalReportFanoutOutcome | null;
 }
 
 /**
@@ -782,6 +1109,7 @@ function scheduledReportHitFromRow(
     body: String(r.body ?? ""),
     createdAt: String(r.created_at ?? ""),
     bodyR2Key: typeof key === "string" && key ? key : null,
+    fanoutOutcome: parseFanoutOutcome(r.fanout_outcome),
   };
 }
 
@@ -828,7 +1156,7 @@ export function searchScheduledReports(
     const ownerParams: unknown[] = owner ? [owner] : [];
     const rows = Array.from(
       sql.exec(
-        `SELECT id, run_id, title, source, summary, body, created_at, body_r2_key FROM ${SCHEDULED_REPORTS_TABLE} WHERE ${ownerClause}(${clause}) ORDER BY created_at DESC LIMIT ?`,
+        `SELECT id, run_id, title, source, summary, body, created_at, body_r2_key, fanout_outcome FROM ${SCHEDULED_REPORTS_TABLE} WHERE ${ownerClause}(${clause}) ORDER BY created_at DESC LIMIT ?`,
         ...ownerParams,
         ...params,
         capped
@@ -860,7 +1188,7 @@ export function listScheduledReports(
       1,
       Math.min(Math.floor(opts?.limit ?? 50) || 50, 100)
     );
-    let q = `SELECT id, run_id, title, source, summary, body, created_at, body_r2_key FROM ${SCHEDULED_REPORTS_TABLE}`;
+    let q = `SELECT id, run_id, title, source, summary, body, created_at, body_r2_key, fanout_outcome FROM ${SCHEDULED_REPORTS_TABLE}`;
     const params: unknown[] = [];
     const wheres: string[] = [];
     if (owner) {
@@ -901,7 +1229,7 @@ export function getScheduledReportById(
       opts?.userLogin && typeof opts.userLogin === "string"
         ? opts.userLogin
         : undefined;
-    let q = `SELECT id, run_id, title, source, summary, body, created_at, body_r2_key FROM ${SCHEDULED_REPORTS_TABLE} WHERE id = ?`;
+    let q = `SELECT id, run_id, title, source, summary, body, created_at, body_r2_key, fanout_outcome FROM ${SCHEDULED_REPORTS_TABLE} WHERE id = ?`;
     const params: unknown[] = [reportId];
     if (owner) {
       q += ` AND user_login = ?`;
