@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import React from "react";
-import { SegmentedControl, PillGroup, Badge, Button, Spinner, EmptyState, Card, Notice, Tabs, TabPanel, TextInput, Select, FileInput, Modal, Table, Skeleton, Checkbox, PageShell, PageSection } from "../src/client/components/ui";
+import { SegmentedControl, PillGroup, Badge, Button, Spinner, EmptyState, Card, Notice, Tabs, TabPanel, TextInput, Select, FileInput, Modal, Table, Skeleton, Checkbox, PageShell, PageSection, ToastProvider, useToast } from "../src/client/components/ui";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -96,6 +96,23 @@ describe("Composable UI Primitives (Design System)", () => {
         expect(element.props.variant).toBe(variant);
       }
     });
+  });
+});
+
+describe("Toast Component", () => {
+  // #2283 global toast: behavioral coverage (roles, auto-dismiss,
+  // danger persistence, dedupe, cap) lives in tests/ux_toast_2283.test.tsx.
+  // This block is the inventory exercise: the provider composes like any
+  // other primitive and the hook is the single call surface.
+  it("provides a toast context to its children", () => {
+    const child = React.createElement("span", null, "inside");
+    const element = React.createElement(ToastProvider, null, child);
+    expect(element).toBeDefined();
+    expect(element.props.children).toBe(child);
+  });
+
+  it("exposes the useToast hook as the call surface", () => {
+    expect(typeof useToast).toBe("function");
   });
 });
 

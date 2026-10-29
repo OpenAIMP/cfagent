@@ -3,6 +3,7 @@ import React from "react";
 import ReactDOMServer from "react-dom/server";
 import { ETradeTradingHub } from "../src/client/ETradeTradingHub";
 import { NavigationMenu, isTabActive, NAVIGATION_ITEMS } from "../src/client/components/NavigationMenu";
+import { ToastProvider } from "../src/client/components/ui";
 
 describe("Portfolio Tab Click & Render Inspection", () => {
   it("verifies isTabActive for portfolio", () => {
@@ -34,10 +35,14 @@ describe("Portfolio Tab Click & Render Inspection", () => {
 
   it("renders ETradeTradingHub portfolio section with hero header and actions when activeSubTab is portfolio", () => {
     const html = ReactDOMServer.renderToString(
-      React.createElement(ETradeTradingHub, {
-        activeSubTab: "portfolio",
-        user: { login: "test_user", name: "Test User" },
-      })
+      React.createElement(
+        ToastProvider,
+        null,
+        React.createElement(ETradeTradingHub, {
+          activeSubTab: "portfolio",
+          user: { login: "test_user", name: "Test User" },
+        })
+      )
     );
     expect(html).toContain("portfolio-section");
     expect(html).toContain("PORTFOLIO &amp; HOLDINGS");

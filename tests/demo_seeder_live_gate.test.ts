@@ -10,14 +10,19 @@ import { readFileSync } from "node:fs";
 import React from "react";
 import ReactDOMServer from "react-dom/server";
 import { ETradeTradingHub } from "../src/client/ETradeTradingHub";
+import { ToastProvider } from "../src/client/components/ui";
 
 describe("#921 demo seeder live gate", () => {
   it("PROD render (the default environment) shows NO demo-seed affordance", () => {
     const html = ReactDOMServer.renderToString(
-      React.createElement(ETradeTradingHub, {
-        activeSubTab: "portfolio",
-        user: { login: "test_user", name: "Test User" },
-      })
+      React.createElement(
+        ToastProvider,
+        null,
+        React.createElement(ETradeTradingHub, {
+          activeSubTab: "portfolio",
+          user: { login: "test_user", name: "Test User" },
+        })
+      )
     );
     // The hub really rendered its portfolio hero in live mode…
     expect(html).toContain("LIVE BROKERAGE");
