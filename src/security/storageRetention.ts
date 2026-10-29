@@ -339,13 +339,6 @@ function pruneAgedRows(
   return { pruned, capped };
 }
 
-/** Extract string ids/keys from raw query rows, dropping anything malformed. */
-function rowIds(rows: any[], column: string): string[] {
-  return rows
-    .map((r: any) => r?.[column])
-    .filter((id: unknown): id is string => typeof id === "string" && id.length > 0);
-}
-
 /**
  * Run one retention pass. Oldest rows first, batched, capped per table;
  * one mas_events audit record is written per run (even when nothing was
@@ -404,15 +397,10 @@ export function runStorageRetention(
   const cutoffIso = new Date(nowMs - windowDays * 86_400_000).toISOString();
 
   const { pruned, capped } = pruneAgedRows(
-    (cutoff, limit) =>
-      rowIds(
-        orm.execQuery(
-          "SELECT id FROM mas_messages WHERE created_at < ? ORDER BY created_at ASC LIMIT ?",
-          cutoff,
-          limit
-        ),
-        "id"
-      ),
+    // #2345: the retention selectors are port range reads now
+    // (MessagePort.idsCreatedBefore) — execQuery has no
+    // 13-table callers left.
+    (cutoff, limit) => orm.messages.idsCreatedBefore(cutoff, limit),
     (id) => orm.messages.delete(id),
     cutoffIso,
     batchSize,
@@ -430,15 +418,7 @@ export function runStorageRetention(
   if (eventsWindowDays > 0) {
     eventsCutoffIso = new Date(nowMs - eventsWindowDays * 86_400_000).toISOString();
     const r = pruneAgedRows(
-      (cutoff, limit) =>
-        rowIds(
-          orm.execQuery(
-            "SELECT id FROM mas_events WHERE created_at < ? ORDER BY created_at ASC LIMIT ?",
-            cutoff,
-            limit
-          ),
-          "id"
-        ),
+      (cutoff, limit) => orm.events.idsCreatedBefore(cutoff, limit),
       (id) => orm.events.delete(id),
       eventsCutoffIso,
       batchSize,
@@ -458,15 +438,7 @@ export function runStorageRetention(
   if (memoryWindowDays > 0) {
     memoryCutoffIso = new Date(nowMs - memoryWindowDays * 86_400_000).toISOString();
     const r = pruneAgedRows(
-      (cutoff, limit) =>
-        rowIds(
-          orm.execQuery(
-            "SELECT key FROM mas_memory WHERE updated_at < ? ORDER BY updated_at ASC LIMIT ?",
-            cutoff,
-            limit
-          ),
-          "key"
-        ),
+      (cutoff, limit) => orm.memory.keysUpdatedBefore(cutoff, limit),
       (key) => orm.memory.delete(key),
       memoryCutoffIso,
       batchSize,
