@@ -29,11 +29,11 @@ export interface ScheduledOptionsManagerProps {
    *  "stocks" shows only market screens, "options" shows options
    *  analysis + discovery. Absent/"all" shows every screening kind. */
   groupFilter?: "all" | "stocks" | "options";
-  /** S7: bumped by the host to ask the section to refetch its list. */
+  /** S7: bumped by the host's ONE Refresh control to ask the section
+   *  to refetch everything it reads (list, latest runs, audit). The
+   *  create form is opened by the section's own hero button — the
+   *  page has exactly one create action (issue #2329). */
   refreshSignal?: number;
-  /** S7: bumped by the host to open the create modal (the host's own
-   *  "New schedule" button targets the one structured create form). */
-  openCreateSignal?: number;
 }
 
 /**

@@ -149,9 +149,9 @@ export function noViewDraftFromConstraintSets(
   return { draft, shared };
 }
 
-/** One-line summary of a stored constraint set for schedule cards:
- *  caps, floors, DTE window, risk profile — constraints only, there
- *  is no view to summarize. */
+/** One-line summary of a stored constraint set for schedule rows and
+ *  the Details dialog (#2329): caps, floors, DTE window, risk profile —
+ *  constraints only, there is no view to summarize. */
 export function formatNoViewConstraints(set: any): string {
   if (!set || typeof set !== "object") return "—";
   const parts: string[] = [];

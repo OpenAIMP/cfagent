@@ -341,7 +341,6 @@ export function ScheduleFormModal(props: ScheduleFormModalProps) {
               <footer className="sched-modal-footer">
                 <Button
                   type="button"
-                  className="btn-sched-secondary"
                   onClick={() => setModalOpen(false)}
                   disabled={submitting}
                 >
@@ -350,7 +349,6 @@ export function ScheduleFormModal(props: ScheduleFormModalProps) {
                 <Button
                   type="submit"
                   variant="primary"
-                  className="btn-sched-primary"
                   disabled={submitting}
                 >
                   {submitting

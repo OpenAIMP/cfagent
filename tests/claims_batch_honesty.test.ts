@@ -327,6 +327,15 @@ function buttonByText(scope: ParentNode, text: string): HTMLButtonElement {
   return btn as HTMLButtonElement;
 }
 
+/** #2329: one table row per schedule. */
+function rowFor(id: string): HTMLElement {
+  const row = [...container.querySelectorAll("tr.schedule-item-card")].find((r) =>
+    r.textContent?.includes(id)
+  );
+  if (!row) throw new Error(`row ${id} not found`);
+  return row as HTMLElement;
+}
+
 async function click(el: Element) {
   await act(async () => {
     (el as HTMLElement).click();
@@ -360,15 +369,26 @@ describe("F15 — ScheduledOptionsManager claims", () => {
     expect(container.textContent).not.toContain("Broadcast: ✓ Active");
   });
 
-  it("cards badge only the channels the payload configures; no unconditional Broadcast badge", async () => {
+  it("the Details dialog states only the channels the payload configures; no unconditional Broadcast badge", async () => {
     installManagerFetch([analysisNoChannels, analysisSlack]);
     await renderManager();
-    await waitForText("Target Symbols:");
+    await waitForText("user-analysis-slack");
 
-    const badgeTexts = [...container.querySelectorAll(".chan-badge")].map((b) => b.textContent);
-    expect(badgeTexts).toContain("Slack");
-    expect(badgeTexts).not.toContain("Broadcast");
-    expect(container.textContent).toContain("None configured — results surface in this app only");
+    // The configured schedule states its stored channel; nothing is invented.
+    await click(buttonByText(rowFor("user-analysis-slack"), "Details"));
+    await waitForText("Delivery");
+    const slackDialog = document.querySelector(".sched-detail-modal") as HTMLElement;
+    expect(slackDialog.textContent).toContain("#options-alerts");
+    expect(slackDialog.textContent).not.toContain("Broadcast");
+    await click(buttonByText(slackDialog, "Close"));
+
+    // The unconfigured schedule states the absence, channel by channel.
+    await click(buttonByText(rowFor("user-analysis-plain"), "Details"));
+    await waitForText("Not configured");
+    const plainDialog = document.querySelector(".sched-detail-modal") as HTMLElement;
+    expect(plainDialog.textContent).toContain("Not configured");
+    expect(plainDialog.textContent).not.toContain("Broadcast");
+    expect(container.textContent).not.toContain("Broadcast");
   });
 
   it("the live-result banner reports per-channel results only — no hard-coded Broadcast pill", async () => {
@@ -379,7 +399,11 @@ describe("F15 — ScheduledOptionsManager claims", () => {
     await click(buttonByText(container, "Run Now"));
     await waitForText("Live Screening Execution Completed");
 
-    const pillTexts = [...container.querySelectorAll(".dispatch-pill")].map((p) => p.textContent);
+    // #2329: the per-channel result pills are Badge primitives now; the
+    // claim (per-channel truth, no Broadcast) is unchanged.
+    const pillTexts = [...container.querySelectorAll(".dispatch-status-pills .ui-badge")].map(
+      (p) => p.textContent
+    );
     expect(pillTexts.some((t) => t?.includes("Slack: ✓ Sent"))).toBe(true);
     expect(pillTexts.some((t) => t?.includes("Webhook: ✕ Error"))).toBe(true);
     expect(pillTexts.some((t) => t?.includes("Broadcast"))).toBe(false);

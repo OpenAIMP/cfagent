@@ -50,6 +50,18 @@ const LIST_RESPONSE = {
 let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
 
+async function waitForModal(selector: string, timeoutMs = 6000): Promise<HTMLElement> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const element = document.querySelector(selector) as HTMLElement | null;
+    if (element) return element;
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+  }
+  throw new Error(`modal ${selector} did not open`);
+}
+
 async function render() {
   await act(async () => {
     root.render(<ToastProvider><SchedulesPanel userLogin="venus" activeEnv="PROD" /></ToastProvider>);
@@ -91,7 +103,7 @@ describe("SchedulesPanel (#273)", () => {
     expect(buttons.some((t) => t.includes("Pause"))).toBe(true);
   });
 
-  it("offers the frequency editor presets for a recurring job", async () => {
+  it("offers the cadence editor presets for a recurring job in one dialog", async () => {
     await render();
     const editBtn = [...container.querySelectorAll("button")].find((b) =>
       (b.textContent || "").includes("Edit frequency")
@@ -100,17 +112,23 @@ describe("SchedulesPanel (#273)", () => {
     await act(async () => {
       editBtn!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    const text = container.textContent || "";
+    // #2329: the inline preset grid under the card became the one
+    // cadence dialog, portaled to document.body.
+    const modal = await waitForModal(".sched-cadence-modal");
+    const text = modal.textContent || "";
     for (const preset of ["5m", "15m", "30m", "Hourly", "2h", "Daily"]) {
       expect(text).toContain(preset);
     }
-    expect(container.querySelector('input[placeholder*="cron" i]')).toBeTruthy();
+    expect(modal.querySelector('input[placeholder*="cron" i]')).toBeTruthy();
   });
 
   it("create form lists the server's creatable callbacks", async () => {
     await render();
+    // #2329: exactly one create action exists on the page — the
+    // screening section's hero button (the duplicate tab button is
+    // gone), so this is the control the test must use.
     const newBtn = [...container.querySelectorAll("button")].find((b) =>
-      (b.textContent || "").includes("New schedule")
+      (b.textContent || "").includes("New Schedule")
     );
     expect(newBtn).toBeTruthy();
     await act(async () => {

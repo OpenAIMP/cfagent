@@ -19,10 +19,11 @@
  *     builders module; SchedulesPanel hosts the section; the options
  *     hub's schedules mode is a redirect; the retired component path
  *     is gone.
- *  4. UNION RENDER: the survivor (SchedulesPanel) shows kind cards
- *     with the folded-in pause/resume + frequency edit, generic
- *     cards for the other callbacks, the latest-runs and audit
- *     sections, and tab filtering across both.
+ *  4. UNION RENDER: the survivor (SchedulesPanel) shows kind rows
+ *     with pause/resume + the one Edit control, generic rows for the
+ *     other callbacks, the latest-runs and audit sections, and tab
+ *     filtering across both. #2329 replaced the kind cards with rows:
+ *     the frequency-only editor became part of the one Edit form.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import React, { act } from "react";
@@ -524,18 +525,24 @@ describe("S7 survivor — the one schedule UI renders the union", () => {
     const trigger = buttons.find((b) => b.textContent?.includes("Trigger Now")) as HTMLButtonElement;
     expect(trigger).toBeTruthy();
     expect(trigger.disabled).toBe(true);
-    // ...and the frequency editor the nav panel used to own.
-    expect(buttons.some((b) => b.textContent?.includes("Edit frequency"))).toBe(true);
+    // #2329: one Edit control replaces the two edit entry points; the
+    // inline cadence PUT editor is gone (cadence lives in the form).
+    expect(buttons.some((b) => b.textContent?.includes("Edit frequency"))).toBe(false);
+    expect(buttons.filter((b) => b.textContent?.trim() === "Edit")).toHaveLength(1);
   });
 
-  it("the frequency editor on a screening card PUTs the preset body", async () => {
+  it("the one Edit control opens the form with the stored cadence and never PUTs", async () => {
     await renderPanel();
     const card = cardByTitle("Options Market Screen");
-    await click(buttonByText(card, "Edit frequency"));
-    await click(buttonByText(card, "15m"));
-    const puts = recorded.filter((c) => c.method === "PUT" && c.url === "/api/schedules/user-options-paused");
-    expect(puts).toHaveLength(1);
-    expect(puts[0].body).toEqual({ scheduleType: "interval", intervalSeconds: 900 });
+    await click(buttonByText(card, "Edit"));
+    await flush(60);
+    const modal = document.querySelector(".sched-modal-card") as HTMLElement;
+    expect(modal).toBeTruthy();
+    expect((modal.querySelector("#sched-cadence-type") as HTMLSelectElement).value).toBe("interval");
+    expect((modal.querySelector("#sched-interval-seconds") as HTMLInputElement).value).toBe("3600");
+    // #2329: the screening surface no longer carries the cadence-only
+    // PUT path — the form is the one edit surface.
+    expect(recorded.filter((c) => c.method === "PUT")).toHaveLength(0);
   });
 
   it("Resume on a paused screening card posts the resume route", async () => {
