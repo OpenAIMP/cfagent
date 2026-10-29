@@ -193,8 +193,8 @@ describe("dedicated paid-submission route (#2015)", () => {
     screenerCommand,
   };
 
-  it("rejects anonymous, invalid, recurring, and tenant-mismatched submissions", async () => {
-    const { ctx } = await setup();
+  it("rejects anonymous, invalid, and recurring submissions; resolved tenant wins over a mismatched client tenant (#2219)", async () => {
+    const { ctx, binding } = await setup();
     const anon = await call(ctx, "POST", "/payments/agentic/commercial/submit", null, submitBody);
     expect(anon?.status).toBe(401);
     const badFamily = await call(ctx, "POST", "/payments/agentic/commercial/submit", "u1", {
@@ -217,8 +217,13 @@ describe("dedicated paid-submission route (#2015)", () => {
       tenantId: "t2",
       tier: "Free",
     });
+    // #2219: a client-supplied tenantId is untrusted input, never
+    // identity — the resolved account tenant (t2) wins over the
+    // body's t1, and the submission proceeds instead of 403ing.
     const mismatch = await call(ctx, "POST", "/payments/agentic/commercial/submit", "u1", submitBody);
-    expect(mismatch?.status).toBe(403);
+    expect(mismatch?.status).toBe(200);
+    const createArg = (binding.create as unknown as { mock: { calls: Array<Array<{ params: { tenantId: string } }>> } }).mock.calls[0][0];
+    expect(createArg.params.tenantId).toBe("t2");
   });
 
   it("starts the payment workflow for a new run with the stored account", async () => {

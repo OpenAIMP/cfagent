@@ -4,9 +4,18 @@
  *
  * Identity rule: the session cookie is the identity. This panel never
  * sends an identity header and never reads tier or tenant from a
- * header or localStorage claim. The userLogin prop is display-only;
- * the account/subscription query targets name the session user for
- * the routes' self-or-operator contract, and the server enforces
+ * header or localStorage claim. Since #2219 (program #2218 slice 1)
+ * tenant / user / account are AUTOMATIC and READ-ONLY here: the
+ * panel fetches the resolved identity from the server's self-only
+ * identity endpoint and only displays it — there is no tenant
+ * input anywhere in this panel, in either tab. The server derives
+ * the run/checkout tenant from that resolved identity and ignores
+ * any client-supplied tenantId, even on mismatch. While identity
+ * is loading the panel shows a neutral loading state, never an
+ * input; on resolution failure it shows the failure message,
+ * never an input fallback. The userLogin prop is display-only;
+ * the subscription query target names the session user for the
+ * routes' self-or-operator contract, and the server enforces
  * that contract against the session — a mismatched target is refused
  * server-side, not trusted from here.
  *
@@ -52,8 +61,8 @@ import {
   CommercialApiError,
   formatPeriodEnd,
   formatUSD,
-  getAccount,
   getFeatures,
+  getIdentity,
   getPricing,
   getSubmissionStatus,
   getSubscriptionStatus,
@@ -65,6 +74,7 @@ import {
   subscriptionPurchase,
   type ChallengeFlow,
   type CommercialAccountView,
+  type PlatformIdentityView,
   type PlanView,
   type Pricing,
   type ScreenerFamily,
@@ -101,7 +111,8 @@ export function CheckoutPanel({ userLogin }: { userLogin: string }) {
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [pricing, setPricing] = React.useState<Pricing | null>(null);
   const [flagOn, setFlagOn] = React.useState<boolean | null>(null);
-  const [account, setAccount] = React.useState<CommercialAccountView | null>(null);
+  const [identity, setIdentity] = React.useState<PlatformIdentityView | null>(null);
+  const [identityError, setIdentityError] = React.useState<string | null>(null);
   const [subStatus, setSubStatus] = React.useState<SubscriptionStatusView | null>(null);
   const [plans, setPlans] = React.useState<PlanView[] | null>(null);
   const [subsDeployed, setSubsDeployed] = React.useState(true);
@@ -112,7 +123,6 @@ export function CheckoutPanel({ userLogin }: { userLogin: string }) {
   const [goalKind, setGoalKind] = React.useState<string>("income");
   const [direction, setDirection] = React.useState<string>("bullish");
   const [email, setEmail] = React.useState("");
-  const [tenantId, setTenantId] = React.useState("");
   const [authorized, setAuthorized] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
   const [submitResult, setSubmitResult] = React.useState<SubmitResult | null>(null);
@@ -155,17 +165,21 @@ export function CheckoutPanel({ userLogin }: { userLogin: string }) {
     let cancelled = false;
     (async () => {
       try {
-        const [pricingRes, featuresRes, accountRes] = await Promise.all([
+        const [pricingRes, featuresRes] = await Promise.all([
           getPricing(),
           getFeatures().catch(() => null),
-          getAccount(userLogin).catch(() => null),
         ]);
         if (cancelled) return;
         setPricing(pricingRes);
         const flagFeatures = featuresRes?.features ?? null;
         setFlagOn(flagFeatures ? flagFeatures["monetization"] === true : pricingRes.monetizationEnabled);
-        setAccount(accountRes);
-        if (accountRes?.tenantId) setTenantId(accountRes.tenantId);
+        // Read-only identity: a resolution failure sets the error
+        // display — never an input fallback.
+        try {
+          setIdentity(await getIdentity());
+        } catch (err) {
+          if (!cancelled) setIdentityError(errText(err));
+        }
       } catch (err) {
         if (!cancelled) setLoadError(errText(err));
       } finally {
@@ -217,10 +231,8 @@ export function CheckoutPanel({ userLogin }: { userLogin: string }) {
       setSubmitError("Enter the checkout contact email.");
       return;
     }
-    if (!tenantId.trim()) {
-      setSubmitError("Enter your tenant id (prefilled from your account when one exists).");
-      return;
-    }
+    // No tenant validation here: tenant comes from the resolved
+    // server identity (#2219), never from this panel.
     if (pricing?.monetizationEnabled && !authorized) {
       setSubmitError("Authorize the charge at submission to continue.");
       return;
@@ -234,7 +246,6 @@ export function CheckoutPanel({ userLogin }: { userLogin: string }) {
           goalKind,
           direction,
           symbols: parseSymbols(symbols),
-          tenantId: tenantId.trim(),
         });
         screenerCommand = res.screenerCommand;
       } else {
@@ -253,7 +264,6 @@ export function CheckoutPanel({ userLogin }: { userLogin: string }) {
     try {
       const res = await submitRun({
         family,
-        tenantId: tenantId.trim(),
         email: email.trim(),
         trigger: "manual",
         scheduleKind: "one_off",
@@ -307,13 +317,11 @@ export function CheckoutPanel({ userLogin }: { userLogin: string }) {
       setBuyError("Enter the checkout contact email.");
       return;
     }
-    if (!tenantId.trim()) {
-      setBuyError("Enter your tenant id (prefilled from your account when one exists).");
-      return;
-    }
+    // No tenant validation here: tenant comes from the resolved
+    // server identity (#2219), never from this panel.
     setBuying(true);
     try {
-      const res = await subscriptionCheckout({ planId: plan.id, tenantId: tenantId.trim(), email: email.trim() });
+      const res = await subscriptionCheckout({ planId: plan.id, email: email.trim() });
       setBuyPlan(plan);
       setBuyCheckoutId(res.checkoutRequestId);
       // The native subscription checkout always returns a URL (slice
@@ -335,7 +343,6 @@ export function CheckoutPanel({ userLogin }: { userLogin: string }) {
     try {
       const res = await subscriptionPurchase({
         planId: buyPlan.id,
-        tenantId: tenantId.trim(),
         checkoutRequestId: buyCheckoutId,
         checkoutSessionId: buySessionId,
       });
@@ -393,6 +400,22 @@ export function CheckoutPanel({ userLogin }: { userLogin: string }) {
         idBase="checkout-tabs"
         ariaLabel="Checkout sections"
       />
+      {/* #2219: read-only identity display, shared by both tabs.
+          Never an input: loading shows a neutral loading line,
+          and a resolution failure shows the failure message. */}
+      {identityError ? (
+        <Notice tone="danger">{identityError}</Notice>
+      ) : identity ? (
+        <p>
+          Signed in as <strong>{identity.userLogin}</strong> — tenant{" "}
+          <strong>{identity.tenantId ?? "No account on file"}</strong> — account tier{" "}
+          <strong>{identity.tier}</strong> — credits {formatUSD(identity.creditsUSD)} — included runs{" "}
+          {identity.includedRunsRemaining}.
+          {!identity.hasAccount && " No account is on file for this login."}
+        </p>
+      ) : (
+        <p>Loading account identity…</p>
+      )}
       {tab === "pay" && (
         <Card>
           {flagOn === false && (
@@ -450,22 +473,8 @@ export function CheckoutPanel({ userLogin }: { userLogin: string }) {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
-          <TextInput
-            label="Tenant id"
-            hint="Prefilled from your account when one exists."
-            value={tenantId}
-            onChange={(e) => setTenantId(e.target.value)}
-          />
           <p>
             Price per run-request: <strong>{priceFor(family)}</strong>
-            {account && (
-              <>
-                {" "}
-                — your account: tier {account.tier ?? "—"}, credits{" "}
-                {account.creditsUSD !== undefined ? formatUSD(account.creditsUSD) : "—"}, included runs{" "}
-                {account.includedRunsRemaining ?? "—"}.
-              </>
-            )}
           </p>
           {pricing?.failurePolicy && <Notice tone="info">{pricing.failurePolicy}</Notice>}
           {pricing && (
@@ -612,7 +621,6 @@ export function CheckoutPanel({ userLogin }: { userLogin: string }) {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
-              <TextInput label="Tenant id" value={tenantId} onChange={(e) => setTenantId(e.target.value)} />
               {buyError && <Notice tone="danger">{buyError}</Notice>}
               {buyCheckoutId && buyPlan && (
                 <Notice tone="info">
