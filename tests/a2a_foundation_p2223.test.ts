@@ -69,7 +69,7 @@ const ORCHESTRATOR_FAMILY = ["orchestrator", "search", "tasks", "memory", "nlq"]
 describe("A2A resolution map (#2223 slice 1)", () => {
   it("contains exactly this slice's names", () => {
     expect(Object.keys(A2A_RESOLUTIONS).sort()).toEqual(
-      ["memory", "nlq", "orchestrator", "payments", "scheduled", "search", "tasks", "trading"].sort(),
+      ["aisearch", "memory", "nlq", "orchestrator", "payments", "scheduled", "search", "tasks", "trading"].sort(),
     );
   });
 
