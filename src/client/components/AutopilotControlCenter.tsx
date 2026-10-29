@@ -1514,7 +1514,7 @@ export function AutopilotControlCenter({
               </Button>
             </div>
             <div className="modal-body">
-              <p style={{ color: "var(--color-text-secondary)", lineHeight: 1.5, fontSize: "0.9rem" }}>
+              <p style={{ color: "var(--color-text-secondary)", lineHeight: 1.5, fontSize: "var(--font-size-body)" }}>
                 Activating the Emergency Kill Switch terminates all active autonomous order pipelines,
                 blocks any new trade submission, and cancels pending unexecuted orders across the
                 brokerage.
@@ -1526,7 +1526,7 @@ export function AutopilotControlCenter({
                   padding: "var(--space-3)",
                   borderRadius: "var(--radius-sm, 6px)",
                   margin: "1rem 0",
-                  fontSize: "0.82rem",
+                  fontSize: "var(--font-size-body-sm)",
                   color: "var(--color-danger)",
                 }}
               >
