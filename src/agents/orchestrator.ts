@@ -54,8 +54,8 @@ import {
   type JobListScopedModes,
 } from "../config/asyncJobModes";
 import type { PaymentsFlowScopedModes } from "../config/paymentsFlowModes";
-import { SqlScanRunStore, diffScanRuns } from "../trading";
-import { SqlStrategyProfileStore } from "../trading";
+import { diffScanRuns } from "../trading";
+import { createOptionsDiscoveryPorts } from "../data/createOptionsDiscoveryPorts";
 import { createDidAttestation, resolveAgentDidDocument } from "./did";
 import { createMAS } from "./mas";
 import { buildChatErrorFallback, type ChatErrorFallbackContext } from "./chatErrorFallback";
@@ -953,7 +953,7 @@ export class OrchestratorAgent extends PortThink {
         }
         await this.ctx.storage.put(key, { slot });
       }
-      const service = new ScheduledTasksService(this.env, this.getOrm(), userLogin, new SqlScanRunStore(this.ctx.storage.sql), undefined, undefined, undefined, (outcome, schedulerUserLogin, chainReport) => scheduleScreenerFollowups(this.asyncJobsContext(), outcome, schedulerUserLogin, chainReport), {sql:this.ctx.storage.sql,blobStorage:this.ctx.storage,env:this.env}, (spec) => (this as any).submitAsyncJob(spec));
+      const service = new ScheduledTasksService(this.env, this.getOrm(), userLogin, createOptionsDiscoveryPorts({ sql: this.ctx.storage.sql, storage: this.ctx.storage }).scanRuns, undefined, undefined, undefined, (outcome, schedulerUserLogin, chainReport) => scheduleScreenerFollowups(this.asyncJobsContext(), outcome, schedulerUserLogin, chainReport), {sql:this.ctx.storage.sql,blobStorage:this.ctx.storage,env:this.env}, (spec) => (this as any).submitAsyncJob(spec));
       const res = await service.autonomousOptionsAnalysis({ ...payload, userLogin, environment, sharded: payload?.sharded });
       if ((res as any).skipped) return;
       if (res.data?.sharded) return;
@@ -2002,8 +2002,8 @@ export class OrchestratorAgent extends PortThink {
       orm: this.getOrm(),
       sessionId: this.sessionKey(),
       audit: (type, payload) => this.audit(type, "orchestrator", payload),
-      scanRunStore: new SqlScanRunStore(this.ctx.storage.sql),
-      profileStore: new SqlStrategyProfileStore(this.ctx.storage.sql),
+      scanRunStore: createOptionsDiscoveryPorts({ sql: this.ctx.storage.sql, storage: this.ctx.storage }).scanRuns,
+      profileStore: createOptionsDiscoveryPorts({ sql: this.ctx.storage.sql, storage: this.ctx.storage }).strategyProfiles,
       schedulingPort: this.nlqSchedulingPort(),
       stockScreenPort: this.nlqStockScreenPort(),
     };
