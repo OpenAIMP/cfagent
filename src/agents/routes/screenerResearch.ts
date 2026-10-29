@@ -1073,7 +1073,11 @@ export async function handleScreenerResearchRoutes(
       if (!getChallenger(ctx.getOrm(), userLogin, candidateId)) {
         return Response.json({ error: `challenger ${candidateId} not found.` }, { status: 404 });
       }
-      const result = promoteChallenger(ctx.getOrm(), userLogin, candidateId, { actor: userLogin });
+      // Issue #2346: the DO storage argument turns on the
+      // transaction wrap for the promotion transition (the ctx
+      // getStorage idiom, #1661); mock ctxs without it keep the
+      // sequential legacy execution.
+      const result = promoteChallenger(ctx.getOrm(), userLogin, candidateId, { actor: userLogin }, ctx.getStorage?.());
       return Response.json({ success: result.ok, reason: result.reason ?? null, timestamp: new Date().toISOString() });
     }
     if (path.endsWith("/adaptation/promotions/rollback") && request.method === "POST") {
@@ -1092,7 +1096,9 @@ export async function handleScreenerResearchRoutes(
       if (!getChallenger(ctx.getOrm(), userLogin, candidateId)) {
         return Response.json({ error: `challenger ${candidateId} not found.` }, { status: 404 });
       }
-      const result = rollbackChallengerPromotion(ctx.getOrm(), userLogin, candidateId, { actor: userLogin });
+      // Issue #2346: as the promote handler above — the storage
+      // argument turns on the transaction wrap for the rollback.
+      const result = rollbackChallengerPromotion(ctx.getOrm(), userLogin, candidateId, { actor: userLogin }, ctx.getStorage?.());
       return Response.json({ success: result.ok, reason: result.reason ?? null, timestamp: new Date().toISOString() });
     }
 
