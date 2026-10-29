@@ -552,3 +552,91 @@ export const agentAuditChain = sqliteTable("agent_audit_chain", {
   entryHash: text("entry_hash").notNull(),
   createdAtMs: integer("created_at_ms").notNull(),
 });
+
+/**
+ * Intelligence substrate (#1976 step 0, issue #2288; ADR 0022
+ * D-F). This schema MAPS the tables; it does not create them —
+ * DDL authority lives in migration 0017
+ * (src/data/migrationRunner.ts), and a test pins that this
+ * mapping and that DDL agree on columns. All four families are
+ * D1-native under the ratified R9 restatement: the trace family
+ * and the work-item projection are append/upsert substrate the
+ * loop reads; the proposal ledger is a state machine whose
+ * transitions carry their gate as data; the registry/matrix is
+ * a read model whose production writer is gate G-6 (unbuilt).
+ */
+export const agentTraceRecords = sqliteTable("agent_trace_records", {
+  id: text("id").primaryKey(),
+  correlationId: text("correlation_id").notNull(),
+  causationId: text("causation_id"),
+  actingAgent: text("acting_agent").notNull(),
+  principal: text("principal").notNull(),
+  operation: text("operation").notNull(),
+  outcomeCode: text("outcome_code").notNull(),
+  latencyMs: integer("latency_ms"),
+  costUnits: real("cost_units"),
+  costDetailJson: text("cost_detail_json"),
+  occurredAtMs: integer("occurred_at_ms").notNull(),
+  createdAtMs: integer("created_at_ms").notNull(),
+});
+
+export const agentProposals = sqliteTable("agent_proposals", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  summary: text("summary").notNull(),
+  proposerAgent: text("proposer_agent").notNull(),
+  principal: text("principal").notNull(),
+  state: text("state").notNull(),
+  createdAtMs: integer("created_at_ms").notNull(),
+  updatedAtMs: integer("updated_at_ms").notNull(),
+});
+
+export const agentProposalTransitions = sqliteTable("agent_proposal_transitions", {
+  id: text("id").primaryKey(),
+  proposalId: text("proposal_id").notNull(),
+  fromState: text("from_state"),
+  toState: text("to_state").notNull(),
+  actor: text("actor").notNull(),
+  gateRef: text("gate_ref"),
+  createdAtMs: integer("created_at_ms").notNull(),
+});
+
+export const agentFleetRegistry = sqliteTable("agent_fleet_registry", {
+  agentKey: text("agent_key").primaryKey(),
+  className: text("class_name").notNull(),
+  binding: text("binding").notNull(),
+  instanceScheme: text("instance_scheme").notNull(),
+  migrationTag: text("migration_tag"),
+  operationsJson: text("operations_json").notNull(),
+  identityJson: text("identity_json"),
+  doSchemaVersion: integer("do_schema_version"),
+  updatedAtMs: integer("updated_at_ms").notNull(),
+});
+
+export const agentConformanceCells = sqliteTable(
+  "agent_conformance_cells",
+  {
+    agentKey: text("agent_key").notNull(),
+    dimension: text("dimension").notNull(),
+    status: text("status").notNull(),
+    reference: text("reference"),
+    updatedAtMs: integer("updated_at_ms").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.agentKey, t.dimension] })],
+);
+
+export const agentWorkItemEvents = sqliteTable(
+  "agent_work_item_events",
+  {
+    source: text("source").notNull(),
+    externalId: text("external_id").notNull(),
+    kind: text("kind").notNull(),
+    state: text("state").notNull(),
+    actor: text("actor"),
+    occurredAtMs: integer("occurred_at_ms").notNull(),
+    payloadDigest: text("payload_digest").notNull(),
+    createdAtMs: integer("created_at_ms").notNull(),
+    updatedAtMs: integer("updated_at_ms").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.source, t.externalId] })],
+);
