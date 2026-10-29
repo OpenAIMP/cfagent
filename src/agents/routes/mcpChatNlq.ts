@@ -64,6 +64,7 @@ import { resolveAiModelName } from "../model";
 import { getUserDid } from "../did";
 import { SqlScanRunStore, SqlStrategyProfileStore } from "../../trading";
 import { createDiscoveryService } from "../../services/discoveryService";
+import { buildDataProviderPorts } from "../../data/buildDataProviderPorts";
 import { createFitDiscoveryRunner } from "../../services/fitDiscoveryRunner";
 
 /** The subset of OrchestratorAgent surface the MCP/chat/NLQ handlers need. */
@@ -349,6 +350,10 @@ export async function handleMcpChatNlqRoutes(
       // Issue #1686: the single exception to "NO options" is the DO
       // blob handle — mcp-mode screens capture fully like rest-mode
       // screens; ports, stores, and runners stay absent.
+      // #2303: ports for the REST-mode discovery runner (mcp
+      // mode keeps its no-options shape, #1686 exception aside).
+      const nlqDpPorts =
+        resolvedNlqMode.mode === "mcp" ? null : await buildDataProviderPorts(ctx.env);
       const { plan, result } = resolvedNlqMode.mode === "mcp"
         ? await executeNaturalLanguageQuery(orm, sessionId, query, ctx.env, userLogin, userDid, { storage: ctx.getStorage?.() })
         : await executeNaturalLanguageQuery(
@@ -358,7 +363,7 @@ export async function handleMcpChatNlqRoutes(
             ctx.env,
             userLogin,
             userDid,
-            { context: contextHeader, validateWithLLM: body.validateWithLLM, scanRunStore: new SqlScanRunStore(ctx.getStorageSql()), profileStore: new SqlStrategyProfileStore(ctx.getStorageSql()), schedulingPort: ctx.nlqSchedulingPort(), socialBriefPort, storage: ctx.getStorage?.(), discoveryRunner: createDiscoveryService({ env: ctx.env, userLogin, orm, sql: ctx.getStorageSql(), blobStorage: ctx.getStorage?.() }), fitDiscoveryRunner: createFitDiscoveryRunner({ env: ctx.env, userLogin, sql: ctx.getStorageSql(), storage: ctx.getStorage?.() }) }
+            { context: contextHeader, validateWithLLM: body.validateWithLLM, scanRunStore: new SqlScanRunStore(ctx.getStorageSql()), profileStore: new SqlStrategyProfileStore(ctx.getStorageSql()), schedulingPort: ctx.nlqSchedulingPort(), socialBriefPort, storage: ctx.getStorage?.(), discoveryRunner: createDiscoveryService({ env: ctx.env, userLogin, orm, sql: ctx.getStorageSql(), blobStorage: ctx.getStorage?.(), ...(nlqDpPorts?.config ? { configPort: nlqDpPorts.config } : {}), ...(nlqDpPorts?.captures ? { capturePort: nlqDpPorts.captures } : {}) }), fitDiscoveryRunner: createFitDiscoveryRunner({ env: ctx.env, userLogin, sql: ctx.getStorageSql(), storage: ctx.getStorage?.() }) }
           );
       ctx.audit("nlq.executed", "nlq", {
         query,
