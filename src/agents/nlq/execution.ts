@@ -405,6 +405,30 @@ function executeNLQQueryCore(
     const now = new Date().toISOString();
     const id = `cat_${slug.slice(0, 16)}_${crypto.randomUUID().slice(0, 4)}`;
 
+    // #2345: categories are a marketplace-port table now. The
+    // synchronous executor can only serve the DO composition
+    // (AGENT_DB unbound — the facade's sync repository over the
+    // instance's own table, exactly the pre-move behaviour).
+    // When AGENT_DB is bound the table is D1-resident and a
+    // sync executor cannot write it; writing the per-instance
+    // table anyway would split the fleet table, so — matching
+    // the scheduling/social guard pattern above — the sync
+    // executor refuses honestly and the asynchronous executor
+    // (executeNLQQueryAsyncCore) serves the domain.
+    if (env?.AGENT_DB) {
+      return {
+        plan,
+        domain: "category_mutation",
+        targetTable: "mas_categories",
+        count: 0,
+        status: "error",
+        summary:
+          "Category mutation: this action requires the asynchronous NLQ executor (executeNLQQueryAsync) — the categories table is D1-resident in this environment and cannot be written synchronously. Nothing was created by this call.",
+        rows: [],
+        executedAt,
+      };
+    }
+
     const created = orm.categories.create({
       id,
       name: catName,
@@ -2236,6 +2260,47 @@ async function executeNLQQueryAsyncCore(
       count: 1,
       summary: `Social brief set for ${date}.`,
       rows: [],
+      executedAt,
+    };
+  }
+
+  // #2345: category_mutation is served HERE, not by the sync
+  // fall-through — categories live behind the async
+  // marketplace ports (D1 when AGENT_DB is bound, the
+  // instance's own table when not).
+  if (plan.domain === "category_mutation") {
+    const catName = plan.categoryData?.name || plan.terms || "New Category";
+    const slug = catName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const now = new Date().toISOString();
+    const id = `cat_${slug.slice(0, 16)}_${crypto.randomUUID().slice(0, 4)}`;
+    const mp = await orm.marketplacePorts(env ?? {});
+    const created = await mp.categories.create({
+      id,
+      name: catName,
+      slug,
+      description: plan.categoryData?.description || `Category for ${catName} referrals`,
+      icon: plan.categoryData?.icon || "🏷️",
+      isActive: true,
+      sortOrder: ((await mp.categories.count()) || 0) + 1,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const allCategories = await mp.categories.findMany({ orderBy: "sort_order ASC" });
+    return {
+      plan,
+      domain: "category_mutation",
+      targetTable: "mas_categories",
+      count: allCategories.length,
+      summary: `Category "${created.name}" created successfully via ORM. Total active categories: ${allCategories.length}.`,
+      rows: allCategories.map((c) => ({
+        id: c.id,
+        name: c.name,
+        icon: c.icon,
+        slug: c.slug,
+        description: c.description,
+        status: c.isActive ? "ACTIVE" : "INACTIVE",
+        sortOrder: c.sortOrder,
+      })),
       executedAt,
     };
   }
