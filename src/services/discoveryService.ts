@@ -47,6 +47,8 @@ import {
   type DataProvider,
 } from "../trading";
 import type { CaptureBlobStorage } from "../trading";
+import type { ProviderConfigStore } from "../data/providerConfigPorts";
+import type { ProviderCaptureStore } from "../data/providerCapturePorts";
 import type { YahooDailyBar } from "../trading";
 import {
   chainAggregatesFromContracts,
@@ -346,6 +348,15 @@ export function createDiscoveryService(args: {
    * trading-integrations route, and UnifiedOptionsService.
    */
   blobStorage?: CaptureBlobStorage;
+  /**
+   * #2303 (#1976 step 1): the data-layer ports. When a host
+   * supplies them, the history provider resolution runs its
+   * bootstrap/transitions/route reads on D1 through the config
+   * port and captures land through the capture port; otherwise
+   * the sql path runs unchanged.
+   */
+  configPort?: ProviderConfigStore | null;
+  capturePort?: ProviderCaptureStore | null;
   /** Issue #18: opt into Decision 2 alert dispatch for runs from
    *  this service instance. Channels are built from the
    *  environment: SLACK_WEBHOOK_URL (Slack), and
@@ -378,6 +389,8 @@ export function createDiscoveryService(args: {
         env: args.env,
         userLogin: args.userLogin,
         ...(args.blobStorage ? { blobStorage: args.blobStorage } : {}),
+        ...(args.configPort ? { configPort: args.configPort } : {}),
+        ...(args.capturePort ? { capturePort: args.capturePort } : {}),
       });
     }
     return historyProviderPromise;
