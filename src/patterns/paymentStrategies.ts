@@ -213,6 +213,63 @@ export class StripePaymentStrategy implements IPaymentGatewayStrategy {
   }
 
   /**
+   * Issue #2193 (slice 1, #2146) — retrieve a Checkout Session by
+   * id (GET /v1/checkout/sessions/{id}). This closes design §6.1:
+   * no session-retrieve method existed in this file, and the
+   * native gate's confirm-by-retrieve rule needs one. The strategy
+   * stays the only Stripe API surface: the checkout adapter reads
+   * sessions through PaymentGatewayService, never by fetching
+   * Stripe itself. A retrieve is a read of provider state, so
+   * transport/config failures THROW (the caller's durable step
+   * retries); only a successful retrieve yields evidence, and the
+   * gate — not this method — judges whether that evidence pays.
+   * A success-page redirect is never consulted here.
+   */
+  async retrieveCheckoutSession(
+    env: Env,
+    sessionId: string,
+  ): Promise<{
+    id: string;
+    status: string;
+    payment_status: string;
+    amount_total: number;
+    client_reference_id: string;
+    payment_intent?: string;
+  }> {
+    const { apiKey } = this.resolveApiKey(env);
+    if (!apiKey) {
+      throw new Error("Stripe is not configured: a secret key is required to retrieve a checkout session.");
+    }
+    if (!sessionId || typeof sessionId !== "string") {
+      throw new Error("A Stripe session id is required to retrieve a checkout session.");
+    }
+    const res = await fetch(`https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(sessionId)}`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+    });
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      throw new Error(`Stripe session retrieve failed: HTTP ${res.status} (${(data.error as { message?: string } | undefined)?.message ?? res.statusText}).`);
+    }
+    const paymentIntent = data.payment_intent;
+    return {
+      id: typeof data.id === "string" ? data.id : sessionId,
+      status: typeof data.status === "string" ? data.status : "",
+      payment_status: typeof data.payment_status === "string" ? data.payment_status : "",
+      amount_total: typeof data.amount_total === "number" ? data.amount_total : NaN,
+      client_reference_id: typeof data.client_reference_id === "string" ? data.client_reference_id : "",
+      payment_intent:
+        typeof paymentIntent === "string"
+          ? paymentIntent
+          : (paymentIntent as { id?: unknown } | null)?.id && typeof (paymentIntent as { id?: unknown }).id === "string"
+            ? ((paymentIntent as { id: string }).id as string)
+            : undefined,
+    };
+  }
+
+  /**
    * Creates a native Stripe PaymentIntent for headless or mobile checkouts
    */
   async createPaymentIntent(
