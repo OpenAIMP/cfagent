@@ -70,6 +70,33 @@ import {
   type ResearchTaskStore,
 } from "../services/researchTaskLedger";
 
+/**
+ * Issue #2327 (Agent Mesh S3, programme #2225 G8/G14): the retired
+ * synthetic login. Research work acts under an explicit identity or
+ * not at all — an absent, blank, or literally-"default" login is NO
+ * identity, never a shared one (the #1185 discipline, applied to the
+ * survey's §2-identity(d) fallback family). The literal is rejected
+ * even when a caller passes it deliberately: it names the old
+ * fallback, not a user.
+ */
+const RETIRED_DEFAULT_LOGIN = "default";
+
+/**
+ * Resolve a caller-supplied login to an acting identity, or null
+ * when there is none. Returns the login verbatim — only its
+ * presence is judged here, never rewritten.
+ */
+function explicitResearchLogin(value: string | undefined | null): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || trimmed === RETIRED_DEFAULT_LOGIN) return null;
+  return value;
+}
+
+/** The run methods' fail-closed refusal for an identity-less request. */
+const RESEARCH_IDENTITY_REQUIRED =
+  "Research run requires an explicit userLogin — runs are never attributed to a default identity (issue #2327).";
+
 const LATEST_KEY = "research:latest";
 const RESEARCH_PDF_KEY_PREFIX = "research:pdf:";
 const RESEARCH_PDF_LATEST_KEY = "research:pdf:latest";
@@ -438,9 +465,9 @@ export class ResearchAgent extends PortThink {
    * origin (a Request cannot cross the DO RPC boundary). Thin
    * delegation to the dispatch module (./researchA2aDispatch),
    * which threads the service identity into run requests explicitly
-   * — the run methods' literal "default" login fallback is never
-   * inherited through this door. Returns the collected
-   * { text, data } outcome.
+   * — and since issue #2327 the run methods themselves refuse an
+   * absent login, so no door can inherit a default identity.
+   * Returns the collected { text, data } outcome.
    */
   async handleA2A(body: unknown, origin: string): Promise<ResearchA2AOutcome> {
     void origin; // reserved for per-origin policy (cfpay parity); unused in v1
@@ -464,7 +491,12 @@ export class ResearchAgent extends PortThink {
    * orchestrator's job — see runResearchAndPublish.
    */
   async runResearch(req: ResearchRunRequest): Promise<ResearchRunResult> {
-    const userLogin = req.userLogin || "default";
+    // Issue #2327: no identity, no run — a request that cannot name
+    // its actor is refused, never executed under a default login.
+    const userLogin = explicitResearchLogin(req.userLogin);
+    if (!userLogin) {
+      return { success: false, report: null, error: RESEARCH_IDENTITY_REQUIRED };
+    }
     try {
       this.ensureTables();
       const service = this.configService();
@@ -558,7 +590,17 @@ export class ResearchAgent extends PortThink {
   async runDiscovery(
     req: ResearchDiscoveryRunRequest
   ): Promise<ResearchDiscoveryRunResult> {
-    const userLogin = req.userLogin || "default";
+    // Issue #2327: same discipline as runResearch — no identity, no run.
+    const userLogin = explicitResearchLogin(req.userLogin);
+    if (!userLogin) {
+      return {
+        success: false,
+        proposals: [],
+        persisted: 0,
+        limitations: [],
+        error: RESEARCH_IDENTITY_REQUIRED,
+      };
+    }
     try {
       this.ensureTables();
       // Issue #1331: history resolution degrades to undefined deps
@@ -819,6 +861,18 @@ export class ResearchAgent extends PortThink {
       status: "moved" | "stale";
       detail: string;
     }> = [];
+    // Issue #2327: the refresh reads under the caller's login or the
+    // report's recorded owner — with neither, there is no identity to
+    // attribute the provider reads to, so no refresh runs (no flags
+    // is this method's honest degradation, never a default login).
+    const login =
+      explicitResearchLogin(userLogin) ?? explicitResearchLogin(report.userLogin);
+    if (!login) {
+      console.warn(
+        "[ResearchAgent] Pre-entry refresh skipped: no explicit userLogin and the report records no owner."
+      );
+      return flags;
+    }
     try {
       // Issue #1331: history resolution degrades to undefined deps
       // (honestly-null technicals) instead of failing the quote
@@ -828,7 +882,7 @@ export class ResearchAgent extends PortThink {
       const historyDeps = await resolveYahooHistoryDeps({
         sql: this.ctx.storage.sql,
         env: this.env,
-        userLogin: userLogin || report.userLogin || "default",
+        userLogin: login,
         blobStorage: this.ctx.storage,
         runId: crypto.randomUUID(),
       });
@@ -844,7 +898,7 @@ export class ResearchAgent extends PortThink {
           sql: this.ctx.storage.sql,
           storage: this.ctx.storage,
           env: this.env,
-          userLogin: userLogin || report.userLogin || "default",
+          userLogin: login,
           runId: crypto.randomUUID(),
         });
         const universeProvider = nasdaqUniverseProviderFromRoute(
@@ -860,7 +914,7 @@ export class ResearchAgent extends PortThink {
       }
       const provider = new EtradeResearchDataProvider(
         this.env,
-        userLogin || report.userLogin || "default",
+        login,
         historyDeps,
         universeDeps
       );
@@ -953,6 +1007,13 @@ export class ResearchAgent extends PortThink {
       const raw = rows[0]?.report_json;
       if (typeof raw !== "string") return null;
       const report = JSON.parse(raw) as ResearchReport;
+      // Issue #2327: the evaluation is attributed to the caller when
+      // it names one, else to the run's recorded owner — never to a
+      // default identity. With neither, decline (null, this method's
+      // failure value) before any provider work happens.
+      const login =
+        explicitResearchLogin(userLogin) ?? explicitResearchLogin(report.userLogin);
+      if (!login) return null;
       const ideas: StoredIdeaRecord[] = report.ideas.map((idea) => ({
         runId: report.runId,
         symbol: idea.symbol,
@@ -973,7 +1034,7 @@ export class ResearchAgent extends PortThink {
       const historyDeps = await resolveYahooHistoryDeps({
         sql: this.ctx.storage.sql,
         env: this.env,
-        userLogin: userLogin || "default",
+        userLogin: login,
         blobStorage: this.ctx.storage,
         runId: crypto.randomUUID(),
       });
@@ -989,7 +1050,7 @@ export class ResearchAgent extends PortThink {
           sql: this.ctx.storage.sql,
           storage: this.ctx.storage,
           env: this.env,
-          userLogin: userLogin || "default",
+          userLogin: login,
           runId: crypto.randomUUID(),
         });
         const universeProvider = nasdaqUniverseProviderFromRoute(
@@ -1005,7 +1066,7 @@ export class ResearchAgent extends PortThink {
       }
       const provider = new EtradeResearchDataProvider(
         this.env,
-        userLogin || "default",
+        login,
         historyDeps,
         universeDeps
       );
@@ -1030,7 +1091,7 @@ export class ResearchAgent extends PortThink {
           "../services/scheduledReports"
         );
         recordUsageEvent(this.storageSql(), {
-          userLogin: userLogin || "default",
+          userLogin: login,
           runId,
           category: "research_evaluation",
           detail: { ideas: evaluation.ideas.length },

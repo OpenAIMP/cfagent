@@ -179,9 +179,14 @@ const ORCH = "agents/orchestrator.ts";
  *  cursor measurement to the resource sink) regrew the class in
  *  the same window — measured 2,631 lines / 121,082 B on the
  *  merged tree, so budget lines rise to 2640 and bytes rise
- *  to 121_700. */
-const BUDGET_LINES = 2640;
-const BUDGET_BYTES = 121_700;
+ *  to 121_700.
+ *  Agent Mesh S3 (#2327) makes the research-stub helper fail
+ *  closed on a missing identity (the getResearchAgent guard +
+ *  its comment; no new logic surface) — measured 2,646 lines /
+ *  121,915 B on the merged tree (over #2303's step-1 wiring),
+ *  so budget lines rise to 2660 and bytes rise to 122_500. */
+const BUDGET_LINES = 2660;
+const BUDGET_BYTES = 122_500;
 
 const count = (haystack: string, needle: string) =>
   haystack.split(needle).length - 1;

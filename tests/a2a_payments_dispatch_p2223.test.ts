@@ -133,7 +133,7 @@ describe("dispatchPaymentsA2A routing (#2223 payments)", () => {
         message: {
           parts: [
             { kind: "text", text: "check" },
-            { kind: "data", data: { operation: "payments.budget_check", op: "nlq.execute", amountCents: 5 } },
+            { kind: "data", data: { operation: "payments.budget_check", op: "nlq.execute", amountCents: 5, agentId: "nlq-caller" } },
           ],
         },
       },
@@ -141,7 +141,7 @@ describe("dispatchPaymentsA2A routing (#2223 payments)", () => {
     const data = await dispatchPaymentsA2A(ENV, body, { executor });
     expect(data.ok).toBe(true);
     expect(calls).toEqual([
-      { method: "budgetCheck", args: { operation: "nlq.execute", amountCents: 5, agentId: undefined } },
+      { method: "budgetCheck", args: { operation: "nlq.execute", amountCents: 5, agentId: "nlq-caller" } },
     ]);
   });
 
@@ -151,7 +151,7 @@ describe("dispatchPaymentsA2A routing (#2223 payments)", () => {
     });
     const data = await dispatchPaymentsA2A(
       ENV,
-      { operation: "payments.budget_check", op: "search.query", amountCents: 9000 },
+      { operation: "payments.budget_check", op: "search.query", amountCents: 9000, agentId: "sched-1" },
       { executor },
     );
     expect(data.ok).toBe(true);
@@ -468,7 +468,9 @@ describe("PaymentsAgent.handleA2A money path (#2223 payments)", () => {
   it("budget_check through the door returns the verdict as a success result", async () => {
     const agent = new (PaymentsAgent as any)(makeCtx(), makeLedgerEnv());
     const outcome = await agent.handleA2A(
-      { operation: "payments.budget_check", op: "search.query", amountCents: 100 },
+      // Issue #2327: the door requires the caller's agentId, like
+      // payments.process — an anonymous check is invalid input now.
+      { operation: "payments.budget_check", op: "search.query", amountCents: 100, agentId: "door-caller" },
       "https://agent.test"
     );
     expect(outcome.data.ok).toBe(true);

@@ -218,10 +218,15 @@ describe("thin triggers (amendment 2)", () => {
       return { ok: true as const };
     };
     await triggerManualResearch(publish, "u1");
-    await triggerScheduledResearch(publish);
+    // Issue #2327: the scheduled trigger no longer defaults the
+    // login to "default" — the caller supplies it explicitly (in
+    // production the tick route passes the service identity). The
+    // same login is passed here so the pin keeps its exact intent:
+    // the two invocations differ ONLY in the trigger.
+    await triggerScheduledResearch(publish, "u1");
     expect(calls).toEqual([
       { trigger: "manual", userLogin: "u1" },
-      { trigger: "scheduled", userLogin: "default" },
+      { trigger: "scheduled", userLogin: "u1" },
     ]);
   });
 });
