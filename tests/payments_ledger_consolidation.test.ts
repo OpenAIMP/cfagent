@@ -35,6 +35,7 @@ vi.mock("agents", () => {
 });
 
 import { PaymentsAgent } from "../src/agents/payments-agent";
+import { AGENTIC_SPEND_AGENT_ID } from "../src/payments/ledger";
 import { DatabaseORM } from "../src/orm";
 import { MockSqlStorage } from "./mock-sql";
 import { handleAgenticPaymentsRoutes } from "../src/agents/routes/agenticPayments";
@@ -278,12 +279,14 @@ describe("Budget truth reconciles with mas_transactions (#896)", () => {
     const agent = new (PaymentsAgent as any)(ctx, makeEnv(ledger));
     // Default caps are 5000c/day and 1000c/call: $45 (4500c) already
     // spent, so a further 1000c check must be denied on the DAILY cap —
-    // the pre-#896 guard blob saw none of this spend.
-    const verdict = await agent.budgetCheck({ operation: "search.query", amountCents: 1000 });
+    // the pre-#896 guard blob saw none of this spend. Issue #2327: the
+    // check names the orchestrator-attributed bucket explicitly (the
+    // identity the retired callee-side default used to supply).
+    const verdict = await agent.budgetCheck({ operation: "search.query", amountCents: 1000, agentId: AGENTIC_SPEND_AGENT_ID });
     expect(verdict.allowed).toBe(false);
     expect(verdict.reason).toMatch(/daily cap exceeded/);
     // And a small check that fits the remaining headroom is still allowed.
-    const small = await agent.budgetCheck({ operation: "search.query", amountCents: 400 });
+    const small = await agent.budgetCheck({ operation: "search.query", amountCents: 400, agentId: AGENTIC_SPEND_AGENT_ID });
     expect(small.allowed).toBe(true);
   });
 
@@ -321,7 +324,9 @@ describe("Budget truth reconciles with mas_transactions (#896)", () => {
   it("budgetCheck fails closed when the ledger owner is not bound", async () => {
     const ctx = makeCtx();
     const agent = new (PaymentsAgent as any)(ctx, makeEnv(undefined));
-    const verdict = await agent.budgetCheck({ operation: "search.query", amountCents: 100 });
+    // Explicit agentId (issue #2327) so this pin keeps exercising the
+    // unreachable-ledger path, not the identity guard.
+    const verdict = await agent.budgetCheck({ operation: "search.query", amountCents: 100, agentId: AGENTIC_SPEND_AGENT_ID });
     expect(verdict.allowed).toBe(false);
   });
 

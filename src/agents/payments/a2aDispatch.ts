@@ -19,6 +19,11 @@
  * "operation" field by this dispatch. Nothing else is renamed:
  * argument VALUES pass to the methods unchanged.
  *
+ * payments.budget_check requires the caller's "agentId" (issue
+ * #2327), exactly as payments.process does: a budget check is
+ * attributed to the agent it names, and this door no longer
+ * forwards an anonymous check for the method to default.
+ *
  * Money path (hard rule): this module performs NO verification and
  * NO recording. payments.process delegates to the executor's
  * processPaidRequest, whose own facilitator verification and
@@ -101,7 +106,7 @@ export interface PaymentsA2ADataResult {
 export interface PaymentsBudgetCheckRequest {
   operation: string;
   amountCents: number;
-  agentId?: string;
+  agentId: string;
 }
 
 export interface PaymentsProcessRequest {
@@ -194,15 +199,8 @@ async function executeOperation(
       const req: PaymentsBudgetCheckRequest = {
         operation: stringArg(args, "op", operation),
         amountCents: amountArg(args, operation),
+        agentId: stringArg(args, "agentId", operation),
       };
-      if (args.agentId !== undefined) {
-        if (typeof args.agentId !== "string" || args.agentId.trim().length === 0) {
-          throw new PaymentsA2AInputError(
-            `Operation "${operation}" requires "agentId" to be a non-empty string when present.`,
-          );
-        }
-        req.agentId = args.agentId;
-      }
       // The verdict IS the result — including { allowed: false }.
       // budgetCheck is fail-closed by design; a denial is a
       // successful check, never an error at this door.

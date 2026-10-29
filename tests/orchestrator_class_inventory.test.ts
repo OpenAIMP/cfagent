@@ -169,9 +169,14 @@ const ORCH = "agents/orchestrator.ts";
  *  wiring its storage/audit/session and NLQ ports into the
  *  dispatch) — measured 2,608 lines / 119,919 B after the
  *  addition, so budget lines rise to 2620 and bytes rise
- *  to 120_500. */
+ *  to 120_500.
+ *  Agent Mesh S3 (#2327) makes the research-stub helper fail
+ *  closed on a missing identity (the getResearchAgent guard +
+ *  its comment; no new logic surface) — measured 2,619 lines /
+ *  120,782 B after the change, so budget lines keep 2620 and
+ *  bytes rise to 121_500. */
 const BUDGET_LINES = 2620;
-const BUDGET_BYTES = 120_500;
+const BUDGET_BYTES = 121_500;
 
 const count = (haystack: string, needle: string) =>
   haystack.split(needle).length - 1;

@@ -21,10 +21,16 @@ export function triggerManualResearch<R>(
   return publish("manual", userLogin);
 }
 
-/** Thin trigger for the scheduled tick (server.ts cron). */
+/**
+ * Thin trigger for the scheduled tick (server.ts cron). The caller
+ * supplies the tick's identity (the configured service identity,
+ * asserted by server.ts on the dispatch); there is deliberately no
+ * default value — an absent login reaches the publish entry, which
+ * fails closed (issue #2327).
+ */
 export function triggerScheduledResearch<R>(
   publish: PublishEntry<R>,
-  userLogin = "default"
+  userLogin?: string
 ): Promise<R> {
   return publish("scheduled", userLogin);
 }
