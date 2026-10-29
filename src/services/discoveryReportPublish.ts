@@ -18,6 +18,7 @@ import {
   type DiscoveryReportArtifactOutcome,
   type DiscoveryReportInput,
 } from "../trading";
+import { codedMessage } from "../errors/errorAspects";
 
 export interface DiscoveryReportStorage {
   get<T = unknown>(key: string): Promise<T | undefined>;
@@ -47,7 +48,7 @@ export async function generateAndStoreDiscoveryReport(args: {
       ...outcome,
       pdfError: message,
       xlsxError: message,
-      csvError: message,
+      csvError: codedMessage("REPORT_004", message),
     };
   }
   const { withRetry } = await import("./resilience");
@@ -106,7 +107,7 @@ export async function generateAndStoreDiscoveryReport(args: {
     outcome.csvKey = key;
     outcome.csvStatus = "generated";
   } catch (err) {
-    outcome.csvError = err instanceof Error ? err.message : String(err);
+    outcome.csvError = codedMessage("REPORT_004", err instanceof Error ? err.message : String(err));
     console.error("[DiscoveryReport] CSV generation failed:", outcome.csvError);
   }
 
