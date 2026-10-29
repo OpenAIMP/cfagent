@@ -20,7 +20,8 @@
 import { OptionsDataAgent } from "../trading";
 import { DynamicOptionsScreener } from "../trading";
 import { produceFeedSnapshot } from "./feedSnapshotProducer";
-import { SqlFeedSnapshotStore, type FeedSnapshotLoadParams } from "./feedSnapshotStore";
+import type { FeedSnapshotLoadParams } from "./feedSnapshotStore";
+import { createOptionsDiscoveryPorts } from "../data/createOptionsDiscoveryPorts";
 import type { StrategyRequest } from "../trading";
 
 export interface FeedSnapshotJobPayload {
@@ -74,7 +75,7 @@ export async function executeFeedSnapshotJob(
       throw new Error(`feed.snapshot job requires valid ticker symbols; got '${String(entry?.symbol)}'.`);
     }
   }
-  const store = new SqlFeedSnapshotStore(deps.sql);
+  const store = createOptionsDiscoveryPorts({ sql: deps.sql }).feedSnapshots;
   const etrade = deps.createETradeService(userLogin, payload.environment);
   const agent = new OptionsDataAgent(
     new DynamicOptionsScreener(etrade.client as never),
