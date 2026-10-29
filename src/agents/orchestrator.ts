@@ -127,6 +127,7 @@ import { handleAlpacaMarketDataRoutes, handleAlpacaTradingRoutes } from "./route
 import { handleMarketDataQuoteResearchRoutes, handleMarketDataCompareScreenRoutes } from "./routes/marketDataResearch";
 import { handleScreenerResearchRoutes } from "./routes/screenerResearch";
 import { handleSchedulesRoutes, makeRunScheduleCallback } from "./routes/schedules";
+import { handleMaintenanceRoutes } from "./routes/maintenance";
 import { TRADING_PAID_SERVICES } from "../services/agenticPayments";
 import type {
   Env,
@@ -2567,6 +2568,16 @@ export class OrchestratorAgent extends PortThink {
       env: this.env,
     });
     if (screenerResearchResponse) return screenerResearchResponse;
+    // Issue #2280: maintenance routes (bulk table/queue clears) are handled
+    // by src/agents/routes/maintenance.ts (handleMaintenanceRoutes).
+    // Invoked before the schedules routes; its path does not overlap any
+    // earlier handler, so position is by convention, not necessity.
+    const maintenanceResponse = await handleMaintenanceRoutes(request, url, path, sessionId, {
+      agentCtx: this.ctx,
+      audit: (type, agent, payload) => this.audit(type, agent, payload),
+    });
+    if (maintenanceResponse) return maintenanceResponse;
+
     // Issue #359-16: schedules task-scheduling routes (list/create/cancel/
     // trigger-*) are handled by src/agents/routes/schedules.ts
     // (handleSchedulesRoutes). Invoked at this exact position in the
