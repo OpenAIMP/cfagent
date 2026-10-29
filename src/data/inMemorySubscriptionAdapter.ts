@@ -104,6 +104,14 @@ export class InMemorySubscriptionAdapter implements SubscriptionStore {
     return null;
   }
 
+  async revokeSubscription(subscriptionId: string, nowMs: number): Promise<SubscriptionRecord | null> {
+    const record = this.subscriptions.get(subscriptionId);
+    if (!record) return null;
+    const updated = { ...record, status: "canceled" as const, canceledAtMs: nowMs, periodEndMs: nowMs, updatedAtMs: nowMs };
+    this.subscriptions.set(subscriptionId, updated);
+    return { ...updated };
+  }
+
   async cancelUnexpiredSubscriptions(userId: string, nowMs: number): Promise<SubscriptionRecord[]> {
     const canceled: SubscriptionRecord[] = [];
     for (const s of this.subscriptions.values()) {
