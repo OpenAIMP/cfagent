@@ -61,11 +61,11 @@ not a set of suggestions:
   expires at the renewed `createdAt + SESSION_TTL`; the cap is re-checked
   on every validation, so a stale renewal cannot outlive it.
 - **Idle expiry:** enforced for wired sessions, read from a **fresh**
-  session read — never from the isolate cache. The platform default is
-  30 minutes; production overrides it to **8 hours** through
-  `SESSION_IDLE_TIMEOUT_MS` (owner decision 2026-10-29, see below), so an
-  actively-used dashboard is not signed out mid-workday. Legacy sessions
-  are exempt (they carry no activity timestamp). That idle exemption is
+  session read — never from the isolate cache. The window is **8 hours**
+  in `config/session-limits.json` (owner override 2026-10-29 of the CISO
+  30-minute default; `SESSION_IDLE_TIMEOUT_MS` remains an optional runtime
+  override), so an actively-used dashboard is not signed out mid-workday.
+  Legacy sessions are exempt (they carry no activity timestamp). That idle exemption is
   itself bounded by the absolute lifetime: the store record expires at
   createdAt + `SESSION_TTL` (7 days) regardless of activity, and no
   path re-puts a legacy session with a fresh TTL. The PDP exemption
@@ -73,13 +73,16 @@ not a set of suggestions:
   §8, #1749) — a different rule from the idle exemption, and neither
   is open-ended.
 
-**Owner override (2026-10-29).** The 30-minute idle window is a settled
-CISO default (D-1 in [iaaa-decisions-1757.md](iaaa-decisions-1757.md)).
-The owner overrode the production value to 8 hours after repeated
-re-login on refresh; the code default stays 30 minutes for tests and
-for deployments that do not set the var. The refresh path also preserves
-the page being refreshed (`auth:next` in sessionStorage) and returns to
-it after login.
+**Config file (2026-10-29).** Every session/auth window — absolute TTL,
+30-day cap, 2-day renewal window, cookie Max-Age, idle timeout, step-up
+freshness, touch interval, cache TTLs/entries, OAuth state and Public
+OAuth pending lifetimes — lives in `config/session-limits.json` and is
+typed by `src/config/sessionLimits.ts`. No session module hardcodes a
+duration. The idle value is the owner's 8-hour override of the settled
+CISO 30-minute default (D-1 in
+[iaaa-decisions-1757.md](iaaa-decisions-1757.md)); the refresh path also
+preserves the page being refreshed (`auth:next` in sessionStorage) and
+returns to it after login.
 - **Rotation and revocation:** sessions rotate, and revocation is stored
   so a revoked session stays revoked.
 - **Step-up:** sensitive operations (API-key mint is the live example)

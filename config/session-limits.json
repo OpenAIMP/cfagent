@@ -1,0 +1,17 @@
+{
+  "absoluteTtlSeconds": 604800,
+  "maxLifetimeSeconds": 2592000,
+  "renewWindowSeconds": 172800,
+  "cookieMaxAgeSeconds": 604800,
+  "idleTimeoutMs": 28800000,
+  "minIdleTimeoutMs": 300000,
+  "stepUpFreshnessMs": 900000,
+  "touchIntervalMs": 60000,
+  "cachePositiveTtlMs": 60000,
+  "cacheNegativeTtlMs": 10000,
+  "cacheMaxEntries": 2000,
+  "oauthStateMaxAgeMs": 600000,
+  "oauthStateFutureSkewMs": 60000,
+  "publicOAuthPendingMaxAgeMs": 600000,
+  "oauthExpirySkewMs": 60000
+}

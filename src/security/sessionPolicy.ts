@@ -46,6 +46,8 @@
  * at the boundary.
  */
 
+import { SESSION_LIMITS } from "../config/sessionLimits";
+
 // ---------------------------------------------------------------------------
 // Provider boundary
 // ---------------------------------------------------------------------------
@@ -207,12 +209,12 @@ export function validateOidcClaims(
 // Session policy: absolute + idle expiry
 // ---------------------------------------------------------------------------
 
-/** Mirrors SESSION_TTL in src/security/session.ts (7 days, in seconds) — in milliseconds here. */
-export const SESSION_ABSOLUTE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-/** Documented default idle timeout; overridable by the caller. */
-export const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
-/** Documented default step-up freshness window; overridable by the caller (CISO decision still open). */
-export const DEFAULT_STEP_UP_FRESHNESS_MS = 15 * 60 * 1000;
+/** Absolute session lifetime from config (7 days), in milliseconds here. */
+export const SESSION_ABSOLUTE_TTL_MS = SESSION_LIMITS.absoluteTtlSeconds * 1000;
+/** Configured idle timeout (8 hours; owner override of the CISO 30m default). */
+export const DEFAULT_IDLE_TIMEOUT_MS = SESSION_LIMITS.idleTimeoutMs;
+/** Configured step-up freshness window (15 minutes). */
+export const DEFAULT_STEP_UP_FRESHNESS_MS = SESSION_LIMITS.stepUpFreshnessMs;
 
 export interface SessionPolicy {
   absoluteTtlMs: number;
@@ -227,12 +229,9 @@ export interface SessionPolicy {
  * values above the absolute TTL are clamped down: idle can never exceed the
  * session's own lifetime.
  */
-export const MIN_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
-export function resolveIdleTimeoutMs(raw: string | number | undefined | null): number {
-  const value = typeof raw === "number" ? raw : raw == null ? Number.NaN : Number(raw);
-  if (!Number.isFinite(value) || value <= 0) return DEFAULT_IDLE_TIMEOUT_MS;
-  return Math.min(Math.max(value, MIN_IDLE_TIMEOUT_MS), SESSION_ABSOLUTE_TTL_MS);
-}
+/** Re-exported from the config module; kept here for existing callers/tests. */
+export { resolveIdleTimeoutMs } from "../config/sessionLimits";
+export const MIN_IDLE_TIMEOUT_MS = SESSION_LIMITS.minIdleTimeoutMs;
 
 export const DEFAULT_SESSION_POLICY: SessionPolicy = {
   absoluteTtlMs: SESSION_ABSOLUTE_TTL_MS,

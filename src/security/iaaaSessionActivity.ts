@@ -42,6 +42,7 @@
  * documented default, NOT a settled CISO threshold (spec §8).
  */
 
+import { SESSION_LIMITS } from "../config/sessionLimits";
 import {
   DEFAULT_IDLE_TIMEOUT_MS,
   DEFAULT_SESSION_POLICY,
@@ -51,7 +52,7 @@ import {
 import type { SessionData } from "../types";
 
 /** Minimum elapsed activity before a touch writes (60s; see header). */
-export const IAAA_TOUCH_MIN_INTERVAL_MS = 60_000;
+export const IAAA_TOUCH_MIN_INTERVAL_MS = SESSION_LIMITS.touchIntervalMs;
 
 export interface TouchResult {
   touched: boolean;
