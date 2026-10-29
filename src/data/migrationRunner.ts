@@ -628,6 +628,115 @@ CREATE INDEX IF NOT EXISTS agent_audit_chain_tenant_created_idx ON agent_audit_c
 `,
 };
 
+/**
+ * Migration 0017 — the #1976 intelligence substrate (issue
+ * #2288, step 0 of ADR 0022; D-F + D-F2). Portable subset
+ * (same rules as migrations 0001-0016): epoch-ms integers, no
+ * dialect date functions, no RETURNING. Numbering: versions
+ * 13/14 are absent from the registered sequence and are NOT
+ * filled here — their disposition is gate G-3 (owner/CAIO);
+ * this migration takes the next number after the highest
+ * registered (16).
+ *
+ * Four families, all D1-native per the ratified R9 restatement:
+ *  - agent_trace_records: one row per cross-agent call /
+ *    workflow step (correlation + causation, acting agent +
+ *    principal per G14, catalog outcome code, latency/cost).
+ *    Append-only; retention is gate G-4 and deliberately NOT
+ *    encoded here beyond the schema.
+ *  - agent_proposals + agent_proposal_transitions: the
+ *    proposal ledger state machine (proposed → approved →
+ *    applied → verified). Transitions are append-only rows and
+ *    carry the gate as data (actor + gate_ref); the port
+ *    refuses a gated transition without one.
+ *  - agent_fleet_registry + agent_conformance_cells: the
+ *    fleet registry / conformance matrix read model. Tables +
+ *    ports only in this slice — the production writer is
+ *    gate G-6.
+ *  - agent_work_item_events: the GitHub work-item projection
+ *    (issues / PRs / check-runs) the Sentinel (#2279) reads;
+ *    the (source, external_id) PRIMARY KEY is the redelivery
+ *    idempotency guarantee, in the migration-0003 pattern.
+ *    The 4-space PRIMARY KEY lines are constraint lines, not
+ *    columns, for the parity test's two-space column matcher
+ *    (same shape as migrations 0004/0005).
+ */
+export const MIGRATION_0017_INTELLIGENCE_SUBSTRATE: DataMigration = {
+  version: 17,
+  name: "0017_intelligence_substrate",
+  sql: `
+CREATE TABLE IF NOT EXISTS agent_trace_records (
+  id TEXT PRIMARY KEY,
+  correlation_id TEXT NOT NULL,
+  causation_id TEXT,
+  acting_agent TEXT NOT NULL,
+  principal TEXT NOT NULL,
+  operation TEXT NOT NULL,
+  outcome_code TEXT NOT NULL,
+  latency_ms INTEGER,
+  cost_units REAL,
+  cost_detail_json TEXT,
+  occurred_at_ms INTEGER NOT NULL,
+  created_at_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agent_trace_records_correlation_idx ON agent_trace_records (correlation_id, occurred_at_ms);
+CREATE INDEX IF NOT EXISTS agent_trace_records_agent_idx ON agent_trace_records (acting_agent, occurred_at_ms DESC);
+CREATE TABLE IF NOT EXISTS agent_proposals (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  proposer_agent TEXT NOT NULL,
+  principal TEXT NOT NULL,
+  state TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agent_proposals_state_idx ON agent_proposals (state, updated_at_ms DESC);
+CREATE TABLE IF NOT EXISTS agent_proposal_transitions (
+  id TEXT PRIMARY KEY,
+  proposal_id TEXT NOT NULL,
+  from_state TEXT,
+  to_state TEXT NOT NULL,
+  actor TEXT NOT NULL,
+  gate_ref TEXT,
+  created_at_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agent_proposal_transitions_proposal_idx ON agent_proposal_transitions (proposal_id, created_at_ms);
+CREATE TABLE IF NOT EXISTS agent_fleet_registry (
+  agent_key TEXT PRIMARY KEY,
+  class_name TEXT NOT NULL,
+  binding TEXT NOT NULL,
+  instance_scheme TEXT NOT NULL,
+  migration_tag TEXT,
+  operations_json TEXT NOT NULL,
+  identity_json TEXT,
+  do_schema_version INTEGER,
+  updated_at_ms INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS agent_conformance_cells (
+  agent_key TEXT NOT NULL,
+  dimension TEXT NOT NULL,
+  status TEXT NOT NULL,
+  reference TEXT,
+  updated_at_ms INTEGER NOT NULL,
+    PRIMARY KEY (agent_key, dimension)
+);
+CREATE TABLE IF NOT EXISTS agent_work_item_events (
+  source TEXT NOT NULL,
+  external_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  state TEXT NOT NULL,
+  actor TEXT,
+  occurred_at_ms INTEGER NOT NULL,
+  payload_digest TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+    PRIMARY KEY (source, external_id)
+);
+CREATE INDEX IF NOT EXISTS agent_work_item_events_kind_idx ON agent_work_item_events (kind, occurred_at_ms DESC);
+`,
+};
+
 export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0001_AGENT_GOVERNANCE,
   MIGRATION_0002_AGENT_CHAINS_SCHEDULES,
@@ -643,6 +752,7 @@ export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0012_NATIVE_LEDGER,
   MIGRATION_0015_LIFECYCLE_REFERRAL,
   MIGRATION_0016_AUDIT_POLICY,
+  MIGRATION_0017_INTELLIGENCE_SUBSTRATE,
 ];
 
 function splitStatements(sqlText: string): string[] {
