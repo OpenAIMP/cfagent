@@ -606,6 +606,10 @@ export interface AuditEvent {
   agent: AgentName | "judge" | "nlq" | "orchestrator";
   payload: Record<string, unknown>;
   createdAt: string;
+  /** Issue #2178 (Q7 S1): hash-chain link; absent/null on pre-chain rows. */
+  previousEventHash?: string | null;
+  /** Issue #2178 (Q7 S1): own hash; absent on pre-chain rows. */
+  eventHash?: string;
 }
 
 /**

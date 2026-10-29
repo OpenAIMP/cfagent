@@ -169,6 +169,23 @@ export class MockSqlStorage implements SqlStorage {
       return [];
     }
 
+    // ALTER TABLE name ADD COLUMN col TYPE (Issue #2178: chain
+    // migration — real SQLite adds the column with NULL for existing
+    // rows; the mock mirrors that in its schema map + row objects).
+    const alterMatch = q.match(/ALTER\s+TABLE\s+(\w+)\s+ADD\s+COLUMN\s+(\w+)\s+(\w+)/i);
+    if (alterMatch) {
+      const [, tbl, col, type] = alterMatch;
+      const cols = this.schema.get(tbl) || [];
+      if (!cols.some((c) => c.name === col)) {
+        cols.push({ name: col, type, pk: 0 });
+        this.schema.set(tbl, cols);
+        for (const row of this.tables.get(tbl) || []) {
+          if (!(col in row)) row[col] = null;
+        }
+      }
+      return [];
+    }
+
     // PRAGMA table_info(tableName)
     const pragmaMatch = q.match(/PRAGMA\s+table_info\((\w+)\)/i);
     if (pragmaMatch) {
@@ -225,13 +242,21 @@ export class MockSqlStorage implements SqlStorage {
       if (orderMatch) {
         const field = orderMatch[1];
         const dir = orderMatch[2].toUpperCase();
-        rows.sort((a, b) => {
-          const valA = a[field] ?? "";
-          const valB = b[field] ?? "";
-          if (valA < valB) return dir === "ASC" ? -1 : 1;
-          if (valA > valB) return dir === "ASC" ? 1 : -1;
-          return 0;
-        });
+        if (field.toLowerCase() === "rowid") {
+          // Issue #2178: rowid is insertion order, not a stored
+          // column — sort by the row's position in the table array.
+          const indexed = rows.map((r, i) => [r, i] as const);
+          indexed.sort(([, a], [, b]) => (dir === "ASC" ? a - b : b - a));
+          rows = indexed.map(([r]) => r);
+        } else {
+          rows.sort((a, b) => {
+            const valA = a[field] ?? "";
+            const valB = b[field] ?? "";
+            if (valA < valB) return dir === "ASC" ? -1 : 1;
+            if (valA > valB) return dir === "ASC" ? 1 : -1;
+            return 0;
+          });
+        }
       }
 
       // LIMIT and OFFSET
