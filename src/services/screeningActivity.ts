@@ -4,92 +4,52 @@
  * The Public-style agent activity log for the autonomous screening
  * system: one tenant-scoped, append-only feed answering "what did the
  * screening system do, when, and on whose authority?" across
+ * discovery runs, strategy-bank re-selection, champion/challenger
+ * promotions, weights-v2 adjustments, channel deliveries, and
+ * schedule/flag control changes.
  *
- *  - discovery runs (scheduled tick + NLQ fit discovery),
- *  - strategy-bank re-selection (Phase 3 proposals),
- *  - champion/challenger promotions (Phase 5),
- *  - weights-v2 adjustments (Phase 5),
- *  - channel deliveries (Phase 6),
- *  - schedule/flag control changes (Phase 6).
- *
- * Storage follows the repo's existing idioms: new events land in
- * `mas_screening_activity` (service-owned idempotent DDL, the Phase 0
- * pattern; tenant-scoped by user_login like every mas_* store), and
- * the unified feed READS THROUGH to the systems of record that already
- * keep their own logs — re-selection proposals
- * (mas_strategy_bank_proposals) and promotions
- * (mas_challenger_promotions) — instead of copying them into a second
- * store that could drift. Recording never throws (the
- * scheduledReports metering idiom): a failed activity write is logged,
- * never allowed to break the work it describes.
+ * @deprecated Superseded by src/data/screeningActivityPorts.ts
+ * (port), src/data/doSqliteScreeningActivityAdapter.ts
+ * (production adapter) and
+ * src/data/createEvidenceSatellitePorts.ts (composition root) —
+ * #1976 step 4c (#2356, ADR 0022 D-I step 4). This module is a
+ * re-export shim: record/list delegate to the DO adapter over
+ * the caller's sql handle, statement-for-statement identical
+ * to the pre-port implementation. The unified feed's merge
+ * stays here (it composes three sources, each failing
+ * independently): this port's entries, the re-selection
+ * proposals (step 4b's family, still served by
+ * strategyBankReselection), and the port's promotion
+ * read-through rows. Recording never throws (the
+ * scheduledReports metering idiom): a failed activity write
+ * is logged, never allowed to break the work it describes.
  */
 
+import { DoSqliteScreeningActivityStore } from "../data/doSqliteScreeningActivityAdapter";
+import type {
+  RecordScreeningActivityInput,
+  ScreeningActivityEntry,
+  ScreeningActivityFeedItem,
+  ScreeningActivitySqlExecutor,
+} from "../data/screeningActivityPorts";
 import { listReselectionProposals } from "./strategyBankReselection";
 import { ensureChallengerTables } from "./championChallenger";
 
-export const SCREENING_ACTIVITY_TABLE = "mas_screening_activity";
+export {
+  SCREENING_ACTIVITY_TABLE,
+  type ScreeningActivityEntry,
+  type ScreeningActivityFeedItem,
+  type ScreeningActivityKind,
+} from "../data/screeningActivityPorts";
 
-export type ScreeningActivityKind =
-  | "discovery_run"
-  | "screen_run"
-  /** Consolidation C3 (#1277): one entry per stage-chain stage
-   *  transition (stage completed / failed / skipped / held, with
-   *  the reason in the summary + detail). */
-  | "stage"
-  | "goal_decision"
-  | "reselection"
-  | "weights_adjustment"
-  | "promotion"
-  | "delivery"
-  | "schedule_control"
-  | "bundle";
+type SqlExec = ScreeningActivitySqlExecutor;
 
-export interface ScreeningActivityEntry {
-  id: string;
-  userLogin: string;
-  kind: ScreeningActivityKind;
-  summary: string;
-  detail: unknown;
-  refId: string | null;
-  actor: string | null;
-  createdAt: string;
+function store(sql: SqlExec): DoSqliteScreeningActivityStore {
+  return new DoSqliteScreeningActivityStore(sql);
 }
-
-export interface ScreeningActivityFeedItem {
-  id: string;
-  at: string;
-  kind: ScreeningActivityKind;
-  summary: string;
-  source: "activity" | "reselection" | "promotion";
-  detail?: unknown;
-}
-
-type SqlExec = {
-  exec: (query: string, ...args: unknown[]) => Iterable<unknown>;
-};
 
 export function ensureScreeningActivityTable(sql: SqlExec): void {
-  sql.exec(`CREATE TABLE IF NOT EXISTS ${SCREENING_ACTIVITY_TABLE} (
-    id TEXT PRIMARY KEY,
-    user_login TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    summary TEXT NOT NULL,
-    detail_json TEXT,
-    ref_id TEXT,
-    actor TEXT,
-    created_at TEXT NOT NULL
-  )`);
-  sql.exec(
-    `CREATE INDEX IF NOT EXISTS idx_screening_activity_user ON ${SCREENING_ACTIVITY_TABLE} (user_login, created_at DESC)`
-  );
-}
-
-function activityId(): string {
-  return `sact_${
-    typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`
-  }`;
+  store(sql).ensureTable();
 }
 
 /**
@@ -99,85 +59,18 @@ function activityId(): string {
  */
 export function recordScreeningActivity(
   sql: SqlExec,
-  input: {
-    userLogin: string;
-    kind: ScreeningActivityKind;
-    summary: string;
-    detail?: unknown;
-    refId?: string;
-    actor?: string;
-    createdAt?: string;
-  }
+  input: RecordScreeningActivityInput,
 ): string | null {
-  try {
-    if (!input?.userLogin || !input?.kind || !input?.summary) return null;
-    ensureScreeningActivityTable(sql);
-    const id = activityId();
-    sql.exec(
-      `INSERT INTO ${SCREENING_ACTIVITY_TABLE} (id, user_login, kind, summary, detail_json, ref_id, actor, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      id,
-      input.userLogin,
-      input.kind,
-      input.summary,
-      input.detail === undefined ? null : JSON.stringify(input.detail),
-      input.refId ?? null,
-      input.actor ?? null,
-      input.createdAt ?? new Date().toISOString()
-    );
-    return id;
-  } catch (err) {
-    console.error(
-      `[screeningActivity] record failed for ${input?.userLogin ?? "?"}: ${err instanceof Error ? err.message : String(err)}`,
-      err
-    );
-    return null;
-  }
+  return store(sql).record(input);
 }
 
 /** One tenant's recorded activity, newest first. Never throws; a broken store reads as empty. */
 export function listScreeningActivity(
   sql: SqlExec,
   userLogin: string,
-  limit = 100
+  limit = 100,
 ): ScreeningActivityEntry[] {
-  try {
-    if (!userLogin) return [];
-    ensureScreeningActivityTable(sql);
-    const capped = Math.max(1, Math.min(Math.floor(limit) || 100, 500));
-    const rows = Array.from(
-      sql.exec(
-        `SELECT id, user_login, kind, summary, detail_json, ref_id, actor, created_at FROM ${SCREENING_ACTIVITY_TABLE} WHERE user_login = ? ORDER BY created_at DESC LIMIT ?`,
-        userLogin,
-        capped
-      )
-    ) as Array<Record<string, unknown>>;
-    return rows.map((r) => {
-      let detail: unknown = null;
-      if (typeof r.detail_json === "string" && r.detail_json) {
-        try {
-          detail = JSON.parse(r.detail_json);
-        } catch {
-          detail = { raw: r.detail_json };
-        }
-      }
-      return {
-        id: String(r.id ?? ""),
-        userLogin: String(r.user_login ?? ""),
-        kind: String(r.kind ?? "") as ScreeningActivityKind,
-        summary: String(r.summary ?? ""),
-        detail,
-        refId: (r.ref_id as string | null) ?? null,
-        actor: (r.actor as string | null) ?? null,
-        createdAt: String(r.created_at ?? ""),
-      };
-    });
-  } catch (err) {
-    console.error(
-      `[screeningActivity] list failed for ${userLogin}: ${err instanceof Error ? err.message : String(err)}`,
-      err
-    );
-    return [];
-  }
+  return store(sql).list(userLogin, limit);
 }
 
 /**
@@ -189,7 +82,7 @@ export function listScreeningActivity(
 export function buildScreeningActivityFeed(
   sql: SqlExec,
   userLogin: string,
-  limit = 100
+  limit = 100,
 ): ScreeningActivityFeedItem[] {
   const capped = Math.max(1, Math.min(Math.floor(limit) || 100, 500));
   const items: ScreeningActivityFeedItem[] = [];
@@ -229,17 +122,10 @@ export function buildScreeningActivityFeed(
 
   try {
     ensureChallengerTables(sql);
-    const rows = Array.from(
-      sql.exec(
-        `SELECT id, challenger_id, action, actor, reason, weights_version, created_at FROM mas_challenger_promotions WHERE user_login = ? ORDER BY created_at DESC LIMIT ?`,
-        userLogin,
-        capped
-      )
-    ) as Array<Record<string, unknown>>;
-    for (const r of rows) {
+    for (const r of store(sql).listPromotionRows(userLogin, capped)) {
       items.push({
-        id: String(r.id ?? ""),
-        at: String(r.created_at ?? ""),
+        id: r.id,
+        at: r.created_at,
         kind: "promotion",
         source: "promotion",
         summary:
