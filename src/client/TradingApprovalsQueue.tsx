@@ -178,7 +178,12 @@ export function TradingApprovalsQueue() {
 
   return (
     <Card padding="md">
-      <h3 style={{ margin: "0 0 0.75rem" }}>Pending approvals</h3>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-2)", margin: "0 0 0.75rem" }}>
+        <h3 style={{ margin: 0 }}>Pending approvals</h3>
+        <Button variant="secondary" size="sm" onClick={() => void fetchOrders()} loading={loading} disabled={loading}>
+          ↻ Refresh
+        </Button>
+      </div>
       <p style={{ fontSize: "var(--font-size-body)", color: "var(--color-text-muted)", margin: "0 0 1rem" }}>
         Proposed orders awaiting human authorization. Approving places the order through the existing
         approval door; rejecting closes the proposal without placing it. Proposals expire 15 minutes
