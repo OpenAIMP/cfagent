@@ -85,6 +85,66 @@ export const AGENT_CARDS: AgentCard[] = [
     capabilities: ["knowledge-search"],
     operations: ["aisearch.search"],
   },
+  {
+    name: "screener",
+    description:
+      "Runs stock and goal-driven screens on the screener's service instance. Runs are attributed to the configured service identity; with none configured the door fails closed rather than starting a virgin instance.",
+    version: "1.0.0",
+    endpoint: "/a2a/screener",
+    cardPath: "/a2a/screener/agent-card.json",
+    capabilities: ["stock-screening", "goal-screening", "run-history"],
+    operations: ["screener.run_screen", "screener.run_goal_screen", "screener.latest", "screener.history", "screener.list_tasks"],
+  },
+  {
+    name: "scheduled",
+    description:
+      "The live scheduled-goal catalogue: list, add, remove, enable/disable, and trigger goals on the instance the cron actually fires. (Cron firing itself is not an A2A operation.)",
+    version: "1.0.0",
+    endpoint: "/a2a/scheduled",
+    cardPath: "/a2a/scheduled/agent-card.json",
+    capabilities: ["goal-list", "goal-manage", "goal-trigger", "tick-history"],
+    operations: ["scheduled.list_goals", "scheduled.tick_history", "scheduled.add_goal", "scheduled.remove_goal", "scheduled.set_goal_enabled", "scheduled.trigger_goal"],
+  },
+  {
+    name: "research",
+    description:
+      "Runs the research pipeline and discovery on the service identity's research instance, and reads its latest report, history, track record, evaluations, and configuration. Runs are attributed to the configured service identity and fail closed without one.",
+    version: "1.0.0",
+    endpoint: "/a2a/research",
+    cardPath: "/a2a/research/agent-card.json",
+    capabilities: ["research-runs", "discovery", "track-record", "evaluation"],
+    operations: ["research.run", "research.discovery", "research.latest", "research.history", "research.track_record", "research.evaluate", "research.config"],
+  },
+  {
+    name: "report-asset",
+    description:
+      "Generates and fetches PDF report assets through the single generate-step owner. Fetched assets return as metadata plus base64 bytes; generation is scoped to the configured service identity.",
+    version: "1.0.0",
+    endpoint: "/a2a/report-asset",
+    cardPath: "/a2a/report-asset/agent-card.json",
+    capabilities: ["pdf-generation", "asset-fetch"],
+    operations: ["report_asset.generate", "report_asset.get"],
+  },
+  {
+    name: "browser",
+    description:
+      "Captures transaction and page snapshots for Slack delivery and scrapes rendered page tables. Delivery goes only to env-configured destinations — a caller-supplied webhook is never honored.",
+    version: "1.0.0",
+    endpoint: "/a2a/browser",
+    cardPath: "/a2a/browser/agent-card.json",
+    capabilities: ["transaction-snap", "page-snapshot", "dom-scraping"],
+    operations: ["browser.snap_transaction", "browser.capture_page", "browser.scrape_tables"],
+  },
+  {
+    name: "slack",
+    description:
+      "Dispatches pre-trade approval tickets (the human-in-the-loop gate) and transaction snapshots to the configured Slack destination through SlackAgent's two helpers. Slack event/command ingress is not served here — it stays behind the worker routes with its signature gate.",
+    version: "1.0.0",
+    endpoint: "/a2a/slack",
+    cardPath: "/a2a/slack/agent-card.json",
+    capabilities: ["pre-trade-approval", "transaction-snap"],
+    operations: ["slack.send_pre_trade_approval", "slack.dispatch_transaction_snap"],
+  },
 ];
 
 /** Find a card by agent name. */
