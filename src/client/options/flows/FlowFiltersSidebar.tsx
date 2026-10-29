@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Button, Checkbox, Select, TextInput, Modal } from "../../components/ui";
+import { Button, Checkbox, FieldShell, Select, TextInput, Modal } from "../../components/ui";
 import {
   FlowFilterConfig,
   SavedFilterPreset,
@@ -223,16 +223,17 @@ export function FlowFiltersSidebar({
 
           {/* Tickers Input */}
           <div className="flow-form-group">
-            <label htmlFor="flow-tickers" className="flow-form-label">Tickers:</label>
-            <div className="flow-ticker-input-wrap">
-              <TextInput id="flow-tickers"
-                type="text"
-                placeholder="Add or exclude a ticker"
-                value={tickerInput}
-                onChange={(e) => setTickerInput(e.target.value)}
-                onKeyDown={handleAddTicker}
-              />
-            </div>
+            <FieldShell id="flow-tickers" label="Tickers:">
+              <div className="flow-ticker-input-wrap">
+                <TextInput id="flow-tickers"
+                  type="text"
+                  placeholder="Add or exclude a ticker"
+                  value={tickerInput}
+                  onChange={(e) => setTickerInput(e.target.value)}
+                  onKeyDown={handleAddTicker}
+                />
+              </div>
+            </FieldShell>
             {filterConfig.tickers.length > 0 && (
               <div className="flow-tickers-chip-row">
                 {filterConfig.tickers.map((t) => (
@@ -247,16 +248,17 @@ export function FlowFiltersSidebar({
           {/* Insiders Input (Only for Insider Flow) */}
           {currentTab === "insider" && (
             <div className="flow-form-group">
-              <label htmlFor="flow-insiders" className="flow-form-label">Insiders:</label>
-              <div className="flow-ticker-input-wrap">
-                <TextInput id="flow-insiders"
-                  type="text"
-                  placeholder="Add or exclude an insider"
-                  value={insiderInput}
-                  onChange={(e) => setInsiderInput(e.target.value)}
-                  onKeyDown={handleAddInsider}
-                />
-              </div>
+              <FieldShell id="flow-insiders" label="Insiders:">
+                <div className="flow-ticker-input-wrap">
+                  <TextInput id="flow-insiders"
+                    type="text"
+                    placeholder="Add or exclude an insider"
+                    value={insiderInput}
+                    onChange={(e) => setInsiderInput(e.target.value)}
+                    onKeyDown={handleAddInsider}
+                  />
+                </div>
+              </FieldShell>
               {filterConfig.insiderNames.length > 0 && (
                 <div className="flow-tickers-chip-row">
                   {filterConfig.insiderNames.map((n) => (
@@ -271,8 +273,7 @@ export function FlowFiltersSidebar({
 
           {/* Minimum Premium Slider */}
           <div className="flow-form-group">
-            <div className="flow-slider-label-row">
-              <label htmlFor="flow-min-premium" className="flow-form-label">Minimum premium:</label>
+            <FieldShell id="flow-min-premium" label="Minimum premium:">
               <span className="flow-slider-val-tag">
                 {filterConfig.minPremium === 0
                   ? "All premiums"
@@ -280,111 +281,111 @@ export function FlowFiltersSidebar({
                   ? `$${(filterConfig.minPremium / 1000000).toFixed(2)}m`
                   : `$${Math.round(filterConfig.minPremium / 1000)}k`}
               </span>
-            </div>
-            <TextInput id="flow-min-premium"
-              type="range"
-              className="flow-range-slider"
-              min={0}
-              max={1500000}
-              step={25000}
-              value={filterConfig.minPremium}
-              onChange={(e) =>
-                onFilterChange({ ...filterConfig, minPremium: Number(e.target.value) })
-              }
-            />
+              <TextInput id="flow-min-premium"
+                type="range"
+                className="flow-range-slider"
+                min={0}
+                max={1500000}
+                step={25000}
+                value={filterConfig.minPremium}
+                onChange={(e) =>
+                  onFilterChange({ ...filterConfig, minPremium: Number(e.target.value) })
+                }
+              />
+            </FieldShell>
           </div>
 
           {/* Expiration DTE Slider (Live & Historical) */}
           {(currentTab === "live" || currentTab === "historical" || currentTab === "summary") && (
             <div className="flow-form-group">
-              <div className="flow-slider-label-row">
-                <label htmlFor="flow-expiration" className="flow-form-label">Expiration:</label>
+              <FieldShell id="flow-expiration" label="Expiration:">
                 <span className="flow-slider-val-tag">
                   {filterConfig.maxDte >= 9999
                     ? "All expirations"
                     : `Less than ${filterConfig.maxDte} days`}
                 </span>
-              </div>
-              <TextInput id="flow-expiration"
-                type="range"
-                className="flow-range-slider"
-                min={1}
-                max={60}
-                value={filterConfig.maxDte > 60 ? 60 : filterConfig.maxDte}
-                onChange={(e) => {
-                  const val = Number(e.target.value);
-                  onFilterChange({ ...filterConfig, maxDte: val >= 60 ? 9999 : val });
-                }}
-              />
+                <TextInput id="flow-expiration"
+                  type="range"
+                  className="flow-range-slider"
+                  min={1}
+                  max={60}
+                  value={filterConfig.maxDte > 60 ? 60 : filterConfig.maxDte}
+                  onChange={(e) => {
+                    const val = Number(e.target.value);
+                    onFilterChange({ ...filterConfig, maxDte: val >= 60 ? 9999 : val });
+                  }}
+                />
+              </FieldShell>
             </div>
           )}
 
           {/* Direction / Sentiment 6-Arrow Row */}
           {(currentTab === "live" || currentTab === "historical") && (
             <div className="flow-form-group">
-              <label className="flow-form-label">Direction Bias:</label>
-              <div className="flow-direction-icons-row">
-                <Button
-                  type="button"
-                  className={`flow-dir-btn deep-bearish ${filterConfig.sentiments.includes("bearish") ? "active" : ""}`}
-                  title="Very Bearish (Puts / Short Call)"
-                  onClick={() => toggleSentiment("bearish")}
-                >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <path d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-                  </svg>
-                </Button>
-                <Button
-                  type="button"
-                  className={`flow-dir-btn med-bearish ${filterConfig.sentiments.includes("bearish") ? "active" : ""}`}
-                  title="Bearish"
-                  onClick={() => toggleSentiment("bearish")}
-                >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <path d="M17 17l-5-5m0 0l-5 5m5-5v12" />
-                  </svg>
-                </Button>
-                <Button
-                  type="button"
-                  className={`flow-dir-btn neutral ${filterConfig.sentiments.includes("neutral") ? "active" : ""}`}
-                  title="Neutral / Straddles"
-                  onClick={() => toggleSentiment("neutral")}
-                >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <path d="M5 12h14M12 5l7 7-7 7" />
-                  </svg>
-                </Button>
-                <Button
-                  type="button"
-                  className={`flow-dir-btn split ${filterConfig.sentiments.includes("neutral") ? "active" : ""}`}
-                  title="Multi-Leg Spreads / Volatility"
-                  onClick={() => toggleSentiment("neutral")}
-                >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5" />
-                  </svg>
-                </Button>
-                <Button
-                  type="button"
-                  className={`flow-dir-btn med-bullish ${filterConfig.sentiments.includes("bullish") ? "active" : ""}`}
-                  title="Bullish"
-                  onClick={() => toggleSentiment("bullish")}
-                >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <path d="M7 7l5 5m0 0l5-5m-5 5V-7" />
-                  </svg>
-                </Button>
-                <Button
-                  type="button"
-                  className={`flow-dir-btn deep-bullish ${filterConfig.sentiments.includes("bullish") ? "active" : ""}`}
-                  title="Very Bullish (Call Sweeps)"
-                  onClick={() => toggleSentiment("bullish")}
-                >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <path d="M5 10l7-7m0 0l7 7m-7-7v18" />
-                  </svg>
-                </Button>
-              </div>
+              <FieldShell id="flow-direction-bias" label="Direction Bias:">
+                <div className="flow-direction-icons-row">
+                  <Button
+                    type="button"
+                    className={`flow-dir-btn deep-bearish ${filterConfig.sentiments.includes("bearish") ? "active" : ""}`}
+                    title="Very Bearish (Puts / Short Call)"
+                    onClick={() => toggleSentiment("bearish")}
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <path d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                    </svg>
+                  </Button>
+                  <Button
+                    type="button"
+                    className={`flow-dir-btn med-bearish ${filterConfig.sentiments.includes("bearish") ? "active" : ""}`}
+                    title="Bearish"
+                    onClick={() => toggleSentiment("bearish")}
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <path d="M17 17l-5-5m0 0l-5 5m5-5v12" />
+                    </svg>
+                  </Button>
+                  <Button
+                    type="button"
+                    className={`flow-dir-btn neutral ${filterConfig.sentiments.includes("neutral") ? "active" : ""}`}
+                    title="Neutral / Straddles"
+                    onClick={() => toggleSentiment("neutral")}
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <path d="M5 12h14M12 5l7 7-7 7" />
+                    </svg>
+                  </Button>
+                  <Button
+                    type="button"
+                    className={`flow-dir-btn split ${filterConfig.sentiments.includes("neutral") ? "active" : ""}`}
+                    title="Multi-Leg Spreads / Volatility"
+                    onClick={() => toggleSentiment("neutral")}
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5" />
+                    </svg>
+                  </Button>
+                  <Button
+                    type="button"
+                    className={`flow-dir-btn med-bullish ${filterConfig.sentiments.includes("bullish") ? "active" : ""}`}
+                    title="Bullish"
+                    onClick={() => toggleSentiment("bullish")}
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <path d="M7 7l5 5m0 0l5-5m-5 5V-7" />
+                    </svg>
+                  </Button>
+                  <Button
+                    type="button"
+                    className={`flow-dir-btn deep-bullish ${filterConfig.sentiments.includes("bullish") ? "active" : ""}`}
+                    title="Very Bullish (Call Sweeps)"
+                    onClick={() => toggleSentiment("bullish")}
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <path d="M5 10l7-7m0 0l7 7m-7-7v18" />
+                    </svg>
+                  </Button>
+                </div>
+              </FieldShell>
             </div>
           )}
 
