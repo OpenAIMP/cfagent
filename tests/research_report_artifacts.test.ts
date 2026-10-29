@@ -50,6 +50,13 @@ class XlsxFailingStorage extends FakeStorage {
   }
 }
 
+class CsvFailingStorage extends FakeStorage {
+  async put(key: string, value: unknown): Promise<void> {
+    if (String(key).includes(":csv:")) throw new Error("r2 unavailable");
+    return super.put(key, value);
+  }
+}
+
 function leg(over: Record<string, unknown> = {}) {
   return {
     optionType: "call",
@@ -314,6 +321,15 @@ describe("ResearchAgent research artifact storage (#2167)", () => {
     expect(outcome.xlsxError).toContain("r2 unavailable");
     expect(outcome.csvStatus).toBe("generated");
     expect(outcome.csvKey).toBeTruthy();
+  });
+
+  it("records a failed CSV from the catalog without losing the workbook (#2255)", async () => {
+    const outcome = await makeAgent(new CsvFailingStorage()).generateAndStoreResearchArtifacts(report());
+    expect(outcome.csvStatus).toBe("failed");
+    expect(outcome.csvKey).toBeUndefined();
+    expect(outcome.csvError).toContain("REPORT_004");
+    expect(outcome.xlsxStatus).toBe("generated");
+    expect(outcome.xlsxKey).toBeTruthy();
   });
 });
 
