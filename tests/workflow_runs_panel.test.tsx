@@ -272,4 +272,21 @@ describe("WorkflowRunsPanel", () => {
     await renderPanel();
     expect(container.textContent).toContain("Could not load workflow runs");
   });
+
+  it("keeps Refresh and Retry reachable on a failed load (#2283 stream 3)", async () => {
+    status = 500;
+    await renderPanel();
+    // The load error used to ride PageShell's error prop, which hides
+    // all children — including Refresh. Both controls must stay visible.
+    expect(container.textContent).toContain("Could not load workflow runs");
+    expect(buttonByText("↻ Refresh")).not.toBeNull();
+    expect(buttonByText("Retry")).not.toBeNull();
+    // Retry refetches: the server recovers and the ledger renders.
+    status = 200;
+    payload = { count: 1, runs: [run()] };
+    await act(async () => {
+      buttonByText("Retry").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(container.textContent).toContain("Stock screen — NASDAQ100");
+  });
 });

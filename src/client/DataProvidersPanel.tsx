@@ -184,6 +184,11 @@ export function DataProvidersPanel() {
           {error}
         </Notice>
       )}
+      <div style={{ margin: "0 0 0.75rem" }}>
+        <Button variant="secondary" size="sm" onClick={() => void load()} loading={loading} disabled={loading}>
+          ↻ Refresh
+        </Button>
+      </div>
 
       {loading ? (
         <div className="dpp-loading">

@@ -346,8 +346,19 @@ export function WorkflowRunsPanel() {
       scopeNote="Every run the workflow engine recorded — job chains (feed → generate → serve → deliver) and standalone screener, goal, and discovery outcomes. Each run shows its stages, inputs, outputs, failures, artifacts, and how it was triggered. Trade approvals and payments stay in their own ledgers (Approvals, Billing)."
       loading={loading && runs.length === 0}
       loadingLabel="Loading workflow runs"
-      error={error}
     >
+      {/* #2283 stream 3: the load error used to ride PageShell's error
+          prop, which hides ALL children — including the Refresh button
+          below. A failed load left no retry on the page. The error now
+          renders inline with its own Retry, and Refresh stays visible. */}
+      {error && (
+        <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center", marginBottom: "var(--space-3)" }}>
+          <Notice tone="danger">{error}</Notice>
+          <Button variant="secondary" size="sm" onClick={() => void load()} loading={loading} disabled={loading}>
+            Retry
+          </Button>
+        </div>
+      )}
       <PageSection
         title="Runs"
         description={
