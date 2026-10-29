@@ -1,13 +1,15 @@
 /**
  * Issue #2059: LIVE PaymentWorkflow assurance routes (no fake seams).
+ * Issue #2197 (slice 4 of the native-payments program #2146,
+ * stacked on #2195): the live-assurance checkout path is native.
  *
  * These routes test the live deployed PaymentWorkflow end-to-end
  * with test inputs. Unlike the browser simulation in
- * PaymentWorkflowAssurance.tsx (fake step/cfpay/screener), every
+ * PaymentWorkflowAssurance.tsx (fake step/gate/screener), every
  * step here is real: a real workflow instance is created through
  * the PAYMENT_WORKFLOW binding, the real gate evaluates, real
  * approval/verified events are delivered through the binding, the
- * real cfpay checkout.status is re-read, and a completed run
+ * real native Stripe session is re-read, and a completed run
  * really starts ScreenerScreenWorkflow through the workflow port.
  *
  * What is "test" here is only the INPUT: run ids are
@@ -23,16 +25,25 @@
  * - Live endpoints additionally require the caller login to be
  *   listed in PAYMENT_ASSURANCE_LIVE_LOGINS (comma-separated
  *   Worker var). Empty/missing = deny all. This endpoint can
- *   start real screener runs and mint real cfpay checkouts, so
+ *   start real screener runs and mint real native checkouts, so
  *   it is never open to every signed-in user.
  * - Event/status/check-payment endpoints only accept
  *   live-test-prefixed workflow ids, so they can never poke a
  *   production workflow instance.
- * - Checkout mode additionally requires MONETIZATION_ENABLED=true
- *   and a configured cfpay key in the deployed env; otherwise it
- *   returns 409 naming the missing piece instead of silently
- *   running the free path. The gate's network allowlist (testnets
- *   plus Base mainnet) still applies inside the workflow.
+ * - Checkout mode additionally requires the monetization flag ON
+ *   via the FeatureFlagPort (the gate's source — never the raw
+ *   MONETIZATION_ENABLED env var, so assurance cannot disagree
+ *   with production) AND a configured native Stripe card port
+ *   (createCheckoutPorts, slice 1 #2195); otherwise it returns
+ *   409 naming the missing piece instead of silently running the
+ *   free path.
+ * - Status/check-payment re-read NATIVE state only: a Stripe
+ *   session retrieve through the card CheckoutPort. The cfpay
+ *   checkout.status path is gone from this file (retired at
+ *   slice 4, per design §3); no /a2a/payments call remains here.
+ *   The x402 rail has no session to retrieve, so check-payment
+ *   covers the card rail; an x402 proof is delivered through the
+ *   /event endpoint instead.
  *
  * Handler shape follows the other route modules (payments.ts):
  * returns a Response when a path matches, null otherwise, and is
@@ -42,7 +53,8 @@
 import { createFeatureFlagPort } from "../../features/createFeatureFlagPort";
 import { buildScenario } from "../../services/goalScenarioEngine";
 import { buildGoalScreenCommand } from "../../services/goalScreenWorkflowSubmission";
-import { cfpayA2AOperation, getCfpayConfig } from "../../services/cfpayA2A";
+import type { CardSessionEvidence, CheckoutPorts } from "../../services/checkoutPorts";
+import { createCheckoutPorts, type CheckoutEnv } from "../../services/createCheckoutPorts";
 import type { CommercialAccount } from "../../services/cfpayMonetization";
 import {
   buildPaymentWorkflowParams,
@@ -56,6 +68,15 @@ import {
 export interface PaymentAssuranceLiveContext {
   env: unknown;
   getUserLogin?: () => string | undefined;
+  /**
+   * Issue #2197: test seam for the checkout ports. When present
+   * (including explicitly null = unconfigured), it wins over the
+   * composition root; production call sites omit it and the route
+   * builds the ports from Worker env via createCheckoutPorts.
+   * This is never a silent production fallback: null means no
+   * native Stripe, and checkout mode refuses with 409.
+   */
+  checkoutPorts?: CheckoutPorts | null;
 }
 
 type EnvRecord = Record<string, unknown>;
@@ -113,6 +134,43 @@ function testEmailFor(login: string): string {
   return `${local}@assurance-test.local`;
 }
 
+/** Resolve the checkout ports: injected ports win in tests, otherwise the slice-1 composition root builds them from env. */
+function resolveCheckoutPorts(ctx: PaymentAssuranceLiveContext): CheckoutPorts | null {
+  if (ctx.checkoutPorts !== undefined) return ctx.checkoutPorts;
+  return createCheckoutPorts(envRecord(ctx) as unknown as CheckoutEnv);
+}
+
+/**
+ * The lookup key for a native session retrieve. An explicit
+ * sessionId (or checkoutId) supplied by the caller wins — a real
+ * Stripe session id is `cs_*`, not the run id. Otherwise the
+ * live-test workflow id is used as the key: the assurance run id
+ * is the checkout draftId (client_reference_id), so a port that
+ * resolves by draftId answers for it, and the fulfilled test below
+ * still binds the retrieved session back to this run.
+ */
+function sessionLookupKey(workflowId: string, record: Record<string, unknown> | null): string {
+  const explicit = record?.sessionId ?? record?.checkoutId;
+  return typeof explicit === "string" && explicit.trim() ? explicit.trim() : workflowId;
+}
+
+/**
+ * The route-level fulfilled test, mirroring the native gate's
+ * card rule as far as the route can see it: session complete AND
+ * payment_status paid AND the session's client_reference_id bound
+ * to this run. The gate re-applies its full rule (including the
+ * amount match, which the route cannot check — it holds no price)
+ * when the delivered payment_verified event reaches confirmPaid,
+ * so this wake-up is never itself proof of payment.
+ */
+function isNativeFulfilled(evidence: CardSessionEvidence, workflowId: string): boolean {
+  return (
+    evidence.status.toLowerCase() === "complete" &&
+    evidence.paymentStatus.toLowerCase() === "paid" &&
+    evidence.clientReferenceId === workflowId
+  );
+}
+
 function bindingFrom(env: EnvRecord): PaymentWorkflowBinding | undefined {
   const binding = env.PAYMENT_WORKFLOW as PaymentWorkflowBinding | undefined;
   return binding && typeof binding.create === "function" ? binding : undefined;
@@ -161,14 +219,20 @@ async function handleStart(request: Request, ctx: PaymentAssuranceLiveContext, l
   }
   const authorizedAtSubmission = body.authorizedAtSubmission === true;
 
-  const monetizationEnabled = env.MONETIZATION_ENABLED === "true";
-  const cfpay = getCfpayConfig(env);
+  // Issue #2197: the flag comes from the FeatureFlagPort — the
+  // gate's source — not the raw MONETIZATION_ENABLED env var, so
+  // assurance cannot disagree with production (in a Flagship env
+  // the dashboard value wins over any env var; in a non-Flagship
+  // env the port's own legacy-var rule still applies).
+  const monetizationEnabled = await createFeatureFlagPort(ctx.env).isEnabled("monetization");
+  const checkoutPorts = resolveCheckoutPorts(ctx);
+  const nativeStripeConfigured = Boolean(checkoutPorts?.card);
   if (mode === "checkout") {
     if (!monetizationEnabled) {
-      return json({ error: "Checkout-mode live test refused: MONETIZATION_ENABLED is not \"true\" in the deployed env." }, 409);
+      return json({ error: "Checkout-mode live test refused: the monetization flag is OFF (FeatureFlagPort)." }, 409);
     }
-    if (!cfpay) {
-      return json({ error: "Checkout-mode live test refused: cfpay is not configured (CFPAY_URL / token missing in the deployed env)." }, 409);
+    if (!nativeStripeConfigured) {
+      return json({ error: "Checkout-mode live test refused: native Stripe is not configured (no Stripe key for the card CheckoutPort in the deployed env)." }, 409);
     }
   }
 
@@ -221,7 +285,7 @@ async function handleStart(request: Request, ctx: PaymentAssuranceLiveContext, l
       scheduleKind,
       authorizedAtSubmission,
       monetizationEnabled,
-      cfpayConfigured: Boolean(cfpay),
+      nativeStripeConfigured,
       testAccountTier: account.tier,
     });
   } catch (err) {
@@ -290,15 +354,23 @@ async function handleStatus(_request: Request, url: URL, ctx: PaymentAssuranceLi
       instanceStatus = "unknown";
     }
   }
+  // Issue #2197: native state only — a Stripe session retrieve
+  // through the card CheckoutPort. No card port means no native
+  // state to report, so checkout stays null (same shape as the
+  // old no-cfpay case); a retrieve failure is reported as an
+  // error object, never thrown to the caller.
   let checkout: unknown = null;
-  const cfpay = getCfpayConfig(env);
-  if (cfpay) {
+  const card = resolveCheckoutPorts(ctx)?.card ?? null;
+  if (card) {
     try {
-      const res = await cfpayA2AOperation(cfpay, "/a2a/payments", "checkout.status", { requestId: workflowId });
-      checkout = res.ok ? res.data : { error: res.error ?? "checkout.status failed" };
+      checkout = await card.retrieveCardSession({
+        sessionId: sessionLookupKey(workflowId, {
+          sessionId: url.searchParams.get("sessionId"),
+        }),
+      });
     } catch (err) {
       logError(err);
-      checkout = { error: "checkout.status failed" };
+      checkout = { error: "Stripe session retrieve failed" };
     }
   }
   return json({ workflowId, instanceStatus, checkout });
@@ -311,35 +383,36 @@ async function handleCheckPayment(request: Request, ctx: PaymentAssuranceLiveCon
   if (!isLiveTestId(body.workflowId)) {
     return json({ error: "Only live-test workflow ids can be checked through this endpoint." }, 403);
   }
-  const cfpay = getCfpayConfig(env);
-  if (!cfpay) {
-    return json({ error: "cfpay is not configured in the deployed env; cannot re-read checkout status." }, 409);
+  // Issue #2197: native state only — the card CheckoutPort's
+  // session retrieve replaces cfpay checkout.status. No card port
+  // refuses instead of faking fulfillment.
+  const card = resolveCheckoutPorts(ctx)?.card ?? null;
+  if (!card) {
+    return json({ error: "Native Stripe is not configured in the deployed env; cannot re-read checkout status." }, 409);
   }
   const binding = bindingFrom(env);
   if (!binding) return json({ error: "PAYMENT_WORKFLOW binding is not configured." }, 503);
-  let checkoutRecord: Record<string, unknown> | null = null;
+  let evidence: CardSessionEvidence | null = null;
   try {
-    const res = await cfpayA2AOperation(cfpay, "/a2a/payments", "checkout.status", { requestId: body.workflowId });
-    if (!res.ok) return json({ delivered: false, checkout: { error: res.error ?? "checkout.status failed" } });
-    checkoutRecord = (res.data ?? {}) as Record<string, unknown>;
+    evidence = await card.retrieveCardSession({
+      sessionId: sessionLookupKey(body.workflowId as string, body),
+    });
   } catch (err) {
     logError(err);
-    return json({ delivered: false, checkout: { error: "checkout.status failed" } });
+    return json({ delivered: false, checkout: { error: "Stripe session retrieve failed" } });
   }
-  // Mirror the gate's fulfilled test (confirmPaid): fulfilled, paid,
-  // or paid === true. Anything else delivers nothing — the wake-up
-  // event is never sent for an unfulfilled checkout.
-  const state = String(checkoutRecord?.status ?? checkoutRecord?.state ?? "").toLowerCase();
-  const fulfilled = state === "fulfilled" || state === "paid" || checkoutRecord?.paid === true;
-  if (!fulfilled) {
-    return json({ delivered: false, checkout: checkoutRecord, reason: "Checkout is not fulfilled; no payment_verified event was delivered." });
+  // Mirror the native gate's card rule as far as the route can see
+  // it (complete + paid + reference bound to this run). Anything
+  // else delivers nothing — the wake-up event is never sent for
+  // an unfulfilled or mis-bound session.
+  if (!evidence || !isNativeFulfilled(evidence, body.workflowId as string)) {
+    return json({ delivered: false, checkout: evidence, reason: "Checkout session is not fulfilled for this run; no payment_verified event was delivered." });
   }
   try {
     await deliverPaymentVerifiedViaHost(bindingHost(binding), body.workflowId, {
-      claimTxHash: typeof checkoutRecord?.claimTxHash === "string" ? checkoutRecord.claimTxHash : undefined,
-      paymentIntentId: typeof checkoutRecord?.paymentIntentId === "string" ? checkoutRecord.paymentIntentId : undefined,
+      paymentIntentId: evidence.paymentIntentId,
     });
-    return json({ delivered: true, workflowId: body.workflowId, checkout: checkoutRecord });
+    return json({ delivered: true, workflowId: body.workflowId, checkout: evidence });
   } catch (err) {
     logError(err);
     return json({ error: "Internal error." }, 500);
