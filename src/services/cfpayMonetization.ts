@@ -69,6 +69,11 @@ export const ALLOWED_NETWORKS = ["base-sepolia", "ethereum-sepolia", "base", "ei
 export const PAYMENT_DISCLOSURE =
   "One charge per run-request. Shards, stages, retries and re-serves are free. Automated refunds are not available in v1; a paid run that fails gets a one-time replacement-run credit. Mainnet payments are accepted on Base (MONETIZATION_NETWORK=base); testnets remain available. Settlement chain follows the cfpay deployment configuration.";
 
+/**
+ * @deprecated superseded by src/services/nativeMonetization.ts (NativeMonetizationGate + CheckoutPort).
+ * Kept in place for in-flight cfpay runs to drain (the gate is built at workflow-instance start);
+ * new runs use the native gate. Never delete this interface in the migration slices.
+ */
 export interface CfPayCheckoutClient {
   createCheckout(input: { requestId: string; email: string; request: string }): Promise<unknown>;
   checkoutStatus(requestId: string): Promise<{ status?: string; state?: string; paid?: boolean }>;
@@ -110,6 +115,11 @@ interface LedgerRow {
   paidVia?: string;
 }
 
+/**
+ * @deprecated superseded by src/services/nativeMonetization.ts (NativeMonetizationGate + CheckoutPort).
+ * Kept in place for in-flight cfpay runs to drain (the gate is built at workflow-instance start);
+ * new runs use the native gate. Never delete this class in the migration slices.
+ */
 export class CfPayMonetizationGate {
   private byRun = new Map<string, LedgerRow>();
   private byClaim = new Map<string, string>();

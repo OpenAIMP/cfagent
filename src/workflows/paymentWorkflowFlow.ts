@@ -10,8 +10,10 @@
  * Deterministic, NOT model-driven. No step prompts a model, no step lets a
  * model choose an amount, a recipient, or whether to pay. Amounts come from
  * the price catalogue in cfpayMonetization.ts (proposed, NOT approved).
- * Payment is confirmed only by re-reading cfpay checkout.status via the
- * gate; a workflow event is a wake-up signal, never proof of payment.
+ * Payment is confirmed only by re-reading provider state via the
+ * gate (native: Stripe session retrieve / x402 facilitator verify;
+ * cfpay-era: checkout.status); a workflow event is a wake-up
+ * signal, never proof of payment.
  *
  * CORRECTION (2026-10-27, user): there is NO new payment agent here.
  * PaymentsAgent already exists in cfagent (src/agents/payments-agent.ts,
@@ -28,7 +30,7 @@
  * ThinkWorkflow. Orchestration is a caller relationship, not inheritance.
  *
  * Steps, in order (all step.do() for money ops; never step.prompt()):
- *   1. gate-check — coverage first, then cfpay checkout (402), or
+ *   1. gate-check — coverage first, then checkout (402), or
  *      coverage_required for recurring / unstated scheduled runs.
  *   2. await-payment-approval — human gate BEFORE capture, via
  *      waitForEvent (AgentWorkflow approval support), backed by the
@@ -54,12 +56,47 @@
  */
 
 import {
-  type CfPayMonetizationGate,
   type CommercialAccount,
+  type GateDecision,
   type RunTrigger,
   type ScheduleKind,
   type ScreenerFamily,
 } from "../services/cfpayMonetization";
+
+/**
+ * Issue #2193 (slice 1, #2146) — the structural gate surface the
+ * flow consumes. The flow depends ONLY on check()/confirmPaid():
+ * any gate satisfying this interface drives it — the cfpay gate
+ * (in-flight drain) and the native gate (new runs) alike. This is
+ * a type-level widening, not a step-logic change: no step order,
+ * wait, timeout, or outcome changes in this slice. The native gate
+ * (src/services/nativeMonetization.ts) satisfies this interface;
+ * the cfpay gate does too (its narrower proof type is compatible
+ * through method bivariance).
+ */
+export interface PaymentGate {
+  check(run: {
+    id: string;
+    family: ScreenerFamily;
+    trigger: RunTrigger;
+    scheduleKind?: ScheduleKind;
+    authorizedAtSubmission?: boolean;
+    tenantId?: string;
+    account: CommercialAccount;
+    rail?: "stripe" | "x402";
+  }): Promise<GateDecision>;
+  confirmPaid(
+    run: { id: string; userId: string; email: string; family?: ScreenerFamily },
+    proof?: {
+      claimTxHash?: string;
+      paymentIntentId?: string;
+      sessionId?: string;
+      paymentProof?: string;
+      payer?: string;
+      stripeReturnPage?: boolean;
+    },
+  ): Promise<GateDecision>;
+}
 
 export interface PaymentWorkflowParams {
   runRequestId: string;
@@ -97,10 +134,13 @@ export interface PaymentApprovalEvent {
   approverId?: string;
 }
 
-/** Wake-up signal only. confirm-paid re-reads checkout.status regardless. */
+/** Wake-up signal only. confirm-paid re-reads provider state regardless. Carries the provider join keys the native gate's stateless confirm needs: the Stripe session id for card, the x402 payment proof (+ claimed payer) for crypto. */
 export interface PaymentVerifiedEvent {
   claimTxHash?: string;
   paymentIntentId?: string;
+  sessionId?: string;
+  paymentProof?: string;
+  payer?: string;
 }
 
 /**
@@ -127,25 +167,31 @@ export interface PaymentWorkflowEvent {
 
 /**
  * Pull a checkout id out of the gate's checkout value (the cfpay
- * createCheckout response, whose shape is the raw A2A result). Falls
- * back to undefined — the run id itself is the checkout join key
- * (checkout.create used requestId == runRequestId), so the ledger
- * writer falls back to it.
+ * createCheckout response, whose shape is the raw A2A result, or
+ * the native CheckoutCreation). Falls back to undefined — the run
+ * id itself is the checkout join key for cfpay (checkout.create
+ * used requestId == runRequestId), so the ledger writer falls back
+ * to it. For native checkouts the id is the provider join key:
+ * the Stripe session id (or payment-intent id) for card — NEVER
+ * the checkout URL, which is a redirect, not an id, and is
+ * skipped explicitly even if it appears under an id-like key.
  */
 export function extractCheckoutId(checkout: unknown): string | undefined {
   if (!checkout || typeof checkout !== "object") return undefined;
   const record = checkout as Record<string, unknown>;
-  for (const key of ["id", "checkoutId", "requestId"]) {
-    if (typeof record[key] === "string" && (record[key] as string)) {
-      return record[key] as string;
+  for (const key of ["checkoutId", "id", "gatewayRef", "sessionId", "paymentIntentId", "requestId"]) {
+    const value = record[key];
+    if (typeof value === "string" && value && !value.startsWith("http://") && !value.startsWith("https://")) {
+      return value;
     }
   }
   const data = record["data"];
   if (data && typeof data === "object") {
     const inner = data as Record<string, unknown>;
-    for (const key of ["id", "checkoutId", "requestId"]) {
-      if (typeof inner[key] === "string" && (inner[key] as string)) {
-        return inner[key] as string;
+    for (const key of ["checkoutId", "id", "gatewayRef", "sessionId", "paymentIntentId", "requestId"]) {
+      const value = inner[key];
+      if (typeof value === "string" && value && !value.startsWith("http://") && !value.startsWith("https://")) {
+        return value;
       }
     }
   }
@@ -153,7 +199,7 @@ export function extractCheckoutId(checkout: unknown): string | undefined {
 }
 
 export interface PaymentWorkflowDeps {
-  gate: CfPayMonetizationGate;
+  gate: PaymentGate;
   account: CommercialAccount;
   startScreener: (params: PaymentWorkflowParams) => Promise<{ workflowId: string }>;
   recordEvent: (event: PaymentWorkflowEvent) => Promise<void>;
@@ -291,8 +337,14 @@ export async function runPaymentWorkflowFlow(
     }
     const confirmed = await step.do("confirm-paid", () =>
       deps.gate.confirmPaid(
-        { id: params.runRequestId, userId: params.userId, email: params.email },
-        { claimTxHash: verified.claimTxHash, paymentIntentId: verified.paymentIntentId },
+        { id: params.runRequestId, userId: params.userId, email: params.email, family: params.family },
+        {
+          claimTxHash: verified.claimTxHash,
+          paymentIntentId: verified.paymentIntentId,
+          sessionId: verified.sessionId,
+          paymentProof: verified.paymentProof,
+          payer: verified.payer,
+        },
       ),
     );
     if (!confirmed.allowed) {
