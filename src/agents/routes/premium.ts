@@ -33,6 +33,7 @@ import {
 } from "../../services/agenticPayments";
 import { MarketDataResearchService } from "../../services/marketDataResearch";
 import { UnifiedOptionsService } from "../../trading";
+import { buildDataProviderPorts } from "../../data/buildDataProviderPorts";
 import { parseOptionsScreenRequest } from "../../trading";
 import type { CaptureBlobStorage } from "../../trading";
 import { getCuratedStockBySymbol } from "../../config/curatedStockUniverse";
@@ -292,7 +293,12 @@ export async function handlePremiumRoutes(
         const platformDeps = ctx.sql && ctx.blobStorage
           ? { sql: ctx.sql, blobStorage: ctx.blobStorage, env: ctx.env }
           : undefined;
-        const service = new UnifiedOptionsService(ctx.env, userLogin, reqEnvLocal, ctx.getOrm(), undefined, undefined, undefined, platformDeps, "premium");
+        // #2303: the platform ports for the service's platform
+        // block (built from env; nulls when AGENT_DB is unbound).
+        const dpPorts = platformDeps
+          ? await buildDataProviderPorts(ctx.env)
+          : undefined;
+        const service = new UnifiedOptionsService(ctx.env, userLogin, reqEnvLocal, ctx.getOrm(), undefined, undefined, undefined, platformDeps, "premium", dpPorts);
         const serviceResponse = await service.execute({
           action: "screen",
           channel: "webhook",
