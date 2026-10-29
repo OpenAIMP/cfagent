@@ -364,7 +364,21 @@ describe("Agent conformance (issue #1738)", () => {
     // than vacuously pass both directions below.
     expect(agentClasses.size).toBeGreaterThanOrEqual(12);
     // class → binding: an unbound agent class is named in the failure.
-    const unbound = [...agentClasses].filter((c) => !boundClasses.has(c)).sort();
+    // Transitional exception (#2330, Agent Mesh S2-A; gate record
+    // #2326): during the two-deploy G0 rename's A→B window,
+    // OrchestratorAgent is bound ONLY under its export alias
+    // (SEARCH_AGENT → class_name "SearchAgent") — its own-name
+    // namespace is tombstoned by migration v14, and Deploy B renames
+    // the alias namespace onto the class name, at which point this
+    // exception MUST be emptied. The exact-membership assertion keeps
+    // the exception itself pinned rather than open-ended.
+    const TRANSITIONAL_ALIAS_ONLY = ["OrchestratorAgent"];
+    expect(boundClasses.has("SearchAgent")).toBe(true);
+    const unbound = [...agentClasses]
+      .filter(
+        (c) => !boundClasses.has(c) && !TRANSITIONAL_ALIAS_ONLY.includes(c)
+      )
+      .sort();
     expect(
       unbound,
       `agent classes with no wrangler DO binding: ${unbound.join(", ")}`

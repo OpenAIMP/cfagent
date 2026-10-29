@@ -1,0 +1,2 @@
+### Removed
+- Agent Mesh S2-A (#2330): the v9 `OrchestratorAgent` Durable Object namespace is tombstoned (migration v14, `deleted_classes`) and the `ORCHESTRATOR_AGENT` binding plus the own-name export are removed — step 1 of the two-deploy G0 rename (gate record #2326). The live orchestrator namespace (`SEARCH_AGENT`) and all chat state are untouched; sub-agent root resolution via `ctx.exports` is unavailable until Deploy B completes the rename.
