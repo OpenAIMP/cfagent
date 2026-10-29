@@ -22,6 +22,7 @@ import {
   type PaymentWorkflowStep,
 } from "../src/workflows/paymentWorkflowFlow";
 import type { WorkflowJobCommand } from "../src/workflows/workflowPorts";
+import { InMemoryPriceCatalogueAdapter } from "../src/data/inMemoryPriceCatalogueAdapter";
 
 function stubCfpay(status = "fulfilled"): CfPayCheckoutClient {
   return {
@@ -56,7 +57,11 @@ function depsFor(
   account: CommercialAccount,
   consumeCoverage: PaymentWorkflowDeps["consumeCoverage"],
 ): PaymentWorkflowDeps {
-  const gate = new CfPayMonetizationGate(stubCfpay(), { monetizationEnabled: true, network: "base-sepolia" });
+  const gate = new CfPayMonetizationGate(stubCfpay(), {
+    monetizationEnabled: true,
+    network: "base-sepolia",
+    priceCatalogue: new InMemoryPriceCatalogueAdapter(),
+  });
   return {
     gate,
     account,

@@ -8,6 +8,7 @@
  * mas_events rows; this file pins the flow side of that contract.
  */
 import { describe, expect, it } from "vitest";
+import { InMemoryPriceCatalogueAdapter } from "../src/data/inMemoryPriceCatalogueAdapter";
 import {
   CfPayMonetizationGate,
   type CfPayCheckoutClient,
@@ -92,6 +93,8 @@ function gateFor(status = "fulfilled"): CfPayMonetizationGate {
   return new CfPayMonetizationGate(stubCfpay(status), {
     monetizationEnabled: true,
     network: "base-sepolia",
+    // #2185: the gate prices from the catalogue port, never from code.
+    priceCatalogue: new InMemoryPriceCatalogueAdapter(),
   });
 }
 

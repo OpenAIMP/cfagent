@@ -10,6 +10,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { CfPayMonetizationGate } from "../src/services/cfpayMonetization";
+import { InMemoryPriceCatalogueAdapter } from "../src/data/inMemoryPriceCatalogueAdapter";
 
 const stubCfpay = {
   createCheckout: async () => ({}),
@@ -50,7 +51,11 @@ describe("cfpay gate network allowlist (#2016)", () => {
   });
 
   it("discloses mainnet acceptance and no longer claims testnet-only", async () => {
-    const gate = new CfPayMonetizationGate(stubCfpay, { monetizationEnabled: true, network: "base-sepolia" });
+    const gate = new CfPayMonetizationGate(stubCfpay, {
+      monetizationEnabled: true,
+      network: "base-sepolia",
+      priceCatalogue: new InMemoryPriceCatalogueAdapter(),
+    });
     const decision = await gate.check({ id: "run-1", family: "stock", trigger: "manual", account: freeAccount });
     expect(decision.allowed).toBe(false);
     if (decision.allowed) throw new Error("expected payment_required");
