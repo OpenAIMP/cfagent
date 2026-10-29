@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { MCP_TOOL_SCOPES } from "../src/permissions/mcpPermissionPorts";
 
 describe("Tool-attribution audit coverage (#1763)", () => {
-  it("audit doc names all 60 factory tools and the 4 scanner tools", () => {
+  it("audit doc names all 61 factory tools and the 4 scanner tools", () => {
     const doc = readFileSync(
       join(__dirname, "../docs/architecture/security/tool-attribution-audit-1763.md"),
       "utf8",
@@ -23,7 +23,8 @@ describe("Tool-attribution audit coverage (#1763)", () => {
     // share their canonical tool's scope and must be named in the audit
     // doc too — a callable alias without an audit row would be
     // unattributed by this test's own rationale.
-    expect(tools).toHaveLength(60);
+    // #2250: +1 canonical tool (ai_search_agent_search) = 52 canonical.
+    expect(tools).toHaveLength(61);
     for (const tool of tools) {
       expect(doc).toContain(`\`${tool}\``);
     }
