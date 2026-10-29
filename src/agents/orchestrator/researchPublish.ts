@@ -150,7 +150,23 @@ export async function runResearchAndPublish(ctx: ResearchPublishContext,
   taskId?: string | null;
   executionPath?: ResearchExecutionPath;
 }> {
-  const login = userLogin || "default";
+  // Issue #2327 (Agent Mesh S3): the publish entry names its actor
+  // or refuses. Callers arrive with an identity — the manual route
+  // with the session login, the scheduled tick with the configured
+  // service identity (server.ts skips that dispatch entirely when
+  // none is configured, #1185) — so an absent, blank, or
+  // retired-literal login here means the run has no actor, and it
+  // fails closed rather than publishing under a synthetic
+  // "default" identity.
+  const trimmedLogin = typeof userLogin === "string" ? userLogin.trim() : "";
+  if (!trimmedLogin || trimmedLogin === "default") {
+    return {
+      success: false,
+      error:
+        "Research run requires an explicit userLogin — runs are never attributed to a default identity (issue #2327).",
+    };
+  }
+  const login = userLogin as string;
   const agent = ctx.getResearchAgent(login);
   if (!agent) {
     return { success: false, error: "ResearchAgent binding not configured." };

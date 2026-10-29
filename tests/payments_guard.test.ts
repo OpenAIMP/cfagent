@@ -26,6 +26,7 @@ vi.mock("agents", () => {
 });
 
 import { BudgetGuard } from "../src/payments/budget-guard";
+import { AGENTIC_SPEND_AGENT_ID } from "../src/payments/ledger";
 import { PaymentsAgent } from "../src/agents/payments-agent";
 import { DatabaseORM } from "../src/orm";
 import { MockSqlStorage } from "./mock-sql";
@@ -173,7 +174,9 @@ describe("PaymentsAgent guard persistence (#161)", () => {
     // Default caps: 5000/day, 1000/call. Six 1000 checks total 6000 — if
     // checks recorded spend, the 6th would breach the daily cap.
     for (let i = 0; i < 6; i++) {
-      const verdict = await agent.budgetCheck({ operation: "search.query", amountCents: 1000 });
+      // Issue #2327: the caller names its budget bucket explicitly
+      // (previously inherited from the callee's retired default).
+      const verdict = await agent.budgetCheck({ operation: "search.query", amountCents: 1000, agentId: AGENTIC_SPEND_AGENT_ID });
       expect(verdict.allowed).toBe(true);
     }
   });
@@ -182,7 +185,7 @@ describe("PaymentsAgent guard persistence (#161)", () => {
     const ctx = makeCtx();
     const agent = new (PaymentsAgent as any)(ctx, makeLedgerEnv());
     for (const op of ["social.publish", "pipeline:social-daily", "qa.run_sweep", "search.opportunity_hunt"]) {
-      const verdict = await agent.budgetCheck({ operation: op, amountCents: 1 });
+      const verdict = await agent.budgetCheck({ operation: op, amountCents: 1, agentId: AGENTIC_SPEND_AGENT_ID });
       expect(verdict.allowed, `operation ${op} should be allowed by budgetCheck`).toBe(true);
     }
   });

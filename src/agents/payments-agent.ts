@@ -91,14 +91,28 @@ export class PaymentsAgent extends PortThink {
    * (including an unreachable ledger) returns { allowed: false }.
    * Pure: a check never records spend — only processPaidRequest()
    * records, after verification.
+   *
+   * The caller MUST name itself via agentId (issue #2327): the
+   * check is evaluated against that agent's ledger-derived spend,
+   * and a missing or blank identity is itself a fail-closed
+   * denial — attribution is never defaulted. Callers that gate
+   * orchestrator-attributed spend (ScheduledAgent) pass
+   * AGENTIC_SPEND_AGENT_ID explicitly.
    */
   async budgetCheck(req: {
     operation: string;
     amountCents: number;
-    agentId?: string;
+    agentId: string;
   }): Promise<{ allowed: boolean; reason?: string }> {
+    if (typeof req.agentId !== "string" || req.agentId.trim().length === 0) {
+      return {
+        allowed: false,
+        reason:
+          "budget check requires an explicit agentId (caller identity) — attribution is never defaulted (issue #2327)",
+      };
+    }
+    const agentId = req.agentId;
     try {
-      const agentId = req.agentId ?? "orchestrator";
       const guard = await this.getGuard(agentId);
       return guard.check({
         agentId,

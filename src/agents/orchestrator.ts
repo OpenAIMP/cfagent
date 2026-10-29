@@ -619,7 +619,14 @@ export class OrchestratorAgent extends PortThink {
   private getResearchAgent(userLogin?: string): ResearchAgent | null {
     const ns = this.env.RESEARCH_AGENT;
     if (!ns) return null;
-    const login = userLogin || "default";
+    // Issue #2327 (Agent Mesh S3): no identity, no instance. A
+    // missing, blank, or retired-literal login resolves NO stub —
+    // callers fail closed on the null — instead of silently landing
+    // on the shared research:default instance, which attributed
+    // work to a login that is no user.
+    const trimmed = typeof userLogin === "string" ? userLogin.trim() : "";
+    if (!trimmed || trimmed === "default") return null;
+    const login = userLogin as string;
     const id = ns.idFromName(`research:${login}`);
     return ns.get(id) as unknown as ResearchAgent;
   }
