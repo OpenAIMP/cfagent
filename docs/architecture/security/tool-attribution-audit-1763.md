@@ -11,7 +11,7 @@ and `tests/a2a_entrypoint_auth_1763.test.ts`).
 ## Method and scope
 
 - Inventory source: `src/permissions/mcpPermissionPorts.ts`
-  `MCP_TOOL_SCOPES` (61 tools: 52 canonical + 9 deprecated #1906
+  `MCP_TOOL_SCOPES` (65 tools: 56 canonical + 9 deprecated #1906
   aliases, completeness-pinned against the live
   factory registry in both directions by #1843's tests) plus the
   scanner surface (`src/services/cloudflareWalletsScanner.ts`) and
@@ -58,7 +58,7 @@ and `tests/a2a_entrypoint_auth_1763.test.ts`).
    authenticated the request is the identity, not the tool call
    itself. See gap G-AUD-3.
 
-## The 61 factory tools — verdict per tool
+## The 65 factory tools — verdict per tool
 
 Verdict key: **L** = login-attributable via door 1 (session /
 API-key); **I** = instance-attributable only via door 2 (gap
@@ -68,7 +68,7 @@ the verdict of the door used; the table lists the strongest
 attribution available (door 1) and the gaps that apply on the
 other doors. Scope column is #1843's declaration, consumed here.
 
-### mcp:read (32)
+### mcp:read (33)
 
 | Tool | Scope | /mcp verdict |
 |---|---|---|
@@ -104,8 +104,9 @@ other doors. Scope column is #1843's declaration, consumed here.
 | `agentdb.jobs.history` | mcp:read | L (I / R on other doors) |
 | `agentdb.audit.history` | mcp:read | L (I / R on other doors) |
 | `agentdb.reports.list` | mcp:read | L (I / R on other doors) |
+| `list_scheduled_goals` | mcp:read | L via door 2 only — acting identity required (#2341); refused on doors 1/3 (no acting-identity carrier there) |
 
-### mcp:write (6)
+### mcp:write (7)
 
 | Tool | Scope | /mcp verdict |
 |---|---|---|
@@ -115,6 +116,7 @@ other doors. Scope column is #1843's declaration, consumed here.
 | `manage_session_memory` | mcp:write | L (I / R on other doors) |
 | `goal.compile` | mcp:write | L (I / R on other doors) |
 | `goal.schedule` | mcp:write | L (I / R on other doors) |
+| `trigger_scheduled_goal` | mcp:write | L via door 2 only — acting identity required (#2341); refused on doors 1/3 (no acting-identity carrier there) |
 
 ### mcp:execute (7)
 
@@ -128,7 +130,7 @@ other doors. Scope column is #1843's declaration, consumed here.
 | `think_trade_validation` | mcp:execute | L (I / R on other doors) |
 | `browser_screenshot` | mcp:execute | L (I / R on other doors) |
 
-### mcp:payments (7)
+### mcp:payments (9)
 
 | Tool | Scope | /mcp verdict |
 |---|---|---|
@@ -139,6 +141,8 @@ other doors. Scope column is #1843's declaration, consumed here.
 | `paid_options_screener` | mcp:payments | L (I / R on other doors) |
 | `paid_market_research` | mcp:payments | L (I / R on other doors) |
 | `agentic_wallet_status` | mcp:payments | L (I / R on other doors) |
+| `check_payment_budget` | mcp:payments | L via door 2 only — acting identity required (#2341); refused on doors 1/3 (no acting-identity carrier there) |
+| `get_payments_overview` | mcp:payments | L via door 2 only — acting identity required (#2341); refused on doors 1/3 (no acting-identity carrier there) |
 
 ### mcp:trade (5)
 
@@ -220,7 +224,13 @@ identity is IAAA work (#945), not rebuilt here.
   here): thread the turn's `userLogin` into the principal. This
   gap is about attribution threading, NOT about authorization:
   it does not by itself require role-differentiated scope
-  assignment (see the determination below).
+  assignment (see the determination below). Narrowing note
+  (#2341): the mesh-door commands carry the turn's acting login
+  through a separate `actingLogin` context carrier (stamped into
+  queued jobs server-side at queue time) and audit it per call,
+  so those four tools are login-attributable on door 2; the
+  principal itself is unchanged and this gap remains open for
+  the principal and for all other tools.
 - **G-AUD-3 — System principal carries no login.** In-process
   callers (REST bridge, job executor) run as `system` with login
   null; their attribution is the authenticating route layer, not

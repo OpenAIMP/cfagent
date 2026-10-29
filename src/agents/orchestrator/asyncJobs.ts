@@ -751,6 +751,14 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
         // at queue time for /mcp-queued jobs; this gate is the
         // second layer at execution time.
         principal: { kind: "system", login: null },
+        // #2341 (Agent Mesh S5): re-supply the acting identity the
+        // turn adapter stamped into this job's payload at queue
+        // time (server-side only — a payload without the stamp
+        // resolves to no identity, and identity-gated tools fail
+        // closed). The stamp is payload data, so it is re-read per
+        // call rather than captured.
+        actingLogin: () =>
+          typeof payload.actingLogin === "string" ? payload.actingLogin : undefined,
         // Issue #1686: async-job MCP scans capture like turn-tool scans.
         // The scan mechanism itself is executing-pinned via the MCP leg
         // pin; this literal is source-pinned below (see the pin file).

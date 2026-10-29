@@ -107,13 +107,14 @@ describe("mesh registry shape (#2322)", () => {
     }
   });
 
-  it("records 18 tool families (survey §8 fifteen + web_search, web_fetch, AI Search platform)", () => {
-    expect(MESH_TOOL_FAMILIES).toHaveLength(18);
+  it("records 19 tool families (survey §8 fifteen + web_search, web_fetch, AI Search platform + the G1 mesh-door family, #2341)", () => {
+    expect(MESH_TOOL_FAMILIES).toHaveLength(19);
     const ids = MESH_TOOL_FAMILIES.map((f) => f.id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids).toContain("web-search");
     expect(ids).toContain("web-fetch");
     expect(ids).toContain("ai-search-platform");
+    expect(ids).toContain("mesh-door-mcp-commands");
   });
 
   it("records the SearchAgent vs SearchHub/SearchAgentTab naming collision as a non-rename (survey §5)", () => {

@@ -37,6 +37,15 @@ export interface ChatTurnHelpersContext {
    */
   storage?: import("../../trading").NasdaqUniverseRouteBundleInput["storage"];
   sessionKey: () => string;
+  /**
+   * #2341 (Agent Mesh S5): resolver for the current turn's acting
+   * login (the orchestrator's turn stash). Optional: contexts built
+   * outside a turn supply none, and identity-gated turn tools (the
+   * mesh doors) then fail closed. Read lazily at tool-execution
+   * time — the stash is filled by the turn drivers/beforeTurn,
+   * which may run after the tool set is built.
+   */
+  turnUserLogin?: () => string | undefined;
   audit: (type: string, agent: AgentName | "judge" | "nlq" | "orchestrator", payload: Record<string, unknown>) => void;
   submitAsyncJob: (job: AsyncJobSubmission) => Promise<{ jobId: string; status: "queued"; statusUrl: string }>;
   getAsyncJob: (jobId: string) => AsyncJobRecord | undefined;
@@ -90,6 +99,11 @@ export function createTurnTools(ctx: ChatTurnHelpersContext, requestId: string):
     // identity boundary. Threading the turn's userLogin into the
     // principal (for finer audit attribution) is a follow-up.
     principal: { kind: "agent-turn", login: null },
+    // #2341 (Agent Mesh S5): the acting-identity carrier the mesh
+    // door commands resolve through (see McpToolContext.actingLogin).
+    // The principal above is unchanged; this carrier exists so a
+    // door can name the acting user, not just the instance.
+    actingLogin: ctx.turnUserLogin,
     permissionDecisionSink: createObservabilitySink(ctx.env),
     submitJob: (job) => ctx.submitAsyncJob(job),
     getJob: (jobId) => ctx.getAsyncJob(jobId),

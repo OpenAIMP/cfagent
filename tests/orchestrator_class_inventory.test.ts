@@ -184,7 +184,13 @@ const ORCH = "agents/orchestrator.ts";
  *  closed on a missing identity (the getResearchAgent guard +
  *  its comment; no new logic surface) — measured 2,646 lines /
  *  121,915 B on the merged tree (over #2303's step-1 wiring),
- *  so budget lines rise to 2660 and bytes rise to 122_500. */
+ *  so budget lines rise to 2660 and bytes rise to 122_500.
+ *  Agent Mesh S5 (#2341) adds one field to the chat-turn helpers
+ *  context — the turnUserLogin resolver the mesh doors read their
+ *  acting identity through (the door logic itself lives in
+ *  orchestrator/meshDoors.ts; the class gains no logic) —
+ *  measured 2,650 lines / 122,177 B on the branch tree, so the
+ *  budgets keep 2660 / 122_500, which still cover the tree. */
 const BUDGET_LINES = 2660;
 const BUDGET_BYTES = 122_500;
 

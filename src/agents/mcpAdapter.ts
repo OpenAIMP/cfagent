@@ -49,11 +49,22 @@ export class McpAgentToolAdapter {
         };
         if (context.submitJob && command.name !== "get_async_job" && command.name !== "list_async_jobs") {
           await authorizeMcpToolCall(port, principal, command.name, gateOpts);
+          // #2341 (Agent Mesh S5): stamp the turn's acting identity
+          // into the job payload, resolved HERE — server-side, from
+          // the turn context, never from the tool's arguments — so
+          // the job executor can thread it into the execution
+          // context's actingLogin carrier. Absent identity stamps
+          // nothing: identity-gated tools then fail closed at
+          // execution, exactly as an unidentified direct call does.
+          const actingLogin = context.actingLogin?.();
           return context.submitJob({
             capability: "mcp.tool",
             payload: {
               toolName: command.name,
               arguments: input,
+              ...(typeof actingLogin === "string" && actingLogin.trim()
+                ? { actingLogin }
+                : {}),
             },
           });
         }

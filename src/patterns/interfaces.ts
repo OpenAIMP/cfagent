@@ -123,6 +123,19 @@ export interface McpToolContext {
   permissionDecisionSink?: import("../observability/observabilityPorts").ObservabilitySink;
   /** #1744: execution id of the gated execution running this command (correlation only). */
   executionId?: string;
+  /**
+   * #2341 (Agent Mesh S5): resolver for the acting user's login,
+   * populated ONLY by a server-side context owner — the chat turn
+   * (from its turn stash) and the async-job executor (from the
+   * identity the turn adapter stamped into the job payload at queue
+   * time). It is a resolver, not a value, so turn contexts built
+   * before the turn stash exists still read the identity at
+   * execution time. Never populated from tool arguments or caller
+   * headers. Unset (external MCP callers, unattended paths) means
+   * NO acting identity: identity-gated commands (the mesh doors)
+   * fail closed.
+   */
+  actingLogin?: () => string | undefined;
   audit: (type: string, agent: any, payload: Record<string, unknown>) => void;
   facade?: IMcpSystemFacade;
   submitJob?: (job: AsyncJobSubmission) => Promise<{
