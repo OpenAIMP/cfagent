@@ -554,6 +554,10 @@ export class OrchestratorAgent extends PortThink {
       getAsyncJob: (jobId) => this.getAsyncJob(jobId),
       listAsyncJobs: (limit) => this.listAsyncJobs(limit),
       getMessages: () => this.getPortMessages(),
+      // Issue #2341: the mesh doors' acting identity — the in-flight
+      // turn's userLogin from the turn stash (filled by the HTTP
+      // driver before runTurn, or by portBeforeTurn for WS turns).
+      turnUserLogin: () => this.pendingTurn?.userLogin,
       // Issue #1738: Think's active-turn metadata went away with
       // the base change. deriveTurn falls back to the last user
       // message's metadata, which carries sourceTab/userLogin for
