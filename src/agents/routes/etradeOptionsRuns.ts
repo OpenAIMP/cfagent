@@ -15,14 +15,12 @@
 import { unauthenticatedResponse } from "./routeIdentity";
 import { readOptionsRuns } from "../optionsRuns";
 import {
-  SqlScanRunStore,
-  SqlDiscoveryRunStore,
-  SqlIvHistoryStore,
   diffScanRuns,
   getIvHistoryEntry,
   flattenWatchlistSymbols,
   resolveTrackedSymbols,
 } from "../../trading";
+import { createOptionsDiscoveryPorts } from "../../data/createOptionsDiscoveryPorts";
 import { getCuratedStockUniverse } from "../../config/curatedStockUniverse";
 import type { SqlStorage } from "../../orm";
 import type { EtradeOptionsRouteContext } from "./etradeOptions";
@@ -52,7 +50,7 @@ export async function handleOptionsScansList(request: Request, url: URL, session
     // scoping (no user_login) remain visible to everyone.
     const userLogin = request.headers.get("x-user-login");
     if (!userLogin) return unauthenticatedResponse();
-    const store = new SqlScanRunStore(sql);
+    const store = createOptionsDiscoveryPorts({ sql }).scanRuns;
     const scans = await store.list({ limit, offset, userLogin });
     return Response.json({ count: scans.length, scans });
   } catch (err) {
@@ -72,7 +70,7 @@ export async function handleOptionsScansDiff(request: Request, url: URL, session
     // diff can never leak another user's run (or its existence).
     const userLogin = request.headers.get("x-user-login");
     if (!userLogin) return unauthenticatedResponse();
-    const store = new SqlScanRunStore(sql);
+    const store = createOptionsDiscoveryPorts({ sql }).scanRuns;
     const from = await store.get(fromId, { userLogin });
     const to = await store.get(toId, { userLogin });
     if (!from || !to) {
@@ -94,7 +92,7 @@ export async function handleOptionsScanRunById(request: Request, sessionId: stri
     // indistinguishable from a pruned one (same 404).
     const userLogin = request.headers.get("x-user-login");
     if (!userLogin) return unauthenticatedResponse();
-    const store = new SqlScanRunStore(sql);
+    const store = createOptionsDiscoveryPorts({ sql }).scanRuns;
     const run = await store.get(decodeURIComponent(scanRunIdMatch[1]), { userLogin });
     if (!run) {
       return Response.json({ error: "scan run not found" }, { status: 404 });
@@ -111,7 +109,7 @@ export async function handleOptionsDiscoveryRunsList(request: Request, url: URL,
     const offset = url.searchParams.get("offset") ? Number(url.searchParams.get("offset")) : 0;
     const userLogin = request.headers.get("x-user-login");
     if (!userLogin) return unauthenticatedResponse();
-    const store = new SqlDiscoveryRunStore(sql);
+    const store = createOptionsDiscoveryPorts({ sql }).discoveryRuns;
     const runs = await store.list({ limit, offset, userLogin });
     return Response.json({ count: runs.length, runs });
   } catch (err) {
@@ -125,7 +123,7 @@ export async function handleOptionsDiscoveryRunById(request: Request, sessionId:
     // indistinguishable from a pruned one (same 404).
     const userLogin = request.headers.get("x-user-login");
     if (!userLogin) return unauthenticatedResponse();
-    const store = new SqlDiscoveryRunStore(sql);
+    const store = createOptionsDiscoveryPorts({ sql }).discoveryRuns;
     const run = await store.get(decodeURIComponent(discoveryRunIdMatch[1]), { userLogin });
     if (!run) {
       return Response.json({ error: "discovery run not found" }, { status: 404 });
@@ -138,7 +136,7 @@ export async function handleOptionsDiscoveryRunById(request: Request, sessionId:
 
 export async function handleOptionsIvHistory(url: URL, ctx: EtradeOptionsRouteContext, sql: SqlStorage): Promise<Response> {
   try {
-    const store = new SqlIvHistoryStore(sql);
+    const store = createOptionsDiscoveryPorts({ sql }).ivHistory;
     const symbolParam = url.searchParams.get("symbol");
     if (symbolParam) {
       const entry = await getIvHistoryEntry(store, symbolParam);
