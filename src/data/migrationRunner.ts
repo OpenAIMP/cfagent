@@ -464,7 +464,7 @@ CREATE TABLE IF NOT EXISTS agent_price_catalogue (
  * Drizzle mapping in drizzleSchema.ts must agree (pinned by
  * test). Migration number 0012 is KEPT from the superseded
  * PR #2194 and was verified free on current main at rebuild
- * time (2026-10-29, main a71fca5: migrations 0001-0009 and
+ * time (2026-10-29, main da79a91: migrations 0001-0009 and
  * 0011 are on main; 0010 and 0012 are free on main, with
  * 0010 reserved for another rebuild in the coordinator's
  * taken set). The UNIQUE index on (session_id, action) is
