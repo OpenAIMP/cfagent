@@ -12,13 +12,16 @@
   padding: var(--space-4, 1rem);
   width: 100%;
   box-sizing: border-box;
-  /* Issue #2078: the page is a flex item of .tab-viewport. `flex: 1 0 auto`
-     makes it claim the content height and never shrink to zero (the
-     blank-viewport symptom); overflow stays on the page so long run
-     lists scroll inside it, not the whole shell. */
-  flex: 1 0 auto;
+  /* The page is a flex item of .tab-viewport (which clips). It must be
+     allowed to SHRINK to the available height (`flex: 1 1 auto` +
+     `min-height: 0`) or it grows to content height and the shell clips
+     the tail with no scrollbar. Owning `overflow-y: auto` here is what
+     makes a long run ledger reachable (issue #2078 follow-up). */
+  flex: 1 1 auto;
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
 }
 
 .docs-header {
@@ -71,8 +74,14 @@
 
 .docs-table-container {
   width: 100%;
-  overflow-x: auto;
+  /* The table scrolls inside the page: a bounded height keeps thousands
+     of runs from stretching the shell, and the sticky header below keeps
+     the column controls in reach while scrolling. */
+  max-height: min(68vh, 46rem);
+  overflow: auto;
+  scrollbar-gutter: stable;
 }
+
 
 .docs-table-container .ui-table {
   width: 100%;

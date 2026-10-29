@@ -15,7 +15,7 @@ describe("Portfolio Tab Click & Render Inspection", () => {
     expect(portfolioItem).toBeDefined();
     expect(portfolioItem?.label).toBe("Portfolio & Holdings");
     expect(portfolioItem?.category).toBe("Execution");
-    expect(portfolioItem?.badge).toBe("Live");
+    expect(portfolioItem?.badge).toBe("Broker");
   });
 
   it("renders NavigationMenu with active portfolio tab", () => {

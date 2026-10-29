@@ -21,7 +21,7 @@
   },
   {
     "path": "src/client/docsAndReports.css",
-    "lines": 111,
+    "lines": 164,
     "reason": "Docs and Reports page layout (new page; tokens only)"
   },
   {
