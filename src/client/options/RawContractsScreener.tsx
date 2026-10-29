@@ -230,7 +230,7 @@ export function RawContractsScreener({
     {
       key: "contract", header: "Contract", headerClassName: "sticky-head",
       render: (row) => (
-        <span style={{ fontSize: "0.78rem", color: "var(--color-text-muted)" }}>{row._label}</span>
+        <span style={{ fontSize: "var(--font-size-caption)", color: "var(--color-text-muted)" }}>{row._label}</span>
       ),
     },
     {
@@ -262,7 +262,7 @@ export function RawContractsScreener({
       render: (row) => (
         <span
           style={{
-            fontSize: "0.72rem",
+            fontSize: "var(--font-size-caption)",
             padding: "var(--space-0-5) var(--space-1-5)",
             borderRadius: "var(--radius-xs, 3px)",
             background: row.moneyness === "ITM" ? "var(--color-accent-subtle)" : "var(--color-surface-sunken)",
@@ -344,7 +344,7 @@ export function RawContractsScreener({
           {onSelectContract && (
             <Button
               className="subnav-btn"
-              style={{ padding: "var(--space-1) var(--space-1-5)", fontSize: "0.72rem" }}
+              style={{ padding: "var(--space-1) var(--space-1-5)", fontSize: "var(--font-size-caption)" }}
               title="Inspect in options tools"
               onClick={() => onSelectContract(row)}
             >
@@ -353,7 +353,7 @@ export function RawContractsScreener({
           )}
           <Button
             className="subnav-btn"
-            style={{ padding: "var(--space-1) var(--space-1-5)", fontSize: "0.72rem", borderColor: "var(--color-warning)", color: "var(--color-warning)" }}
+            style={{ padding: "var(--space-1) var(--space-1-5)", fontSize: "var(--font-size-caption)", borderColor: "var(--color-warning)", color: "var(--color-warning)" }}
             title="Analyze risk profile and mitigation playbook"
             onClick={() =>
               setRiskSubject({
@@ -405,7 +405,7 @@ export function RawContractsScreener({
           {onPreviewTrade && (
             <Button
               className="subnav-btn"
-              style={{ padding: "var(--space-1) var(--space-1-5)", fontSize: "0.72rem", borderColor: "var(--color-accent)", color: "var(--color-accent)" }}
+              style={{ padding: "var(--space-1) var(--space-1-5)", fontSize: "var(--font-size-caption)", borderColor: "var(--color-accent)", color: "var(--color-accent)" }}
               title="Preview buy trade order"
               onClick={() =>
                 onPreviewTrade({
@@ -453,27 +453,27 @@ export function RawContractsScreener({
         }}
       >
         <div>
-          <h3 style={{ margin: "0 0 0.25rem", fontSize: "1.1rem", color: "var(--color-accent)", display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+          <h3 style={{ margin: "0 0 0.25rem", fontSize: "var(--font-size-title-sm)", color: "var(--color-accent)", display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
             <span>📋 Raw Option Contracts Screener</span>
-            <span style={{ fontSize: "0.72rem", background: "var(--color-accent-subtle)", border: "1px solid var(--color-border-focus)", borderRadius: "var(--radius-xs, 4px)", padding: "var(--space-0-5) var(--space-2)", color: "var(--color-accent)" }}>
+            <span style={{ fontSize: "var(--font-size-caption)", background: "var(--color-accent-subtle)", border: "1px solid var(--color-border-focus)", borderRadius: "var(--radius-xs, 4px)", padding: "var(--space-0-5) var(--space-2)", color: "var(--color-accent)" }}>
               Live E*TRADE Chains
             </span>
           </h3>
-          <p style={{ margin: 0, fontSize: "0.82rem", color: "var(--color-text-muted)" }}>
+          <p style={{ margin: 0, fontSize: "var(--font-size-body-sm)", color: "var(--color-text-muted)" }}>
             Query live individual option contracts with implied volatility, bid/ask spreads, Greeks, and liquidity bounds.
           </p>
         </div>
 
         {/* Quick Ticker Chips */}
         <div style={{ display: "flex", alignItems: "center", gap: "var(--space-1-5)", flexWrap: "wrap" }}>
-          <span style={{ fontSize: "0.78rem", color: "var(--color-text-dim)" }}>Quick symbols:</span>
+          <span style={{ fontSize: "var(--font-size-caption)", color: "var(--color-text-dim)" }}>Quick symbols:</span>
           {POPULAR_SYMBOLS.map((s) => (
             <Button
               key={s}
               className="subnav-btn"
               style={{
                 padding: "var(--space-1) var(--space-2-5)",
-                fontSize: "0.76rem",
+                fontSize: "var(--font-size-caption)",
                 background: symbol.toUpperCase() === s ? "var(--color-accent-subtle)" : "var(--color-surface-sunken)",
                 borderColor: symbol.toUpperCase() === s ? "var(--color-border-focus)" : "var(--color-border-subtle)",
                 color: symbol.toUpperCase() === s ? "var(--color-accent)" : "var(--color-text-secondary)",
@@ -574,11 +574,11 @@ export function RawContractsScreener({
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", flexWrap: "wrap" }}>
-            <span style={{ fontSize: "0.88rem", fontWeight: 600, color: "var(--color-text-primary)" }}>
+            <span style={{ fontSize: "var(--font-size-body)", fontWeight: 600, color: "var(--color-text-primary)" }}>
               {summary || `${contracts.length} contracts retrieved`}
             </span>
             {scannedAt && (
-              <span style={{ fontSize: "0.76rem", color: "var(--color-text-muted)" }}>
+              <span style={{ fontSize: "var(--font-size-caption)", color: "var(--color-text-muted)" }}>
                 · Updated: {scannedAt}
               </span>
             )}
@@ -614,7 +614,7 @@ export function RawContractsScreener({
               onChange={(e) => setTableSearch(e.target.value)}
               style={{
                 padding: "var(--space-1) var(--space-2-5)",
-                fontSize: "0.78rem",
+                fontSize: "var(--font-size-caption)",
                 background: "var(--color-input)",
                 border: "1px solid var(--color-input-border)",
                 borderRadius: "var(--radius-sm)",
@@ -637,7 +637,7 @@ export function RawContractsScreener({
 
       {/* Contracts Table */}
       {contracts.length > 0 && (
-        <div className="options-table-scroll" style={{ maxHeight: "650px", overflowY: "auto", fontSize: "0.82rem" }}>
+        <div className="options-table-scroll" style={{ maxHeight: "650px", overflowY: "auto", fontSize: "var(--font-size-body-sm)" }}>
           <Table
             columns={contractColumns}
             rows={contractRows}
@@ -658,10 +658,10 @@ export function RawContractsScreener({
             color: "var(--color-text-dim)",
           }}
         >
-          <p style={{ margin: "0 0 0.5rem", fontSize: "1.1rem", color: "var(--color-text-muted)" }}>
+          <p style={{ margin: "0 0 0.5rem", fontSize: "var(--font-size-title-sm)", color: "var(--color-text-muted)" }}>
             No screened contracts loaded yet.
           </p>
-          <p style={{ margin: 0, fontSize: "0.85rem" }}>
+          <p style={{ margin: 0, fontSize: "var(--font-size-body)" }}>
             Select an underlying symbol above and click <strong>Screen Contracts</strong> to stream live contracts from E*TRADE.
           </p>
         </div>

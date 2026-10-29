@@ -179,7 +179,7 @@ export function TradingApprovalsQueue() {
   return (
     <Card padding="md">
       <h3 style={{ margin: "0 0 0.75rem" }}>Pending approvals</h3>
-      <p style={{ fontSize: "0.85rem", color: "var(--color-text-muted)", margin: "0 0 1rem" }}>
+      <p style={{ fontSize: "var(--font-size-body)", color: "var(--color-text-muted)", margin: "0 0 1rem" }}>
         Proposed orders awaiting human authorization. Approving places the order through the existing
         approval door; rejecting closes the proposal without placing it. Proposals expire 15 minutes
         after preview — expired proposals cannot execute.
@@ -226,27 +226,27 @@ export function TradingApprovalsQueue() {
                   <span style={{ fontWeight: 700 }}>
                     {trade.action} {trade.quantity} × {trade.symbol}
                   </span>
-                  <span style={{ fontSize: "0.85rem", color: "var(--color-text-muted)" }}>
+                  <span style={{ fontSize: "var(--font-size-body)", color: "var(--color-text-muted)" }}>
                     {trade.orderType} · ${trade.price} · total ${trade.totalValue}
                   </span>
                 </div>
-                <div style={{ fontSize: "0.85rem", color: "var(--color-text-muted)", marginTop: "0.25rem" }}>
+                <div style={{ fontSize: "var(--font-size-body)", color: "var(--color-text-muted)", marginTop: "0.25rem" }}>
                   Proposed by {trade.proposerDid || "unknown"} ·{" "}
                   {new Date(trade.createdAt).toLocaleString()} · {countdown}
                 </div>
-                <div style={{ fontSize: "0.85rem", marginTop: "0.5rem" }}>
+                <div style={{ fontSize: "var(--font-size-body)", marginTop: "0.5rem" }}>
                   Approval contract: you authorize exactly the order above and nothing else.
                   Execution uses only the stored draft — differing action, symbol, or quantity are
                   rejected outright, and the autopilot policy is re-checked at execution.
                 </div>
-                <div style={{ fontSize: "0.85rem", color: "var(--color-text-muted)", marginTop: "0.25rem" }}>
+                <div style={{ fontSize: "var(--font-size-body)", color: "var(--color-text-muted)", marginTop: "0.25rem" }}>
                   {isLimit
                     ? `Limit $${trade.price} — execution is bounded by this price.`
                     : `Market order — no price bound; $${trade.price} is an estimate and the final price may differ.`}{" "}
                   Estimated total ${trade.totalValue} — the value at risk at the estimated price.
                 </div>
                 {strategy && (
-                  <div style={{ fontSize: "0.85rem", color: "var(--color-text-muted)", marginTop: "0.25rem" }}>
+                  <div style={{ fontSize: "var(--font-size-body)", color: "var(--color-text-muted)", marginTop: "0.25rem" }}>
                     Multi-leg strategy: {strategy.legCount} legs ({strategy.optionLegs} option,{" "}
                     {strategy.equityLegs} equity)
                     {strategy.strategyNetDebit !== null &&
@@ -255,13 +255,13 @@ export function TradingApprovalsQueue() {
                 )}
                 {shortHash && (
                   <div
-                    style={{ fontSize: "0.85rem", color: "var(--color-text-muted)", marginTop: "0.25rem" }}
+                    style={{ fontSize: "var(--font-size-body)", color: "var(--color-text-muted)", marginTop: "0.25rem" }}
                     title={trade.payloadHash}
                   >
                     Version {shortHash} — this approval applies to exactly this version.
                   </div>
                 )}
-                <div style={{ fontSize: "0.85rem", color: "var(--color-text-muted)", marginTop: "0.25rem" }}>
+                <div style={{ fontSize: "var(--font-size-body)", color: "var(--color-text-muted)", marginTop: "0.25rem" }}>
                   Commission is not shown here — the approval record carries no commission
                   estimate; commission follows your account schedule.
                 </div>
@@ -317,12 +317,12 @@ export function TradingApprovalsQueue() {
                 {confirm.trade.symbol} will not be placed, and the proposal closes.
               </p>
             )}
-            <p style={{ fontSize: "0.85rem", color: "var(--color-text-muted)" }}>
+            <p style={{ fontSize: "var(--font-size-body)", color: "var(--color-text-muted)" }}>
               Proposed by {confirm.trade.proposerDid || "unknown"} · expires{" "}
               {formatCountdown(proposalExpiresAt(confirm.trade), nowMs)}
             </p>
             {confirm.decision === "approved" && (
-              <p style={{ fontSize: "0.85rem", color: "var(--color-text-muted)" }}>
+              <p style={{ fontSize: "var(--font-size-body)", color: "var(--color-text-muted)" }}>
                 {confirm.trade.payloadHash &&
                   `Version ${confirm.trade.payloadHash.slice(0, 12)} — this approval applies to exactly this version. `}
                 Approval cannot be undone — approving places a real order. An unfilled order can

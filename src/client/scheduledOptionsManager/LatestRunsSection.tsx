@@ -33,11 +33,11 @@ export function LatestRunsSection({
         </header>
 
         {runsError ? (
-          <p style={{ margin: "0.4rem 0 0", fontSize: "0.78rem", color: "var(--color-danger)" }}>{runsError}</p>
+          <p style={{ margin: "0.4rem 0 0", fontSize: "var(--font-size-caption)", color: "var(--color-danger)" }}>{runsError}</p>
         ) : null}
 
         {latestRuns.length === 0 && !runsLoading ? (
-          <p style={{ margin: "0.4rem 0 0", fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
+          <p style={{ margin: "0.4rem 0 0", fontSize: "var(--font-size-body-sm)", color: "var(--color-text-muted)" }}>
             No options runs recorded yet. A scheduled or manual analysis appears here once it completes.
           </p>
         ) : (
@@ -70,7 +70,7 @@ export function LatestRunsSection({
                 </div>
                 {run.summary ? <p className="schedule-system-note">{run.summary}</p> : null}
                 {!run.success && run.error ? (
-                  <p style={{ margin: "0.4rem 0 0", fontSize: "0.76rem", color: "var(--color-danger)" }}>{run.error}</p>
+                  <p style={{ margin: "0.4rem 0 0", fontSize: "var(--font-size-caption)", color: "var(--color-danger)" }}>{run.error}</p>
                 ) : null}
               </div>
             ))}
