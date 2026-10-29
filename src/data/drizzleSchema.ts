@@ -769,3 +769,69 @@ export const agentIvHistory = sqliteTable(
     primaryKey({ columns: [table.symbol, table.date] }),
   ],
 );
+
+/**
+ * Issue #2345 (#1976 step 3a) — the marketplace tables, moved
+ * from per-DO mas_* storage to the shared D1 database
+ * (migration 0021). Column-for-column mirrors of the DO tables
+ * (mas_categories / mas_referrals / mas_ads / mas_external_ads)
+ * so the same records flow over both residencies; the DDL
+ * authority is migration 0021 and a parity pin holds the two
+ * together.
+ */
+export const agentCategories = sqliteTable("agent_categories", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull(),
+  description: text("description").notNull(),
+  icon: text("icon").notNull(),
+  isActive: integer("is_active").default(1),
+  sortOrder: integer("sort_order").default(0),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const agentReferrals = sqliteTable("agent_referrals", {
+  id: text("id").primaryKey(),
+  userLogin: text("session_id").notNull(),
+  title: text("title").notNull(),
+  url: text("url").notNull(),
+  category: text("category").notNull(),
+  rewardText: text("reward_text").notNull(),
+  clicks: integer("clicks").default(0),
+  signups: integer("signups").default(0),
+  createdAt: text("created_at").notNull(),
+});
+
+export const agentAds = sqliteTable("agent_ads", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  tagline: text("tagline").notNull(),
+  sponsor: text("sponsor").notNull(),
+  badge: text("badge").notNull(),
+  url: text("url").notNull(),
+  ctaText: text("cta_text").notNull(),
+  accentColor: text("accent_color").notNull(),
+  impressions: integer("impressions").default(0),
+  clicks: integer("clicks").default(0),
+  createdAt: text("created_at").notNull(),
+});
+
+export const agentExternalAds = sqliteTable("agent_external_ads", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  network: text("network").notNull(),
+  placement: text("placement").notNull(),
+  title: text("title").notNull(),
+  tagline: text("tagline").notNull(),
+  ctaText: text("cta_text").notNull(),
+  targetUrl: text("target_url").notNull(),
+  bannerImageUrl: text("banner_image_url"),
+  cpmRate: real("cpm_rate").default(15.0),
+  cpcRate: real("cpc_rate").default(1.25),
+  impressions: integer("impressions").default(0),
+  clicks: integer("clicks").default(0),
+  earnings: real("earnings").default(0.0),
+  isActive: integer("is_active").default(1),
+  createdAt: text("created_at").notNull(),
+});
