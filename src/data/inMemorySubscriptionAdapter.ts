@@ -9,6 +9,7 @@
  */
 import {
   assertPlan,
+  type ProviderBillingPatch,
   type SubscriptionPlanRecord,
   type SubscriptionRecord,
   type SubscriptionStore,
@@ -62,6 +63,8 @@ export class InMemorySubscriptionAdapter implements SubscriptionStore {
     providerPaymentRef: string;
     stripeSessionId?: string | null;
     stripePaymentIntentId?: string | null;
+    providerSubscriptionId?: string | null;
+    providerStatus?: string | null;
     periodStartMs: number;
     periodEndMs: number;
   }): Promise<SubscriptionRecord> {
@@ -78,6 +81,8 @@ export class InMemorySubscriptionAdapter implements SubscriptionStore {
       ...input,
       stripeSessionId: input.stripeSessionId ?? null,
       stripePaymentIntentId: input.stripePaymentIntentId ?? null,
+      providerSubscriptionId: input.providerSubscriptionId ?? null,
+      providerStatus: input.providerStatus ?? null,
       status: "active",
       canceledAtMs: null,
       createdAtMs: now,
@@ -95,6 +100,22 @@ export class InMemorySubscriptionAdapter implements SubscriptionStore {
     return [...this.subscriptions.values()]
       .filter((s) => s.userId === userId)
       .sort((a, b) => a.createdAtMs - b.createdAtMs || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  }
+
+  async findByProviderSubscriptionId(providerSubscriptionId: string): Promise<SubscriptionRecord | null> {
+    if (!providerSubscriptionId) return null;
+    for (const s of this.subscriptions.values()) {
+      if (s.providerSubscriptionId === providerSubscriptionId) return s;
+    }
+    return null;
+  }
+
+  async updateProviderBilling(subscriptionId: string, patch: ProviderBillingPatch): Promise<SubscriptionRecord> {
+    const existing = this.subscriptions.get(subscriptionId);
+    if (!existing) throw new Error(`No subscription ${subscriptionId}.`);
+    const updated: SubscriptionRecord = { ...existing, ...patch, updatedAtMs: Date.now() };
+    this.subscriptions.set(subscriptionId, updated);
+    return updated;
   }
 
   async findByPaymentRef(providerPaymentRef: string): Promise<SubscriptionRecord | null> {
