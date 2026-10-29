@@ -651,6 +651,65 @@ CREATE INDEX IF NOT EXISTS agent_audit_chain_tenant_created_idx ON agent_audit_c
 `,
 };
 
+/**
+ * Migration 0017 — refund records + externalized refund policy
+ * (#2204, sub-issue of #2012, implementation of #2147). Number
+ * claimed deliberately, not next-in-line: 0010 is claimed by
+ * #2187 (checkout follow-ups), 0011 by the price catalogue
+ * (#2189, merged), 0012 by the native ledger (#2194), 0013 by
+ * the subscription Stripe ids (#2236, in this stack), 0014 by
+ * #2206 (billing), 0015 by #2210 (lifecycle), and 0016 by
+ * #2188 (audit policy) — so this slice claims 0017 to avoid a
+ * merge-sequencing collision.
+ * Portable subset (same
+ * rules as migrations 0001-0013): DDL only, no params, no dialect
+ * date functions, no RETURNING. Policy seeding is data, not
+ * schema: the proposed policy row is written by
+ * ensureRefundSchema (INSERT OR IGNORE), not by DDL, so an
+ * operator-edited policy survives re-ensure. The Drizzle mapping
+ * in drizzleSchema.ts must agree with this DDL.
+ */
+export const MIGRATION_0017_REFUNDS: DataMigration = {
+  version: 17,
+  name: "0017_refunds",
+  sql: `
+CREATE TABLE IF NOT EXISTS agent_refund_policy (
+  id TEXT PRIMARY KEY,
+  window_days INTEGER NOT NULL,
+  approver TEXT NOT NULL,
+  allow_partial INTEGER NOT NULL,
+  subscription_full_effect TEXT NOT NULL,
+  subscription_partial_effect TEXT NOT NULL,
+  pay_per_run_effect TEXT NOT NULL,
+  credit_effect TEXT NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS agent_refunds (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  rail TEXT NOT NULL,
+  tenant_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  original_payment_ref TEXT NOT NULL,
+  subscription_id TEXT,
+  payment_intent_id TEXT,
+  family TEXT,
+  original_amount_usd REAL NOT NULL,
+  amount_usd REAL NOT NULL,
+  original_paid_at_ms INTEGER NOT NULL,
+  reason TEXT NOT NULL,
+  status TEXT NOT NULL,
+  approver_login TEXT,
+  decision_note TEXT,
+  gateway_refund_id TEXT,
+  executed_at_ms INTEGER,
+  entitlement_consequence TEXT,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);
+`,
+};
+
 export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0001_AGENT_GOVERNANCE,
   MIGRATION_0002_AGENT_CHAINS_SCHEDULES,
@@ -667,6 +726,7 @@ export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0013_SUBSCRIPTION_STRIPE_IDS,
   MIGRATION_0015_LIFECYCLE_REFERRAL,
   MIGRATION_0016_AUDIT_POLICY,
+  MIGRATION_0017_REFUNDS,
 ];
 
 function splitStatements(sqlText: string): string[] {

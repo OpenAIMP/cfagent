@@ -366,6 +366,51 @@ export const agentCreditRedemptions = sqliteTable("agent_credit_redemptions", {
  * authority lives in migration 0008
  * (src/data/migrationRunner.ts).
  */
+/**
+ * Refund records + externalized refund policy (#2204, sub-issue
+ * of #2012, implementation of #2147). This schema MAPS tables;
+ * it does not create them — DDL authority lives in migration
+ * 0017 (src/data/migrationRunner.ts), and a test pins that this
+ * mapping and that DDL agree on columns. The policy table holds
+ * exactly one row (id "default"); the refunds table holds one row
+ * per refund request through its lifecycle.
+ */
+export const agentRefundPolicy = sqliteTable("agent_refund_policy", {
+  id: text("id").primaryKey(),
+  windowDays: integer("window_days").notNull(),
+  approver: text("approver").notNull(),
+  allowPartial: integer("allow_partial").notNull(),
+  subscriptionFullEffect: text("subscription_full_effect").notNull(),
+  subscriptionPartialEffect: text("subscription_partial_effect").notNull(),
+  payPerRunEffect: text("pay_per_run_effect").notNull(),
+  creditEffect: text("credit_effect").notNull(),
+  updatedAtMs: integer("updated_at_ms").notNull(),
+});
+
+export const agentRefunds = sqliteTable("agent_refunds", {
+  id: text("id").primaryKey(),
+  kind: text("kind").notNull(),
+  rail: text("rail").notNull(),
+  tenantId: text("tenant_id").notNull(),
+  userId: text("user_id").notNull(),
+  originalPaymentRef: text("original_payment_ref").notNull(),
+  subscriptionId: text("subscription_id"),
+  paymentIntentId: text("payment_intent_id"),
+  family: text("family"),
+  originalAmountUSD: real("original_amount_usd").notNull(),
+  amountUSD: real("amount_usd").notNull(),
+  originalPaidAtMs: integer("original_paid_at_ms").notNull(),
+  reason: text("reason").notNull(),
+  status: text("status").notNull(),
+  approverLogin: text("approver_login"),
+  decisionNote: text("decision_note"),
+  gatewayRefundId: text("gateway_refund_id"),
+  executedAtMs: integer("executed_at_ms"),
+  entitlementConsequence: text("entitlement_consequence"),
+  createdAtMs: integer("created_at_ms").notNull(),
+  updatedAtMs: integer("updated_at_ms").notNull(),
+});
+
 export const agentSubscriptions = sqliteTable("agent_subscriptions", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull(),

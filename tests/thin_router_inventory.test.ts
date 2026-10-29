@@ -215,6 +215,19 @@
  * #2234 onto current main 3d90dfb2: main's baseline was already 282 via the
  * lifecycle slice, so the rebuild's count is 283, not the old PR's 276.)
  *
+ * Issue #2204 added six — POST /payments/agentic/commercial/refunds,
+ * POST /payments/agentic/commercial/refunds/approve, POST
+ * /payments/agentic/commercial/refunds/execute, GET
+ * /payments/agentic/commercial/refunds, GET
+ * /payments/agentic/commercial/refund-policy, and POST
+ * /payments/agentic/commercial/refund-policy (in
+ * handleAgenticPaymentsRoutes, after the prices route) — bringing the
+ * pinned array to 291 entries; the delegation sequence is unchanged
+ * (same handler, same position). (Rebuild of #2267 onto the #2292
+ * stack base: the stack base's EXPECTED_INVENTORY was re-measured
+ * at 285 entries — its header prose still says 283, stale — so the
+ * rebuild's count is 291, not the old PR's 281.)
+ *
  * LANDMARK RULE (#405): all position assertions anchor to DELEGATION
  * CALLS - the only landmarks a thin router has.
  */
@@ -384,6 +397,12 @@ const EXPECTED_INVENTORY = [
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/subscription\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/pricing\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/prices\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/refunds\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/refunds/approve\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/refunds/execute\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/refunds\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/refund-policy\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/refund-policy\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/submission/check-payment\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/goal-command\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/ledger/budget-state\")",
