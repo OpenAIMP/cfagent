@@ -19,6 +19,7 @@ import type {
   ETradeOptionChain,
 } from "../../types";
 import { DatabaseORM } from "../../orm";
+import type { DataProviderPorts } from "../../data/buildDataProviderPorts";
 import { ETradeService } from "../../services/etrade";
 import type { ETradeRestClient } from "../etrade/client";
 import {
@@ -307,6 +308,25 @@ export class UnifiedOptionsService {
    *  captured. */
   private platformDeps?: ETradeCaptureDeps;
 
+  /**
+   * #2303 (#1976 step 1): the data-provider platform ports,
+   * supplied by the host (constructor) — this module is
+   * reachable from the client bundle through the trading
+   * barrel, so it must not statically import the port BUILDER
+   * (which pulls the D1 adapters and the transaction aspect's
+   * node:async_hooks into the graph). Hosts build the ports
+   * from env via src/data/buildDataProviderPorts and pass them
+   * in; when bound, execute()'s bootstrap + route resolution
+   * run on D1 through the config port and the adapter's
+   * captures land through the capture port; unbound, the
+   * platformDeps sql path runs exactly as before.
+   */
+  private injectedDataProviderPorts?: DataProviderPorts | null;
+
+  private async dataProviderPorts(): Promise<DataProviderPorts> {
+    return this.injectedDataProviderPorts ?? { config: null, captures: null };
+  }
+
   /** The entitlement tier this service instance presents to route
    *  resolution (E5, issue #1202). Defaults to "freemium": every
    *  in-app host (REST screen, scheduled scans, NLQ, MCP) is a
@@ -324,7 +344,8 @@ export class UnifiedOptionsService {
     profileStore?: StrategyProfileStore,
     discoverySql?: { exec(query: string, ...params: unknown[]): Iterable<unknown> },
     platformDeps?: ETradeCaptureDeps,
-    callerTier: Tier = "freemium"
+    callerTier: Tier = "freemium",
+    dataProviderPorts?: DataProviderPorts | null
   ) {
     // Issue #1185: the service resolves the owner's stored token and
     // scopes its runs/profiles by login — an explicit login is required.
@@ -338,6 +359,7 @@ export class UnifiedOptionsService {
     this.discoverySql = discoverySql;
     this.platformDeps = platformDeps;
     this.callerTier = callerTier;
+    this.injectedDataProviderPorts = dataProviderPorts;
   }
 
   /**
@@ -532,17 +554,32 @@ export class UnifiedOptionsService {
       let engineClient: ETradeRestClient = etrade.client;
       let platformRunId: string | undefined;
       if (this.platformDeps) {
-        bootstrapDataProviders(this.platformDeps.sql);
+        // #2303: ports win when bound (production) — the config
+        // reads/writes run on D1 and captures land through the
+        // capture port; the deps' own capturePort, when a host
+        // threaded one explicitly, is respected first.
+        const ports = await this.dataProviderPorts();
+        const configPort = ports.config;
+        if (configPort) await configPort.bootstrapDataProviders();
+        else bootstrapDataProviders(this.platformDeps.sql);
         platformRunId = crypto.randomUUID();
+        const captureDeps: ETradeCaptureDeps =
+          ports.captures && !this.platformDeps.capturePort
+            ? { ...this.platformDeps, capturePort: ports.captures }
+            : this.platformDeps;
         const provider = createETradeDataProvider(etrade, {
-          capture: this.platformDeps,
+          capture: captureDeps,
         });
         const registry = new DataProviderRegistry();
         registry.register(provider);
         const assignment = registry.resolveRoute(
           "optionsChains",
-          listProviderConfigs(this.platformDeps.sql),
-          listCapabilityRoutes(this.platformDeps.sql),
+          configPort
+            ? await configPort.listProviderConfigs()
+            : listProviderConfigs(this.platformDeps.sql),
+          configPort
+            ? await configPort.listCapabilityRoutes()
+            : listCapabilityRoutes(this.platformDeps.sql),
           this.callerTier
         );
         engineClient = createPlatformOptionsClient(etrade.client, assignment.primary, {
@@ -600,6 +637,9 @@ export class UnifiedOptionsService {
           const { createDiscoveryService, formatDiscoveryRunSummary } = await import(
             "../../services/discoveryService"
           );
+          const discoveryPorts = this.platformDeps
+            ? await this.dataProviderPorts()
+            : null;
           const discoveryService = createDiscoveryService({
             env: this.env,
             userLogin: this.userLogin,
@@ -610,6 +650,14 @@ export class UnifiedOptionsService {
             // carries platformDeps; absent → today's outcome-only.
             ...(this.platformDeps?.blobStorage
               ? { blobStorage: this.platformDeps.blobStorage as never }
+              : {}),
+            // #2303: the platform ports thread into the history
+            // resolution when bound (see discoveryService).
+            ...(discoveryPorts?.config
+              ? { configPort: discoveryPorts.config }
+              : {}),
+            ...(discoveryPorts?.captures
+              ? { capturePort: discoveryPorts.captures }
               : {}),
           });
           const outcome = await discoveryService.run({
