@@ -1,0 +1,3 @@
+### 2137 — Checkout follow-ups (#2137)
+
+- **Checkout follow-ups (#2137)**: submission-status ownership enforcement (new `agent_paid_submissions` table, migration 0010, behind the commercial-store port with Drizzle + in-memory adapters) — the submit route records the verified session login as owner at submit time and the status read returns 200 only to that owner, 403 to another user, 404 for an unknown submission, 401 unauthenticated, and 503 when the store is unavailable; plus real JSX render tests for the checkout panels (pay-per-run + subscription, flag-OFF free state, covered vs payment-required outcomes, failure-policy disclosure before payment). No pricing, flag-default, or payment-path behavior change; no activation.

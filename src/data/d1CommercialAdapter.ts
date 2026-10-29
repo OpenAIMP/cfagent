@@ -18,11 +18,13 @@ import {
   agentCommercialAccounts,
   agentCreditClaims,
   agentCreditRedemptions,
+  agentPaidSubmissions,
   agentTenantSettings,
 } from "./drizzleSchema";
 import {
   applyMigrations,
   MIGRATION_0007_COMMERCIAL_STORE,
+  MIGRATION_0010_PAID_SUBMISSIONS,
   type MigrationDb,
 } from "./migrationRunner";
 import {
@@ -34,6 +36,7 @@ import {
   type CommercialStore,
   type CreditClaimRecord,
   type CreditRedemptionRecord,
+  type PaidSubmissionRecord,
   type TenantSettingsRecord,
 } from "./commercialPorts";
 
@@ -43,6 +46,7 @@ export type CommercialDb = DrizzleD1Database<{
   agentTenantSettings: typeof agentTenantSettings;
   agentCreditClaims: typeof agentCreditClaims;
   agentCreditRedemptions: typeof agentCreditRedemptions;
+  agentPaidSubmissions: typeof agentPaidSubmissions;
 }>;
 
 /** Build the Drizzle D1 database object from a bound D1 client. */
@@ -53,13 +57,22 @@ export function createD1CommercialDb(d1: D1Database): CommercialDb {
       agentTenantSettings,
       agentCreditClaims,
       agentCreditRedemptions,
+      agentPaidSubmissions,
     },
   });
 }
 
-/** Idempotent schema-ensure: applies migration 0007 if unapplied. */
+/**
+ * Idempotent schema-ensure: applies migrations 0007 and 0010 if
+ * unapplied. 0010 rides with 0007 because the submission-status
+ * ownership read needs the paid-submissions table wherever the
+ * commercial store is ensured.
+ */
 export async function ensureCommercialSchema(db: CommercialDb): Promise<number[]> {
-  return applyMigrations(db as unknown as MigrationDb, [MIGRATION_0007_COMMERCIAL_STORE]);
+  return applyMigrations(db as unknown as MigrationDb, [
+    MIGRATION_0007_COMMERCIAL_STORE,
+    MIGRATION_0010_PAID_SUBMISSIONS,
+  ]);
 }
 
 function toAccount(raw: typeof agentCommercialAccounts.$inferSelect): CommercialAccountRecord {
@@ -263,6 +276,59 @@ export class D1CommercialAdapter implements CommercialStore {
       .orderBy(asc(agentCreditClaims.createdAtMs), asc(agentCreditClaims.creditRunId))
       .limit(1);
     return rows.length === 0 ? null : { creditRunId: rows[0].creditRunId, amountUSD: rows[0].amountUSD };
+  }
+
+  async recordPaidSubmission(input: {
+    workflowId: string;
+    userId: string;
+    runRequestId: string;
+  }): Promise<PaidSubmissionRecord> {
+    if (!input.workflowId || !input.userId || !input.runRequestId) {
+      throw new Error("workflowId, userId, and runRequestId are required.");
+    }
+    const record: PaidSubmissionRecord = {
+      workflowId: input.workflowId,
+      userId: input.userId,
+      runRequestId: input.runRequestId,
+      createdAtMs: Date.now(),
+    };
+    // INSERT OR IGNORE: the first record wins, so a re-record
+    // can never steal ownership from the original submitter.
+    await this.db
+      .insert(agentPaidSubmissions)
+      .values({
+        workflowId: record.workflowId,
+        userId: record.userId,
+        runRequestId: record.runRequestId,
+        createdAtMs: record.createdAtMs,
+      })
+      .onConflictDoNothing();
+    const rows = await this.db
+      .select()
+      .from(agentPaidSubmissions)
+      .where(eq(agentPaidSubmissions.workflowId, record.workflowId))
+      .limit(1);
+    return {
+      workflowId: rows[0].workflowId,
+      userId: rows[0].userId,
+      runRequestId: rows[0].runRequestId,
+      createdAtMs: rows[0].createdAtMs,
+    };
+  }
+
+  async getPaidSubmission(workflowId: string): Promise<PaidSubmissionRecord | null> {
+    const rows = await this.db
+      .select()
+      .from(agentPaidSubmissions)
+      .where(eq(agentPaidSubmissions.workflowId, workflowId))
+      .limit(1);
+    if (rows.length === 0) return null;
+    return {
+      workflowId: rows[0].workflowId,
+      userId: rows[0].userId,
+      runRequestId: rows[0].runRequestId,
+      createdAtMs: rows[0].createdAtMs,
+    };
   }
 
   async redeemCredit(creditRunId: string, redeemedByRunId: string): Promise<CreditRedemptionRecord> {
