@@ -11,7 +11,7 @@ import {
 import type { TradeOrderContext, TradeOrderLeg } from "../trading/tradeOrderContext";
 import "./strategyDiscovery.css";
 
-import { Button, Modal, TextInput } from "../components/ui";
+import { Button, Modal, TextInput, FieldShell } from "../components/ui";
 export interface StrategyToEvaluate {
   symbol: string;
   strategyName: string;
@@ -248,9 +248,8 @@ export function LlmStrategyEvalModal({
             }}
             className="llm-eval-form"
           >
-            <label className="llm-eval-label">
-              <span>Natural-Language Evaluation Prompt:</span>
-              <TextInput
+            <FieldShell id="llm-eval-question" className="llm-eval-label" label="Natural-Language Evaluation Prompt">
+              <TextInput id="llm-eval-question"
                 multiline
                 value={question}
                 onChange={(e) => setQuestion(e.target.value)}
@@ -259,7 +258,7 @@ export function LlmStrategyEvalModal({
                 maxLength={4000}
                 placeholder="Ask the LLM to evaluate this strategy against live raw and normalized chains..."
               />
-            </label>
+            </FieldShell>
 
             <div className="llm-eval-action-bar">
               <Button

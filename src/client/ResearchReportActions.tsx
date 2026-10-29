@@ -132,23 +132,14 @@ export function ResearchReportActions({ title, query, sheets, userLogin }: Resea
         <Button type="button" disabled={Boolean(busy) || !rowsAvailable} onClick={() => void download()}>
           {busy === "download" ? "Preparing…" : "Download .xlsx"}
         </Button>
-        <label>
-          Email recipient (workbook or NLQ response)
-          <TextInput type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" />
-        </label>
+        <TextInput label="Email recipient (workbook or NLQ response)" type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" />
         <Button type="button" disabled={Boolean(busy) || !rowsAvailable || !email.trim()} onClick={() => void sendEmail()}>
           {busy === "email" ? "Sending…" : "Send email"}
         </Button>
       </div>
-      <label className="research-report-query">
-        Submit the same research question to Slack or voice
-        <TextInput multiline value={nlq} onChange={(event) => setNlq(event.target.value)} rows={2} />
-      </label>
+      <TextInput label="Submit the same research question to Slack or voice" multiline value={nlq} onChange={(event) => setNlq(event.target.value)} rows={2} />
       <div className="research-report-controls">
-        <label>
-          Slack channel ID
-          <TextInput value={slackChannel} onChange={(event) => setSlackChannel(event.target.value)} placeholder="C0123456789" />
-        </label>
+        <TextInput label="Slack channel ID" value={slackChannel} onChange={(event) => setSlackChannel(event.target.value)} placeholder="C0123456789" />
         <Button type="button" disabled={Boolean(busy) || !nlq.trim() || !slackChannel.trim()} onClick={() => void sendSlack()}>
           {busy === "slack" ? "Sending…" : "Submit to Slack"}
         </Button>

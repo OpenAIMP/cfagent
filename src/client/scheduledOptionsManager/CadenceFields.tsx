@@ -33,8 +33,7 @@ export function CadenceFields(props: CadenceFieldsProps) {
   return (
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-4)" }}>
                 <div className="sched-form-group">
-                  <label htmlFor="sched-cadence-type" className="sched-form-label">Cadence Type</label>
-                  <Select id="sched-cadence-type"
+                  <Select label="Cadence Type" id="sched-cadence-type"
                     value={scheduleType}
                     onChange={(e) => setScheduleType(e.target.value as ScheduleMode)}
                   >
@@ -47,8 +46,7 @@ export function CadenceFields(props: CadenceFieldsProps) {
 
                 {scheduleType === "interval" && (
                   <div className="sched-form-group">
-                    <label htmlFor="sched-interval-seconds" className="sched-form-label">Interval Seconds</label>
-                    <TextInput id="sched-interval-seconds"
+                    <TextInput label="Interval Seconds" id="sched-interval-seconds"
                       type="number"
                       value={intervalSeconds}
                       onChange={(e) => setIntervalSeconds(Number(e.target.value))}
@@ -73,8 +71,7 @@ export function CadenceFields(props: CadenceFieldsProps) {
 
                 {scheduleType === "cron" && (
                   <div className="sched-form-group">
-                    <label htmlFor="sched-cron-expression" className="sched-form-label">Cron Expression</label>
-                    <TextInput id="sched-cron-expression"
+                    <TextInput label="Cron Expression" id="sched-cron-expression"
                       type="text"
                       value={cronExpression}
                       onChange={(e) => setCronExpression(e.target.value)}
@@ -107,8 +104,7 @@ export function CadenceFields(props: CadenceFieldsProps) {
 
                 {scheduleType === "delayed" && (
                   <div className="sched-form-group">
-                    <label htmlFor="sched-delay-seconds" className="sched-form-label">Delay Seconds</label>
-                    <TextInput id="sched-delay-seconds"
+                    <TextInput label="Delay Seconds" id="sched-delay-seconds"
                       type="number"
                       value={delaySeconds}
                       onChange={(e) => setDelaySeconds(Number(e.target.value))}
@@ -124,8 +120,7 @@ export function CadenceFields(props: CadenceFieldsProps) {
 
                 {scheduleType === "scheduled" && (
                   <div className="sched-form-group">
-                    <label htmlFor="sched-run-at" className="sched-form-label">Run At (One-Shot)</label>
-                    <TextInput id="sched-run-at"
+                    <TextInput label="Run At (One-Shot)" id="sched-run-at"
                       type="datetime-local"
                       value={scheduledDate}
                       onChange={(e) => setScheduledDate(e.target.value)}
