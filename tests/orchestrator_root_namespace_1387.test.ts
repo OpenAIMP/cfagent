@@ -14,6 +14,17 @@
  * This suite pins all three plus the alias preservation, reading the
  * entrypoint and wrangler.jsonc as text (same idiom as
  * tests/kv_bindings_removed.test.ts).
+ *
+ * Transitional state (#2330, Agent Mesh S2-A; gate record #2326): the
+ * two-deploy G0 rename tombstones the v9 namespace first (migration
+ * v14, deleted_classes). Following the legacy Delete-migration
+ * procedure, Deploy A removes the ORCHESTRATOR_AGENT binding and the
+ * own-name export, so those two pins below assert the TRANSITIONAL
+ * shape (binding absent + v14 tombstone present; own-name export
+ * absent) until Deploy B renames SearchAgent → OrchestratorAgent and
+ * restores both. The alias-preservation pin and the v9 migration
+ * history pin are unchanged — v9 stays in the append-only migrations
+ * array as the record of how the namespace was created.
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
@@ -53,16 +64,25 @@ const wrangler = JSON.parse(
   stripJsonc(readFileSync(resolve(root, "wrangler.jsonc"), "utf8"))
 ) as {
   durable_objects: { bindings: Array<{ name: string; class_name: string }> };
-  migrations: Array<{ tag: string; new_sqlite_classes?: string[] }>;
+  migrations: Array<{
+    tag: string;
+    new_sqlite_classes?: string[];
+    deleted_classes?: string[];
+  }>;
 };
 
 describe("OrchestratorAgent root namespace (issue #1387)", () => {
-  it("server.ts exports OrchestratorAgent under its own class name", () => {
-    // Bare `export { OrchestratorAgent }` (or `as OrchestratorAgent`).
-    // The pre-fix line `export { OrchestratorAgent as SearchAgent }`
-    // must NOT satisfy this — the SDK looks up ctx.exports by the
-    // constructor name, not by the alias.
-    expect(serverTs).toMatch(
+  it("server.ts does NOT export OrchestratorAgent under its own name during the A→B window (#2330 transitional)", () => {
+    // Pre-#2330 this pin asserted the opposite: the own-name export
+    // existed so the SDK could look up ctx.exports by constructor
+    // name. Deploy A removed it — legacy Delete-migration procedure
+    // step 2 (remove references to the deleted class name from the
+    // Worker code) — together with the v14 tombstone of its
+    // namespace. Deploy B restores the export with the rename, and
+    // this pin flips back. The alias line
+    // `export { OrchestratorAgent as SearchAgent }` must NOT satisfy
+    // the pattern either way (it names a different export).
+    expect(serverTs).not.toMatch(
       /export\s*\{\s*OrchestratorAgent\s*(as\s+OrchestratorAgent\s*)?\}/
     );
   });
@@ -78,12 +98,21 @@ describe("OrchestratorAgent root namespace (issue #1387)", () => {
     ).toBe(true);
   });
 
-  it("wrangler.jsonc binds ORCHESTRATOR_AGENT to the OrchestratorAgent class", () => {
+  it("wrangler.jsonc no longer binds ORCHESTRATOR_AGENT, and migration v14 tombstones the class (#2330 transitional)", () => {
+    // Legacy Delete-migration procedure step 1: remove the binding in
+    // the same change as the deleted_classes entry. Deploy B does not
+    // re-add this binding — the rename gives the class its namespace
+    // back under the SEARCH_AGENT binding instead.
     expect(
       wrangler.durable_objects.bindings.some(
-        (b) =>
-          b.name === "ORCHESTRATOR_AGENT" &&
-          b.class_name === "OrchestratorAgent"
+        (b) => b.name === "ORCHESTRATOR_AGENT"
+      )
+    ).toBe(false);
+    expect(
+      wrangler.migrations.some(
+        (m) =>
+          m.tag === "v14" &&
+          (m.deleted_classes ?? []).includes("OrchestratorAgent")
       )
     ).toBe(true);
   });

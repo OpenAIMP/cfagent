@@ -258,11 +258,18 @@ import {
 } from "./trading";
 export { OrchestratorAgent as SearchAgent } from "./agents/orchestrator";
 // Issue #1387 — the agents SDK resolves sub-agent roots through
-// ctx.exports by constructor.name, so OrchestratorAgent must ALSO be
+// ctx.exports by constructor.name, so OrchestratorAgent was ALSO
 // exported under its own name (the SearchAgent alias above cannot
-// satisfy the root-namespace lookup). The alias stays: it is the live
+// satisfy the root-namespace lookup), with its own namespace
+// (migration v9, ORCHESTRATOR_AGENT binding).
+// Issue #2330 (Agent Mesh S2-A, gate record #2326) — the two-deploy
+// G0 rename tombstones that v9 namespace first (migration v14,
+// deleted_classes): following the legacy Delete-migration procedure,
+// the binding AND this own-name export are removed in this step, so
+// sub-agent root resolution is unavailable until Deploy B renames
+// the SearchAgent namespace onto OrchestratorAgent and restores the
+// own-name export. The alias above stays throughout: it is the live
 // orchestrator address and its stored state must not move.
-export { OrchestratorAgent } from "./agents/orchestrator";
 // Issue #2230 — wrangler requires every bound DO class to be exported from
 // the entrypoint, otherwise `wrangler deploy` fails.
 export { TickerAgent, TICKER_INSTANCE_NAME } from "./agents/ticker-agent";
