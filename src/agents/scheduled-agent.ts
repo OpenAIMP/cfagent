@@ -1,4 +1,9 @@
 import { PortThink } from "../actors/thinkAdapter";
+import {
+  dispatchScheduledA2A,
+  scheduledA2AOutcome,
+  type ScheduledA2AOutcome,
+} from "./scheduledA2aDispatch";
 import type { Env } from "../types";
 import type { CompiledChain, CompiledChainStep } from "../orchestrate";
 import type { ChainRunResult } from "../mcp/goalChainCommands";
@@ -786,6 +791,32 @@ export class ScheduledAgent extends PortThink {
     goal.enabled = enabled;
     await this.saveGoals(goals);
     return true;
+  }
+
+  /**
+   * Issue #2223 (final slice): A2A door, cfpay signature — the edge
+   * dispatcher (src/a2a) resolves the "scheduled" name to this
+   * class on the LIVE "default" instance (never the bare name: a
+   * virgin instance would seed DEFAULT_SCHEDULES and serve
+   * plausible-looking wrong state) and calls this with the parsed
+   * body + origin (a Request cannot cross the DO RPC boundary).
+   * Thin delegation to the dispatch module (./scheduledA2aDispatch);
+   * the bound methods are injected here because they are
+   * class-bound. Returns the collected { text, data } outcome.
+   */
+  async handleA2A(body: unknown, origin: string): Promise<ScheduledA2AOutcome> {
+    void origin; // reserved for per-origin policy (cfpay parity); unused in v1
+    const data = await dispatchScheduledA2A(this.env, body, {
+      executor: {
+        listGoals: () => this.listGoals(),
+        getTickHistory: (limit) => this.getTickHistory(limit),
+        addGoal: (goal) => this.addGoal(goal),
+        removeGoal: (id) => this.removeGoal(id),
+        setGoalEnabled: (id, enabled) => this.setGoalEnabled(id, enabled),
+        triggerGoal: (id) => this.triggerGoal(id),
+      },
+    });
+    return scheduledA2AOutcome(data);
   }
 
   /**
