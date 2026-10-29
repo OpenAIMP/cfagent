@@ -697,9 +697,9 @@ export async function handleReportsRoutes(
           storeErrors["scans"] = "skipped: no authenticated user identity available to scope the read";
         } else {
           await readStore("scans", async () => {
-            const { SqlScanRunStore } = await import("../../trading");
+            const { createOptionsDiscoveryPorts } = await import("../../data/createOptionsDiscoveryPorts");
             const { runSummaryFromScanRun } = await import("../../services/runSummaries");
-            const scans = await new SqlScanRunStore(sql).list({ limit, userLogin: storeLogin });
+            const scans = await createOptionsDiscoveryPorts({ sql }).scanRuns.list({ limit, userLogin: storeLogin });
             return scans.map(runSummaryFromScanRun);
           });
         }
@@ -709,9 +709,9 @@ export async function handleReportsRoutes(
           storeErrors["discovery"] = "skipped: no authenticated user identity available to scope the read";
         } else {
           await readStore("discovery", async () => {
-            const { SqlDiscoveryRunStore } = await import("../../trading");
+            const { createOptionsDiscoveryPorts } = await import("../../data/createOptionsDiscoveryPorts");
             const { runSummaryFromDiscoveryRun } = await import("../../services/runSummaries");
-            const runs = await new SqlDiscoveryRunStore(sql).list({ limit, userLogin: storeLogin });
+            const runs = await createOptionsDiscoveryPorts({ sql }).discoveryRuns.list({ limit, userLogin: storeLogin });
             return runs.map(runSummaryFromDiscoveryRun);
           });
         }
