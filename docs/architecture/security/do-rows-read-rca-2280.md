@@ -1,16 +1,16 @@
 # Durable Objects rows-read RCA — why login went down (2026-10-29)
 
-Status: recorded. Issue: [#2280](https://github.com/OpenAIMP/cfagent/issues/2280) (incident),
-[#2284](https://github.com/OpenAIMP/cfagent/issues/2284) (this record).
+Status: living record, consolidated on the incident issue.
+Issue: [#2280](https://github.com/OpenAIMP/cfagent/issues/2280).
 Related: [#1819](https://github.com/OpenAIMP/cfagent/issues/1819) (instrumentation and the
-session-scoped cap alert), [#329](https://github.com/OpenAIMP/cfagent/issues/329) (session-store read
-budget).
+session-scoped alert), [#329](https://github.com/OpenAIMP/cfagent/issues/329) (session-store read
+budget), [#2294](https://github.com/OpenAIMP/cfagent/issues/2294) (outcome retention).
 
 ## 1. Symptom
 
-Login stopped working end to end. The OAuth callback completed, wrote the session record, and
-redirected to `/`; the root route could not read the session back, rendered the landing page, and the
-client sent the browser to `/auth/login/github` again — a loop.
+Login stopped working end to end. The OAuth callback completed and wrote the session record, but the
+redirect to `/` could not read it back, so the browser was rendered signed-out and sent to
+`/auth/login/github` again — a loop.
 
 `wrangler tail` on `ai-search-agent` showed every `SessionStore` request failing at construction:
 
@@ -25,13 +25,13 @@ The cap is account-level: when it is exhausted, **every** DO read in the account
 object that consumed it. `SessionStore` is the first DO every request touches, which is why the
 outage surfaced there.
 
-## 2. Evidence (measured, not inferred)
+## 2. Measured evidence
 
-Source: Cloudflare GraphQL `durableObjectsPeriodicGroups` (`sum.rowsRead` per object) and
-`durableObjectsInvocationsAdaptiveGroups` (`sum.requests`), account
-`1e7e9bb45eca8d59ec86bbd6dac9b900`, queried 2026-10-29.
+Source: Cloudflare GraphQL, account `1e7e9bb45eca8d59ec86bbd6dac9b900`, queried 2026-10-29.
+`durableObjectsPeriodicGroups` (`sum.rowsRead`, `sum.rowsWritten`) and
+`durableObjectsInvocationsAdaptiveGroups` (`sum.requests`, dimension `type`).
 
-Day-to-date 2026-10-29:
+### 2.1 Per object, 2026-10-29 (day-to-date)
 
 | Object | rows read | requests | rows/request |
 |---|---:|---:|---:|
@@ -43,10 +43,11 @@ Day-to-date 2026-10-29:
 | `screener:dhmprstw@gmail.com` | 10,194 | 648 | ~16 |
 | `kv` (**SessionStore**) | **5,672** | 5,582 | **~1.0** |
 
-Total ≈ **5.14M rows read** — the cap. The two per-user agents are **98.5%** of all rows read;
-`SessionStore` is **0.11%**.
+Total ≈ **5.14M rows read** — the cap. The two per-user agents are **98.5%** of it; the session
+store is **0.11%**. The platform's own D1 projection agrees for the session path: 3,945 `get` + 75
+`put` = 4,019 rows read on the day.
 
-Full prior day, 2026-10-28 (no deploy of ours):
+### 2.2 Prior full day, 2026-10-28 — chronic, not a spike
 
 | Object | rows read |
 |---|---:|
@@ -55,85 +56,9 @@ Full prior day, 2026-10-28 (no deploy of ours):
 | `agent` | 218,365 |
 | all others | < 40k each |
 
-≈ 5.4M — the same two objects. The burn is **chronic**, not a spike and not caused by the
-2026-10-29 auth change (#2271), which adds at most one session read per duplicate-cookie request.
+≈ 5.4M, the same two objects, on a day with no deploy of ours.
 
-The platform's own projection agrees: D1 `resource_sql_ops` for the day holds 3,945 session `get`
-+ 75 `put` = **4,019 rows read**, i.e. the session path is 0.08% of the cap.
-
-## 3. Mechanism
-
-A Durable Object's SQLite billing counts **rows read**, which for a query is the number of rows the
-engine **scanned**, not the number returned. Therefore:
-
-```
-cost per request = rows scanned by the query
-daily cost       = rows scanned × requests per day
-```
-
-When a query has no usable index and filters/orders on an unindexed column, `rows scanned` equals the
-table size. The table only grows, and the request repeats on a clock, so daily cost grows without any
-change in traffic.
-
-Measured signature: **2,400–4,400 rows read per request** on the two burning objects. A lookup would
-read 1. This is a scan.
-
-## 4. What data is being read
-
-One row per record the user's agent accumulates, in tables that only grow:
-
-| Table | One row is | Why a scan is expensive |
-|---|---|---|
-| `mas_job_outcomes` | one completed run: kind, trigger, status, scanned/matched counts, report and artifact keys | unbounded (no retention anywhere), `id` primary key only, read as `ORDER BY created_at DESC LIMIT ?` — no index on `created_at`, so every call sorts the whole table |
-| `mas_async_jobs` | one queued/running/completed job, `payload_json` included | per-session retention (500 completed/failed, 30 days) but read as `WHERE status NOT IN ('completed','failed')` — no index on `status`, so every scheduled gate scans every session's retained jobs |
-| `mas_events` | one audit/observability event for the session | no `created_at` index; retention batches scan |
-| `mas_messages` | one chat message (role, content, agent) | no `session_id`/`created_at` index; retention batches scan |
-| `mas_reports` | one generated report (title, summary, body keys) | deliberately KEEP/unbounded; swept with `LIMIT ? OFFSET ?`, so a full sweep costs `O(N²/limit)` |
-
-So "a user reading millions" is not the user fetching millions of records: it is the user's panel
-asking for **50 rows** and the database reading that user's **entire run/outcome history** — thousands
-of rows — to answer, once per request.
-
-Request sources that hit these objects on a clock:
-
-- `GET /api/options/latest` — polled every 60 s by `src/client/ScheduledOptionsManager.tsx:298`
-  (the read itself is one KV `get`; the surrounding agent request runs the table setup and any
-  scan the endpoint performs).
-- `GET /api/screener/latest` — polled every 60 s by `src/client/ScreenersHub.tsx:312`.
-- `GET /api/autopilot/jobs?limit=50` — on panel mount (`AutopilotControlCenter.tsx:526`) and
-  `GET /api/workflow-runs` (`routes/workflowRuns.ts:161`), both `listJobOutcomes` scans.
-- The 30-minute `*/30` cron for scheduled market screens (`services/scheduledTasks.ts:773`).
-
-## 4.1 What generates the rows — and what generates the reads
-
-Two different multipliers, routinely conflated:
-
-| | Driven by | Volume |
-|---|---|---|
-| Rows **written** | one per run (scheduled or manual), the same id replaced as the run advances | runs per day for that user |
-| Rows **read** | every request that lists the table, whether or not new data exists | requests per day × table size |
-
-The 4.1M rows on 2026-10-29 were not 4.1M new records. They were the user's ~2,432 existing
-rows re-read by 1,685 requests. A day with zero runs still spends the same rows read, because
-the readers are polling a history that already exists.
-
-Consequences:
-
-- Manual screener use is irrelevant to the read cost. It adds a row occasionally; it does not
-  change the per-request scan.
-- Schedules change the growth rate, not the per-request cost. The shipped defaults are few
-  (`src/schedule.ts:47`: daily QA sweep, 6-hourly opportunity hunt, hourly resource alert, social
-  post disabled). A per-user table of ~2.4k rows therefore means either a user-defined schedule
-  firing frequently or long accumulation. The live inventory is `GET /api/schedule/goals`
-  (`src/server.ts:1038`), unreadable while the DO is blocked by the cap.
-- The "feed"/"gather" stages write rows through the same `recordJobOutcome` path (kind
-  `discovery`). They grow the table; they do not change the multiplier.
-- With a 50-row table, the same 1,685 requests cost ~84k rows instead of 4.1M. That is the whole
-  effect of the index in P0 item 1.
-
-## 4.2 Measured write volume (how much data arrives per day)
-
-Rows written, account total and top objects (`durableObjectsPeriodicGroups`, `sum.rowsWritten`):
+### 2.3 Writes versus reads
 
 | Day (UTC) | rows written | rows read | read:write |
 |---|---:|---:|---:|
@@ -146,76 +71,13 @@ Rows written, account total and top objects (`durableObjectsPeriodicGroups`, `su
 Top writers on 2026-10-28: `dhmprstw@gmail.com` 20,588; `screener:OpenAIMP` 6,374;
 `screener:dhmprstw@gmail.com` 6,373; `OpenAIMP` 5,225.
 
-Hourly shape for `dhmprstw@gmail.com` on 2026-10-29, 03:00-09:00 UTC, is **flat**, not bursty:
-567k-887k rows read and 1.1k-5.0k rows written per hour. A person clicking a panel does not
-produce that shape; a clock-driven job plus client polling does.
+`rowsWritten` counts inserts **and updates**: a run that updates its status three times counts three.
+So ~28-44k writes/day is an upper bound on records created, and it is 100-190× smaller than the rows
+read. **The cap is on reads; writes cannot exhaust it.**
 
-`rowsWritten` counts every row write, inserts and updates alike: a run that updates its status
-three times counts three. ~28-44k writes/day is therefore an upper bound on records created,
-and it is 100-190× smaller than the rows read.
+### 2.4 Request shape — two different readers
 
-That ratio is the reason writes are not the problem: the cap is on **rows read**. 28k writes
-cannot exhaust a 5M read budget; 5M reads exhaust it.
-
-## 5. Why nothing warned
-
-The #1819 cap alert is explicitly session-scoped: *"Scope: SessionStore projection only — a breach
-here implies the account is at >=70%"* (`src/agents/resourceGoals.ts`). It sums `resource_sql_ops`,
-which only the session KV path writes. At the moment the account hit 5M, that projection held ~4k
-rows — 0.08% of the cap — so the 70% alert could not fire. Agent SQL emits no measurement event at
-all, and no query in the repo is checked with `EXPLAIN QUERY PLAN`.
-
-## 6. Remediation
-
-### P0 — remove the scans (restores headroom)
-1. Indexes, created idempotently in the existing table-setup functions:
-   `mas_job_outcomes(created_at DESC)`, `mas_async_jobs(status, created_at)`,
-   `mas_events(created_at)`, `mas_messages(created_at)`, `mas_memory(updated_at)`.
-   The outcome index (#2294) is necessary but not sufficient: the steady reader scans ~13.5k rows
-   per request (§4.3), which fits `mas_events` or `mas_messages` better than the outcome feed —
-   index those next.
-2. Replace `WHERE status NOT IN ('completed','failed')` with an index-usable predicate
-   (`status IN ('queued','running',…)`) and return only the fields the gate needs.
-3. Retention for `mas_job_outcomes` (age and count bound), enforced **inside each instance**.
-   The nightly `0 4 * * *` dispatch reaches only the shared Orchestrator instance, so
-   `listJobOutcomes` bounds its own instance at most once per 24h (durable
-   `mas_job_outcomes_meta.pruned_at` marker); the nightly route remains the shared-instance
-   sweep. Both call `pruneJobOutcomes`.
-4. Keyset pagination (`WHERE created_at > ? ORDER BY created_at LIMIT ?`) for `mas_reports`
-   sweeps, so one sweep is `O(N)` instead of `O(N²/limit)`.
-5. Wrap the Orchestrator's `sql.exec` in the `execCounted` helper `SessionStore` already uses and
-   emit `store_op` v2 events with a statement tag, so the next investigation reads numbers.
-
-### P1 — reduce steady-state cost
-6. Account-wide cap budget: sum every namespace (session + agent SQL) against the rows-read cap and
-   alert at 50/70/85% with the top statements, instead of the session-only projection.
-7. Consolidate the two `listJobOutcomes` callers into one read per request and cache the small
-   "recent outcomes" list with a short TTL.
-8. `EXPLAIN QUERY PLAN` pin: fail the suite when a hot statement plans a `SCAN` where a `SEARCH`
-   is expected.
-9. Lengthen the negative session-cache TTL (the positive 60 s TTL is the revocation bound pinned by
-   #1750 and stays).
-
-### P2 — structural
-10. One measured SQL surface for every DO, not only `durableKv`.
-11. Cost budgets per scheduled job and per request, alerted on breach.
-12. A resource dashboard over `resource_sql_ops` and the rollups.
-
-### Not the fix
-- Raising the session cache TTL: the burn is not the session path.
-- Moving to a paid plan: it buys headroom, it does not remove a scan that grows with data.
-
-## 7. Verification
-
-- `EXPLAIN QUERY PLAN` on each changed statement returns `SEARCH … USING INDEX`.
-- `resource_sql_ops` shows agent statements with rows read after P0 item 5 ships.
-- A normal day, including the 30-minute ticks and the 60-second polls, stays under 25% of the cap.
-- Login round-trip works with the session store healthy.
-
-## 4.3 Request shape — two different readers
-
-Hourly for `dhmprstw@gmail.com` on 2026-10-29 (rows read from `durableObjectsPeriodicGroups`,
-requests from `durableObjectsInvocationsAdaptiveGroups`):
+Hourly for `dhmprstw@gmail.com`, 2026-10-29:
 
 | Hour (UTC) | requests | rows read | rows/request |
 |---|---:|---:|---:|
@@ -227,26 +89,187 @@ requests from `durableObjectsInvocationsAdaptiveGroups`):
 | 08:00 | 44 | 633,651 | 14,401 |
 | 09:00 | 42 | 567,953 | 13,523 |
 
-The daily average (~2,432 rows/request) mixes two readers and understates the one that costs the
-most:
+- **Steady hours:** ~45 requests/hour — about one every 80 seconds — at **~13.5k rows each**
+  (~600k rows/hour). A repeating, clock-driven read.
+- **04:00:** 1,149 requests at ~772 rows each — a burst of small queries in the nightly window.
 
-- **steady hours**: ~45 requests/hour — about one every 80 seconds — at **~13.5k rows each**
-  (~600k rows/hour). A repeating, clock-driven read of a table roughly that size.
-- **04:00**: 1,149 requests at ~772 rows each, a burst of small queries in the nightly window.
+The daily average (~2,432 rows/request) mixes both and understates the steady reader.
 
-A ~13.5k-row scan is larger than the outcome feed and fits `mas_events` (365-day audit log) or a
-long `mas_messages` history better than `mas_job_outcomes`. The outcome index shipped in #2294
-removes that feed's scan, but it is probably not the whole 4.1M.
+### 2.5 Invocation types, 2026-10-29
 
-## 8. Known gap
+| Type | Count |
+|---|---:|
+| `http` | 1,352 (38 `exceededMemory`) |
+| `alarm` | **331** (19 `exceededMemory`, 8 `scriptThrewException`, 7 `clientDisconnected`, 2 `exceededResources`) |
+| `hibernation` | 2 |
 
-Two questions this record cannot answer yet, both for the same reason — agent SQL emits no
-per-statement rows measurement:
+Alarms are 20% of requests. **4.1M ÷ 331 ≈ 12.4k rows per alarm**, which matches the steady
+~13.5k rows/request.
 
-1. **Which statement/job** dominates inside the burning objects. The object, the per-request cost
-   (§4.3) and the read:write ratio are measured; the individual query is not.
-2. **Which tables** the ~13.5k rows/request come from. Five candidates carry a scan of this shape
-   (`mas_job_outcomes`, `mas_async_jobs`, `mas_events`, `mas_messages`, `mas_reports`); the split is
-   unmeasured.
+## 3. Mechanism — rows read are rows scanned
 
-P0 item 5 closes both by emitting rows-per-statement with a statement tag.
+A Durable Object's SQLite billing counts rows the engine **scanned**, not rows returned:
+
+```
+cost per request = rows scanned by the query
+daily cost       = rows scanned × requests per day
+```
+
+Without a usable index, `WHERE`/`ORDER BY` on an unindexed column scans the whole table; `LIMIT 50`
+applies only after the scan. The table grows, the request repeats, and cost rises with no change in
+traffic. Measured signature: 2,400-14,400 rows per request where a lookup would read 1.
+
+### 3.1 The dominant reader: the framework's alarm job queue
+
+The `agents` framework's `Lifecycle.alarm()` drives a durable job queue table **`cf_agents_jobs`**,
+created as `id TEXT PRIMARY KEY ... WITHOUT ROWID` — **with no index on `time`**. Each alarm runs:
+
+| Query | Rows read |
+|---|---|
+| `JobQueue.due()`: `SELECT * FROM cf_agents_jobs WHERE time <= ? ORDER BY time ASC` | whole table |
+| `nextAlarmTime()`: `MIN(time)` where `exclusive = 1` | whole table |
+| `nextAlarmTime()`: `MIN(time)` where `singleflight = 0 OR running = 0 …` | whole table |
+| `nextAlarmTime()`: hung-recheck `MIN(...)` | whole table |
+
+`rearmAlarm()` runs `nextAlarmTime()` again after every push and at the end of every alarm, so one
+alarm costs roughly **four full scans** of the queue.
+
+```
+331 alarms/day × 4 scans × ~3k queued rows ≈ 4.0M rows/day
+```
+
+That is the 4.1M. It also explains the `exceededMemory` outcomes on alarm invocations: the alarm
+work is loading the queue repeatedly.
+
+Confidence: high on the mechanism and the arithmetic; the queue size (~3k) is inferred, not yet read
+— see §8.
+
+### 3.2 Secondary readers in `mas_*`
+
+| Query | Index | Cost |
+|---|---|---|
+| `SELECT * FROM mas_job_outcomes ORDER BY created_at DESC LIMIT 50` (`services/jobOutcomes.ts:137`) | added in #2294 | was whole table |
+| `SELECT payload_json FROM mas_async_jobs WHERE status NOT IN ('completed','failed')` (`services/scheduledTasks.ts:773`) | none on `status` | whole table, 48×/day |
+| `SELECT … FROM mas_reports … LIMIT ? OFFSET ?` (`services/reportSemanticIndex.ts:263`) | `created_at` yes, OFFSET still | `O(offset+limit)` per page; a sweep is `O(N²/limit)` |
+| retention batches on `mas_events` / `mas_messages` / `mas_memory` | none on `created_at` | whole table per batch |
+
+### 3.3 Ranking — current, with the superseded ones named
+
+1. **Framework alarm queue (`cf_agents_jobs`) — primary**, ~4M/day by arithmetic.
+2. `mas_async_jobs` status scan — 48×/day, whole table (size unmeasured).
+3. `mas_reports` OFFSET sweeps — weekly, quadratic in report count.
+4. `mas_job_outcomes` feed — **superseded as the primary hypothesis** (#2294 indexed and bounded
+   it; it was derived from an average that mixed two readers).
+5. `mas_events` / `mas_messages` scans — plausible secondary, unmeasured.
+
+## 4. Where the data comes from
+
+### 4.1 The rows the scans read
+
+`mas_job_outcomes` — one row per run, upserted by id through its lifecycle, written by five call
+sites:
+
+| Writer | Trigger |
+|---|---|
+| `agents/orchestrator/asyncJobs.ts:500` | an async job reaches a terminal state |
+| `agents/routes/etradeOptionsScreen.ts:310` | a manual options screen run |
+| `services/optionsServeRecord.ts:117` | the serve stage writing artifact keys |
+| `services/goalScreenReports.ts:176` | a goal-screen report run |
+| `services/scheduledTasks.ts:451` | a scheduled task run |
+
+Fields: `id, kind, trigger, status, scanned, matched, coded_error, report_url, pdf_key, xlsx_key,
+csv_key, delivery_json, origin, created_at`. In plain terms: "*discovery run X — 2 scanned,
+2 matched, report at …*".
+
+### 4.2 What generates runs — the `*/30` tick
+
+`*/30 * * * *` is the only cron driving scheduled work (every 30 minutes, :00 and :30 UTC). It exists
+because the account sits at the **Workers Free ceiling of 5 cron triggers** (error 10072), so the
+daily research run, weekly reflection, weekly weight adjustment and weekly corpus sync ride this
+heartbeat instead of owning triggers. Each tick:
+
+1. `ScheduledAgent.onCron()` — evaluate stored goals, budget-check, create Orchestrator jobs;
+2. `POST /research/scheduled-tick`, `/reflection/run`, `/adaptation/weights/run`,
+   `/knowledge/corpus-sync` — unconditional dispatches whose fire/no-fire decision is inside.
+
+Cost: 48 ticks × 5 dispatches ≈ **240 requests/day** — 0.2% of the heavy agent's traffic. **The tick
+is not the reader**; it is upstream of the data. Its frequency is also the firing resolution of every
+user schedule, so changing it changes what schedules mean.
+
+## 5. What data exists, what may be deleted, and how
+
+| Table | One row is | Retention today | Verdict |
+|---|---|---|---|
+| `mas_job_outcomes` | one run outcome + artifact keys | **90d + 500-row cap** (#2294) | prune; feed reads newest 50 |
+| `mas_async_jobs` | one job incl. `payload_json` | 30d terminal + 500/session at submit | prune at source |
+| `mas_events` | one audit/observability event | 365d nightly | prune |
+| `mas_messages` | one chat message | 90d nightly | prune |
+| `mas_memory` | one memory key | 365d by `updated_at` | prune |
+| `mas_reports` | one generated report | **KEEP** (bodies in R2) | never delete rows raw; keyset reads |
+| `mas_transactions`, `mas_trades` | financial ledger/orders | KEEP | never |
+| `mas_policy_verdicts` | signed compliance ledger | KEEP | never |
+| `mas_watchlists`, `mas_referrals` | user content | KEEP | never |
+| `mas_settings`, `mas_autopilot` | per-key state | KEEP | never |
+
+### 5.1 How deletion happens
+
+`pruneJobOutcomes` (age delete, then keep-newest-500) runs from **two** places, because the nightly
+dispatch reaches only one instance:
+
+1. **`listJobOutcomes`** — first feed read per instance per 24h, guarded by the durable
+   `mas_job_outcomes_meta.pruned_at` row. This is what reaches the per-user agents where the history
+   lives.
+2. **`/schedules/trigger-retention`** at 04:00 UTC — the shared Orchestrator instance only.
+
+Documented in `src/security/storageRetention.ts` (decision header) and the #2294 changelog.
+
+Deletion cannot run while reads are blocked: a delete reads rows to find them. It runs on the first
+successful read after the quota resets.
+
+Deletion alone does not fix the defect — the scan returns as the table regrows. Index first, then
+bound.
+
+## 6. Why nothing warned
+
+- The #1819 cap alert is explicitly session-scoped: *"Scope: SessionStore projection only — a breach
+  here implies the account is at >=70%"*. It sums `resource_sql_ops`, which only the session KV path
+  writes. At exhaustion that projection held ~4k rows — 0.08% of the cap — so it could not fire.
+- Agent SQL and framework SQL emit **no** rows measurement at all.
+- No query in the repo is checked with `EXPLAIN QUERY PLAN`.
+
+## 7. Remediation
+
+| # | Change | Effect | Status |
+|---|---|---|---|
+| 1 | `CREATE INDEX idx_cf_agents_jobs_time ON cf_agents_jobs(time)` from agent startup | each of the four scans per alarm becomes a seek | **pending** |
+| 2 | Find and stop the queue growth (~3k rows) | removes the multiplier inside each scan | **pending** — needs the count (§8) |
+| 3 | Compute `nextAlarmTime()` once per wake, including re-arm | halves-to-quarters the scans per alarm | **pending** |
+| 4 | Index `mas_job_outcomes(created_at)` + 90d/500 retention | feed scan + unbounded growth | **shipped** (#2294) |
+| 5 | Index `mas_async_jobs(status, created_at)`; replace `NOT IN` | 48 full scans/day → seeks | **pending** |
+| 6 | Index `mas_events`/`mas_messages` `created_at` | retention batches stop scanning | **pending** |
+| 7 | Keyset pagination for `mas_reports` sweeps | `O(N²)` → `O(N)` | **pending** |
+| 8 | Rows-per-statement measurement for agent SQL + framework SQL | makes the next burn attributable | **pending** |
+| 9 | Account-wide cap alert (50/70/85%, top statements) | early warning instead of outage | **pending** |
+| 10 | Cache the polled reads (same 50 rows, 45×/hour) | removes the repeated scan entirely | **pending** |
+
+Not the fix: raising the session cache TTL (the burn is not the session path); moving to a paid plan
+(buys headroom, does not remove a scan that grows with data); purging user schedules (they change
+growth, not per-request cost).
+
+## 8. Open questions
+
+1. **`cf_agents_jobs` row count on the burning object.** If ~3k, §3.1 is proven; if small, the
+   arithmetic points elsewhere. One query, blocked until reads recover.
+2. **Which exact statement** dominates. Closes with item 8.
+3. **Per-table split** of the `mas_*` reads. Closes with item 8.
+
+## 9. References
+
+- `src/security/sessionStore.ts` — `execCounted`, the measurement pattern.
+- `src/security/durableKv.ts` — `store_op` v2 emission.
+- `src/security/storageRetention.ts` — retention decisions.
+- `src/services/jobOutcomes.ts` — outcome feed, prune, index.
+- `src/services/scheduledTasks.ts` — async-jobs gate scan.
+- `src/services/reportSemanticIndex.ts`, `corpusSync.ts` — OFFSET sweeps.
+- `src/agents/resourceGoals.ts` — session-scoped cap alert.
+- `node_modules/agents` — `Lifecycle.alarm()`, `JobQueue`, `JobDriver`.
