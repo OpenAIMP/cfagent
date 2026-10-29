@@ -1360,11 +1360,33 @@ export class ScheduledTasksService {
           resolvePaidScreenAction,
           resolvePaidScreenAccount,
           buildPaidScreenSubmission,
-          GOAL_SCREEN_PRICE_USD,
         } = await import("./paidScreenSubmission");
         const { buildGoalScreenCommand } = await import("./goalScreenWorkflowSubmission");
         const { startPaymentWorkflowViaBinding } =
           await import("./paymentWorkflowSubmission");
+        // Issue #2185: the goal price comes from the operator price
+        // catalogue port, never from a code constant (the old
+        // price table was removed by the catalogue slice). Fail-closed: an
+        // unbound catalogue or a missing/invalid stored price
+        // THROWS into the tick's run_failed path, like the store
+        // failures below — coverage unknown is not a skip, and no
+        // price is ever guessed. A fresh store seeds the proposed
+        // goal price at ensure time, so the value is unchanged.
+        const { createPriceCatalogueAdapter, ensurePriceCatalogueSchema } =
+          await import("../data/createPriceCataloguePorts");
+        const priceCatalogue = createPriceCatalogueAdapter(this.env as { AGENT_DB?: unknown });
+        if (!priceCatalogue) {
+          throw new Error(
+            "Price catalogue is unavailable; refusing to route a paid scheduled screen without operator price data.",
+          );
+        }
+        await ensurePriceCatalogueSchema(priceCatalogue.db);
+        const goalScreenPriceUSD = await priceCatalogue.getPrice("goal");
+        if (goalScreenPriceUSD === null || !Number.isFinite(goalScreenPriceUSD) || goalScreenPriceUSD <= 0) {
+          throw new Error(
+            "No valid stored price for family goal: refusing to route a paid scheduled screen (fail-closed).",
+          );
+        }
         const skipPaid = (status: string, reason: string) => {
           this.audit("goal_screen.skipped_uncovered", {
             goalKind: scenario.goalKind,
@@ -1372,14 +1394,14 @@ export class ScheduledTasksService {
             trigger,
             status,
             reason,
-            priceUSD: GOAL_SCREEN_PRICE_USD,
+            priceUSD: goalScreenPriceUSD,
           });
           return {
             success: true,
             taskType: "goal_screen",
             skipped: true,
             timestamp,
-            data: { taskId: idempotencyKey, status, reason, priceUSD: GOAL_SCREEN_PRICE_USD, goalKind: scenario.goalKind },
+            data: { taskId: idempotencyKey, status, reason, priceUSD: goalScreenPriceUSD, goalKind: scenario.goalKind },
           } as any;
         };
         if (chainMode) {
@@ -1401,14 +1423,14 @@ export class ScheduledTasksService {
           { commercial, subscriptions },
           { userId: userLogin, email: options.emailTo ?? "", tenantId, nowMs: Date.now() },
         );
-        const coverage = coverageForAccount(account, GOAL_SCREEN_PRICE_USD);
+        const coverage = coverageForAccount(account, goalScreenPriceUSD);
         const action = resolvePaidScreenAction({
           monetizationOn: true,
           trigger: "scheduled",
           scheduleKind: options.scheduleKind,
           authorizedAtSubmission: options.authorizedAtSubmission,
           coverage,
-          priceUSD: GOAL_SCREEN_PRICE_USD,
+          priceUSD: goalScreenPriceUSD,
         });
         if (action.action === "skip") {
           return skipPaid("skipped_uncovered", action.reason);

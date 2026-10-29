@@ -43,7 +43,6 @@
  */
 
 import {
-  FAMILY_PRICES,
   type CommercialAccount,
   type ScheduleKind,
   type ScreenerFamily,
@@ -60,9 +59,6 @@ import {
 import { buildPaymentWorkflowParams } from "./paymentWorkflowSubmission";
 import type { PaymentWorkflowEventParams } from "../workflows/paymentWorkflow";
 import type { WorkflowJobCommand } from "../workflows/workflowPorts";
-
-/** Goal-screen price, from the gate's own price table — never a new constant. */
-export const GOAL_SCREEN_PRICE_USD = FAMILY_PRICES.goal;
 
 /**
  * The gate's coverage-required reason, mirrored here so the caller's skip
