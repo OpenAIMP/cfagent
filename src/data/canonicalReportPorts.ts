@@ -17,6 +17,12 @@
  * storeCanonicalReport exactly as before; the fan-out's leg
  * outcomes are step 3c (#2347), untouched here.
  *
+ * #2347 update (step 3c): the fan-out contract landed — the
+ * record gains fanoutOutcome (the fanout_outcome column's raw
+ * JSON; parse with parseFanoutOutcome in
+ * services/scheduledReports.ts), recorded by the one seam at
+ * store time. The write side still does not move.
+ *
  * #CDO-mha7
  */
 import type { ScheduledReportRecord } from "../types";
@@ -28,6 +34,8 @@ export interface CanonicalReportRecord extends ScheduledReportRecord {
   userLogin?: string;
   /** R2 object key of the report body, when stored out-of-line. */
   bodyR2Key?: string;
+  /** Recorded fan-out outcome JSON (#2347), when the seam recorded one. */
+  fanoutOutcome?: string;
 }
 
 export interface CanonicalReportPort
