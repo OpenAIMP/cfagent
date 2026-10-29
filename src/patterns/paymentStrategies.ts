@@ -26,6 +26,10 @@ import type {
   GatewayStatus,
 } from "../services/payments";
 import type { IPaymentGatewayStrategy } from "./interfaces";
+import type {
+  CreateProviderSubscriptionInput,
+  ProviderSubscription,
+} from "../services/billingPorts";
 import { RemoteMcpClient } from "../services/mcpClient";
 import { computeHmacSha256Hex } from "../services/cryptoUtils";
 import { resolveEnvironmentConfig } from "../config/environment";
@@ -210,6 +214,184 @@ export class StripePaymentStrategy implements IPaymentGatewayStrategy {
       didAttestation: attestation,
       message: "Stripe error: STRIPE_SECRET_KEY or STRIPE_MCP_SERVER_URL must be configured to process real payments. STRIPE_TEST_SECRET_KEY or STRIPE_LIVE_SECRET_KEY may also be provided. Simulation and mockups are disabled.",
     };
+  }
+
+  /**
+   * Issue #2193 (slice 1, #2146) — retrieve a Checkout Session by
+   * id (GET /v1/checkout/sessions/{id}). This closes design §6.1:
+   * no session-retrieve method existed in this file, and the
+   * native gate's confirm-by-retrieve rule needs one. The strategy
+   * stays the only Stripe API surface: the checkout adapter reads
+   * sessions through PaymentGatewayService, never by fetching
+   * Stripe itself. A retrieve is a read of provider state, so
+   * transport/config failures THROW (the caller's durable step
+   * retries); only a successful retrieve yields evidence, and the
+   * gate — not this method — judges whether that evidence pays.
+   * A success-page redirect is never consulted here.
+   */
+  async retrieveCheckoutSession(
+    env: Env,
+    sessionId: string,
+  ): Promise<{
+    id: string;
+    status: string;
+    payment_status: string;
+    amount_total: number;
+    client_reference_id: string;
+    payment_intent?: string;
+  }> {
+    const { apiKey } = this.resolveApiKey(env);
+    if (!apiKey) {
+      throw new Error("Stripe is not configured: a secret key is required to retrieve a checkout session.");
+    }
+    if (!sessionId || typeof sessionId !== "string") {
+      throw new Error("A Stripe session id is required to retrieve a checkout session.");
+    }
+    const res = await fetch(`https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(sessionId)}`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+    });
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      throw new Error(`Stripe session retrieve failed: HTTP ${res.status} (${(data.error as { message?: string } | undefined)?.message ?? res.statusText}).`);
+    }
+    const paymentIntent = data.payment_intent;
+    return {
+      id: typeof data.id === "string" ? data.id : sessionId,
+      status: typeof data.status === "string" ? data.status : "",
+      payment_status: typeof data.payment_status === "string" ? data.payment_status : "",
+      amount_total: typeof data.amount_total === "number" ? data.amount_total : NaN,
+      client_reference_id: typeof data.client_reference_id === "string" ? data.client_reference_id : "",
+      payment_intent:
+        typeof paymentIntent === "string"
+          ? paymentIntent
+          : (paymentIntent as { id?: unknown } | null)?.id && typeof (paymentIntent as { id?: unknown }).id === "string"
+            ? ((paymentIntent as { id: string }).id as string)
+            : undefined,
+    };
+  }
+
+  /**
+   * Issue #2202 (implementation of design #2145) — Stripe
+   * Billing subscription calls. This strategy stays the only
+   * Stripe API surface: the Billing adapter reads provider
+   * subscriptions through PaymentGatewayService, never by
+   * fetching Stripe itself. Endpoints verified against the
+   * Stripe API reference at build time: POST
+   * /v1/subscriptions (customer + items[0][price]),
+   * GET /v1/subscriptions/{id}, POST
+   * /v1/subscriptions/{id} (update, incl.
+   * cancel_at_period_end), DELETE /v1/subscriptions/{id}
+   * (cancel immediately). Transport/config failures THROW
+   * (fail closed); only a successful response yields a
+   * parsed provider subscription. Periods convert from
+   * Stripe epoch-seconds to epoch-ms; when the top-level
+   * current_period_start/end are absent, the first
+   * subscription item's periods are used as a defensive
+   * fallback (never invented when both are absent — then
+   * null, and the service refuses to invent a period).
+   */
+  private parseProviderSubscription(data: Record<string, unknown>, fallbackId: string): ProviderSubscription {
+    const id = typeof data.id === "string" ? data.id : fallbackId;
+    const item = Array.isArray((data.items as { data?: unknown[] } | undefined)?.data)
+      ? ((data.items as { data: Record<string, unknown>[] }).data[0] ?? null)
+      : null;
+    const toMs = (v: unknown): number | null =>
+      typeof v === "number" && Number.isFinite(v) ? v * 1000 : null;
+    const topStart = toMs(data.current_period_start);
+    const topEnd = toMs(data.current_period_end);
+    const customer = data.customer;
+    const price = item?.price as { id?: unknown } | undefined;
+    return {
+      providerSubscriptionId: id,
+      status: typeof data.status === "string" ? data.status : "",
+      currentPeriodStartMs: topStart ?? toMs(item?.current_period_start),
+      currentPeriodEndMs: topEnd ?? toMs(item?.current_period_end),
+      cancelAtPeriodEnd: data.cancel_at_period_end === true,
+      canceledAtMs: toMs(data.canceled_at),
+      customerId: typeof customer === "string" ? customer : ((customer as { id?: unknown } | null)?.id as string | undefined) ?? null,
+      priceId: typeof price?.id === "string" ? price.id : null,
+    };
+  }
+
+  private async stripeBillingRequest(
+    env: Env,
+    method: "GET" | "POST" | "DELETE",
+    path: string,
+    body?: URLSearchParams,
+  ): Promise<Record<string, unknown>> {
+    const { apiKey } = this.resolveApiKey(env);
+    if (!apiKey) {
+      throw new Error("Stripe is not configured: a secret key is required for Stripe Billing.");
+    }
+    const res = await fetch(`https://api.stripe.com${path}`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        ...(body ? { "Content-Type": "application/x-www-form-urlencoded" } : {}),
+      },
+      ...(body ? { body } : {}),
+    });
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      throw new Error(
+        `Stripe Billing request failed: HTTP ${res.status} (${(data.error as { message?: string } | undefined)?.message ?? res.statusText}).`,
+      );
+    }
+    return data;
+  }
+
+  async createProviderSubscription(
+    env: Env,
+    input: CreateProviderSubscriptionInput,
+  ): Promise<ProviderSubscription> {
+    if (!input.customerId?.trim()) throw new Error("customerId is required.");
+    if (!input.priceId?.trim()) throw new Error("priceId is required.");
+    const body = new URLSearchParams({
+      customer: input.customerId,
+      "items[0][price]": input.priceId,
+      collection_method: "charge_automatically",
+    });
+    if (input.defaultPaymentMethodId) body.set("default_payment_method", input.defaultPaymentMethodId);
+    if (input.metadata) {
+      for (const [k, v] of Object.entries(input.metadata)) body.set(`metadata[${k}]`, v);
+    }
+    const data = await this.stripeBillingRequest(env, "POST", "/v1/subscriptions", body);
+    return this.parseProviderSubscription(data, "");
+  }
+
+  async retrieveProviderSubscription(env: Env, providerSubscriptionId: string): Promise<ProviderSubscription> {
+    if (!providerSubscriptionId?.trim()) throw new Error("A provider subscription id is required.");
+    const data = await this.stripeBillingRequest(
+      env,
+      "GET",
+      `/v1/subscriptions/${encodeURIComponent(providerSubscriptionId)}`,
+    );
+    return this.parseProviderSubscription(data, providerSubscriptionId);
+  }
+
+  async cancelProviderAtPeriodEnd(env: Env, providerSubscriptionId: string): Promise<ProviderSubscription> {
+    if (!providerSubscriptionId?.trim()) throw new Error("A provider subscription id is required.");
+    const body = new URLSearchParams({ cancel_at_period_end: "true" });
+    const data = await this.stripeBillingRequest(
+      env,
+      "POST",
+      `/v1/subscriptions/${encodeURIComponent(providerSubscriptionId)}`,
+      body,
+    );
+    return this.parseProviderSubscription(data, providerSubscriptionId);
+  }
+
+  async cancelProviderImmediately(env: Env, providerSubscriptionId: string): Promise<ProviderSubscription> {
+    if (!providerSubscriptionId?.trim()) throw new Error("A provider subscription id is required.");
+    const data = await this.stripeBillingRequest(
+      env,
+      "DELETE",
+      `/v1/subscriptions/${encodeURIComponent(providerSubscriptionId)}`,
+    );
+    return this.parseProviderSubscription(data, providerSubscriptionId);
   }
 
   /**

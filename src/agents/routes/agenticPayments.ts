@@ -89,10 +89,12 @@ import {
 } from "../../services/paymentWorkflowSubmission";
 import { createFeatureFlagPort } from "../../features/createFeatureFlagPort";
 import { cfpayA2AOperation, getCfpayConfig } from "../../services/cfpayA2A";
+import { PAYMENT_DISCLOSURE } from "../../services/cfpayMonetization";
+import { PROPOSED_SEED_PRICES } from "../../data/priceCataloguePorts";
 import {
-  FAMILY_PRICES,
-  PAYMENT_DISCLOSURE,
-} from "../../services/cfpayMonetization";
+  createPriceCatalogueAdapter,
+  ensurePriceCatalogueSchema,
+} from "../../data/createPriceCataloguePorts";
 import { buildScenario, GOAL_TAXONOMY } from "../../services/goalScenarioEngine";
 import { buildGoalScreenCommand } from "../../services/goalScreenWorkflowSubmission";
 import {
@@ -114,6 +116,7 @@ import {
 import type { D1SubscriptionAdapter } from "../../data/d1SubscriptionAdapter";
 import { resolveEffectiveTier } from "../../data/subscriptionPorts";
 import { activateSubscription } from "../../services/subscriptionActivation";
+import { createCheckoutPorts } from "../../services/createCheckoutPorts";
 import { createWorkflowPorts, type WorkflowEnv } from "../../workflows/createWorkflowPorts";
 import { tryStartScreenerWorkflow } from "../../workflows/screenerWorkflowRoutes";
 import type { WorkflowJobCommand } from "../../workflows/workflowPorts";
@@ -793,13 +796,14 @@ export async function handleAgenticPaymentsRoutes(
   }
 
   // ================================================================
-  // Subscriptions (#2020/#2127): plans as operator data, a
-  // route-owned cfpay checkout, purchase activation on verified
-  // payment, cancel-at-period-end, and the effective-tier status
-  // read. No provider auto-renewal exists here: cfpay is
-  // one-time-only, so renewal is repurchase before expiry
-  // (stacked from the latest periodEnd). No cash refunds in this
-  // slice (deferred #2024). Money paths fail closed; the
+  // Subscriptions (#2020/#2127, native checkout #2198 slice 2 of
+  // #2146): plans as operator data, a route-owned native Stripe
+  // checkout, purchase activation on verified payment, cancel-at-
+  // period-end, and the effective-tier status read. No provider
+  // auto-renewal exists here: Stripe Checkout is one-time-only,
+  // so renewal is repurchase before expiry (stacked from the
+  // latest periodEnd). No cash refunds in this slice (deferred
+  // #2024, designed #2147). Money paths fail closed; the
   // monetization flag must be ON for checkout and purchase.
   // ================================================================
 
@@ -876,10 +880,15 @@ export async function handleAgenticPaymentsRoutes(
     }
   }
 
-  // POST /payments/agentic/commercial/subscription/checkout — route-owned cfpay checkout for a plan.
-  // The route mints the checkout (requestId prefixed "sub-") so purchase can bind fulfillment to a
-  // checkout WE created for this plan. Email is the checkout contact, supplied by the caller — it is
-  // NOT an identity proof. Identity is the verified x-user-login.
+  // POST /payments/agentic/commercial/subscription/checkout — route-owned NATIVE Stripe checkout for a plan
+  // (#2198, slice 2 of #2146; supersedes the cfpay checkout this route minted before — the cfpay
+  // /a2a/payments call is gone here, and the shared cfpay helpers stay only for the slice-3 UI
+  // check-payment route, which still reads cfpay until its own slice lands).
+  // The route mints the checkout (draft id prefixed "sub-") through the CheckoutPort so purchase can
+  // bind fulfillment to a checkout WE created for this plan, at this plan's price. The response
+  // returns a real checkoutUrl for card (Stripe always provides one — this closes the no-URL gap
+  // the cfpay checkout had). Email is the checkout contact, supplied by the caller — it is NOT an
+  // identity proof. Identity is the verified x-user-login.
   if (path.endsWith("/payments/agentic/commercial/subscription/checkout") && request.method === "POST") {
     try {
       const login = commercialLogin();
@@ -906,23 +915,35 @@ export async function handleAgenticPaymentsRoutes(
       if (stored && stored.tenantId !== tenantId) {
         return Response.json({ error: "Tenant mismatch: subscription tenant must equal the verified account tenant." }, { status: 403 });
       }
-      const config = getCfpayConfig(ctx.env);
-      if (!config) {
-        return Response.json({ error: "cfpay is not configured." }, { status: 503 });
+      const ports = createCheckoutPorts(ctx.env as unknown as {
+        STRIPE_SECRET_KEY?: string;
+        STRIPE_TEST_SECRET_KEY?: string;
+        STRIPE_LIVE_SECRET_KEY?: string;
+        STRIPE_MCP_SERVER_URL?: string;
+        APP_BASE_URL?: string;
+        X402_RECIPIENT_ADDRESS?: string;
+        X402_NETWORK?: string;
+        X402_FACILITATOR_URL?: string;
+      });
+      const card = ports?.card ?? null;
+      if (!card) {
+        return Response.json({ error: "Native card checkout is not configured." }, { status: 503 });
       }
       const checkoutRequestId = `sub-${crypto.randomUUID()}`;
-      const res = await cfpayA2AOperation(config, "/a2a/payments", "checkout.create", {
-        requestId: checkoutRequestId,
+      const created = await card.createCheckout({
+        runRequestId: checkoutRequestId,
+        priceUSD: plan.priceUSD,
         email,
-        request: `subscription ${plan.id} ${plan.priceUSD}`,
+        userId: login,
       });
-      if (!res.ok) {
-        return Response.json({ error: "cfpay checkout could not be created." }, { status: 503 });
+      if (!created.checkoutUrl || !created.checkoutId) {
+        return Response.json({ error: "Stripe checkout could not be created." }, { status: 503 });
       }
-      ctx.audit("commercial.subscription.checkout_created", "payments", { userId: login, tenantId, planId: plan.id, checkoutRequestId });
+      ctx.audit("commercial.subscription.checkout_created", "payments", { userId: login, tenantId, planId: plan.id, checkoutRequestId, checkoutSessionId: created.checkoutId });
       return Response.json({
         checkoutRequestId,
-        checkout: res.data ?? null,
+        checkoutUrl: created.checkoutUrl,
+        checkoutSessionId: created.checkoutId,
         plan: { id: plan.id, name: plan.name, priceUSD: plan.priceUSD, periodDays: plan.periodDays, includedRuns: plan.includedRuns },
       });
     } catch (err: any) {
@@ -931,28 +952,32 @@ export async function handleAgenticPaymentsRoutes(
   }
 
   // POST /payments/agentic/commercial/subscription/purchase — activate on VERIFIED payment only.
-  // Fulfillment is re-read from cfpay checkout.status (fulfilled/paid), never a return page, exactly
-  // like the payment workflow's confirm step. The checkout reference must come from the checkout
-  // route above ("sub-" prefix) and activates at most one subscription (replay → 409). Amount
-  // matching is NOT independently re-checked: the cfpay status shape the gate consumes carries no
-  // amount field, so the binding is route-owned creation + fulfilled status; a route-owned
-  // checkout for a plan is only fulfilled when cfpay accepts payment for it.
+  // Fulfillment is re-read from Stripe (session retrieve), never a return page, exactly like the
+  // native gate's confirm step. The caller passes BOTH the route-minted draft id (checkoutRequestId,
+  // "sub-" prefix, the replay-guard key) and the Stripe session id the checkout route returned
+  // (checkoutSessionId). Activation requires ALL of: session status complete, payment_status paid,
+  // amount_total == plan price x 100 (the MANDATORY amount re-check the cfpay path could not do),
+  // client_reference_id == checkoutRequestId, and a payment-intent id present (both ids are stored
+  // on the subscription row — refunds need the payment-intent id). Any failure refuses with 402
+  // and activates nothing. The checkout reference activates at most one subscription (replay → 409).
   if (path.endsWith("/payments/agentic/commercial/subscription/purchase") && request.method === "POST") {
     try {
       const login = commercialLogin();
       if (!login) return Response.json({ error: "Unauthorized: verified login required." }, { status: 401 });
       const flag = await requireMonetization();
       if (flag) return flag;
-      const body = (await request.json().catch(() => ({}))) as { planId?: unknown; tenantId?: unknown; checkoutRequestId?: unknown };
+      const body = (await request.json().catch(() => ({}))) as { planId?: unknown; tenantId?: unknown; checkoutRequestId?: unknown; checkoutSessionId?: unknown };
       const planId = typeof body.planId === "string" ? body.planId : "";
       const tenantId = typeof body.tenantId === "string" ? body.tenantId : "";
       const checkoutRequestId = typeof body.checkoutRequestId === "string" ? body.checkoutRequestId : "";
+      const checkoutSessionId = typeof body.checkoutSessionId === "string" ? body.checkoutSessionId : "";
       if (!planId) return Response.json({ error: "planId is required." }, { status: 400 });
       if (!tenantId) return Response.json({ error: "tenantId is required." }, { status: 400 });
       if (!checkoutRequestId) return Response.json({ error: "checkoutRequestId is required." }, { status: 400 });
       if (!checkoutRequestId.startsWith("sub-")) {
         return Response.json({ error: "checkoutRequestId must come from the subscription checkout route." }, { status: 400 });
       }
+      if (!checkoutSessionId) return Response.json({ error: "checkoutSessionId is required." }, { status: 400 });
       const store = requireStore();
       if (store instanceof Response) return store;
       const subs = requireSubs();
@@ -962,18 +987,37 @@ export async function handleAgenticPaymentsRoutes(
       const plan = await subs.getPlan(planId);
       if (!plan) return Response.json({ error: `No plan ${planId}.` }, { status: 404 });
       if (!plan.active) return Response.json({ error: `Plan ${planId} is not active.` }, { status: 409 });
-      const config = getCfpayConfig(ctx.env);
-      if (!config) {
-        return Response.json({ error: "cfpay is not configured." }, { status: 503 });
+      const ports = createCheckoutPorts(ctx.env as unknown as {
+        STRIPE_SECRET_KEY?: string;
+        STRIPE_TEST_SECRET_KEY?: string;
+        STRIPE_LIVE_SECRET_KEY?: string;
+        STRIPE_MCP_SERVER_URL?: string;
+        APP_BASE_URL?: string;
+        X402_RECIPIENT_ADDRESS?: string;
+        X402_NETWORK?: string;
+        X402_FACILITATOR_URL?: string;
+      });
+      const card = ports?.card ?? null;
+      if (!card) {
+        return Response.json({ error: "Native card checkout is not configured." }, { status: 503 });
       }
-      const statusRes = await cfpayA2AOperation(config, "/a2a/payments", "checkout.status", { requestId: checkoutRequestId });
-      if (!statusRes.ok) {
+      let evidence;
+      try {
+        evidence = await card.retrieveCardSession({ sessionId: checkoutSessionId });
+      } catch {
         return Response.json({ error: "Payment verification unavailable." }, { status: 503 });
       }
-      const statusData = statusRes.data as { status?: string; state?: string; paid?: boolean } | undefined;
-      const state = String(statusData?.status ?? statusData?.state ?? "").toLowerCase();
-      if (!(state === "fulfilled" || state === "paid" || statusData?.paid === true)) {
-        return Response.json({ error: "Checkout is not fulfilled; no subscription activated." }, { status: 402 });
+      const expectedCents = Math.round(plan.priceUSD * 100);
+      if (
+        evidence.status !== "complete" ||
+        evidence.paymentStatus !== "paid" ||
+        evidence.amountTotalCents !== expectedCents ||
+        evidence.clientReferenceId !== checkoutRequestId
+      ) {
+        return Response.json({ error: "Checkout is not paid for this plan; no subscription activated." }, { status: 402 });
+      }
+      if (!evidence.paymentIntentId) {
+        return Response.json({ error: "Paid checkout carries no payment intent; no subscription activated." }, { status: 402 });
       }
       const { subscription, account } = await activateSubscription({
         subs,
@@ -981,7 +1025,10 @@ export async function handleAgenticPaymentsRoutes(
         userId: login,
         tenantId,
         plan,
+        provider: "stripe",
         providerPaymentRef: checkoutRequestId,
+        stripeSessionId: evidence.sessionId,
+        stripePaymentIntentId: evidence.paymentIntentId,
       });
       ctx.audit("commercial.subscription.activated", "payments", {
         userId: login,
@@ -989,6 +1036,8 @@ export async function handleAgenticPaymentsRoutes(
         planId: plan.id,
         subscriptionId: subscription.id,
         providerPaymentRef: checkoutRequestId,
+        stripeSessionId: evidence.sessionId,
+        stripePaymentIntentId: evidence.paymentIntentId,
         periodEndMs: subscription.periodEndMs,
       });
       const effectiveTier = resolveEffectiveTier(account, [subscription], Date.now());
@@ -1075,20 +1124,72 @@ export async function handleAgenticPaymentsRoutes(
   // GET /payments/agentic/commercial/pricing — server-truth family prices
   // (PROPOSED until owner approval), the monetization flag state, the
   // testnet-only marker, and the gate's failure policy, all from one
-  // source so UI copy can never drift from the gate.
+  // source so UI copy can never drift from the gate. Prices come
+  // from the operator catalogue (#2185) when the store is bound;
+  // the display fallback to the proposed seeds below is DISPLAY
+  // ONLY — the gate never reads it and never charges from it, so
+  // a store outage shows proposed prices instead of failing the
+  // panel, but can never mint a charge. This GET never ensures
+  // the schema (no writes on a read path).
   if (path.endsWith("/payments/agentic/commercial/pricing") && request.method === "GET") {
     try {
       const login = commercialLogin();
       if (!login) return Response.json({ error: "Unauthorized: verified login required." }, { status: 401 });
       const monetizationEnabled = await createFeatureFlagPort(ctx.env).isEnabled("monetization");
+      let prices: Record<string, number> = { ...PROPOSED_SEED_PRICES };
+      try {
+        const catalogue = createPriceCatalogueAdapter(ctx.env as { AGENT_DB?: unknown });
+        if (catalogue) {
+          const entries = await catalogue.getAllPrices();
+          if (entries.length > 0) {
+            prices = Object.fromEntries(entries.map((e) => [e.family, e.priceUSD]));
+          }
+        }
+      } catch {
+        // Display fallback only (see above): keep the proposed seeds.
+      }
       return Response.json({
         monetizationEnabled,
-        prices: { ...FAMILY_PRICES },
+        prices,
         testnetOnly: true,
         failurePolicy: PAYMENT_DISCLOSURE,
       });
     } catch {
       return Response.json({ error: "Failed to read pricing." }, { status: 500 });
+    }
+  }
+
+  // POST /payments/agentic/commercial/prices (operator only, #2185)
+  // — the operator price upsert: changing a per-run price needs no
+  // code deploy, because the gate reads the catalogue, not code.
+  // Operator gating follows the commercial pattern above
+  // (COMMERCIAL_STORE_OPERATORS, empty = deny all). A money write
+  // path, so the schema is ensured first (migration 0011 seeds
+  // the proposed defaults on a fresh store; the upsert then
+  // overwrites exactly the family named). Invalid family or price
+  // is 400; an unbound store is 503, never a silent no-op.
+  if (path.endsWith("/payments/agentic/commercial/prices") && request.method === "POST") {
+    try {
+      const login = commercialLogin();
+      if (!isStoreOperator(login)) {
+        return Response.json({ error: "Forbidden: store operator required." }, { status: 403 });
+      }
+      const body = (await request.json().catch(() => ({}))) as { family?: unknown; priceUSD?: unknown };
+      const catalogue = createPriceCatalogueAdapter(ctx.env as { AGENT_DB?: unknown });
+      if (!catalogue) {
+        return Response.json({ error: "Price catalogue unavailable: AGENT_DB is not bound." }, { status: 503 });
+      }
+      try {
+        await ensurePriceCatalogueSchema(catalogue.db);
+      } catch (err: any) {
+        return Response.json({ error: `Price catalogue unavailable: ${err.message || "unknown error"}` }, { status: 503 });
+      }
+      const entry = await catalogue.setPrice({ family: body.family, priceUSD: body.priceUSD });
+      ctx.audit("commercial.price.set", "payments", { family: entry.family, priceUSD: entry.priceUSD });
+      return Response.json({ entry });
+    } catch (err: any) {
+      const message = err.message || "Failed to set price";
+      return Response.json({ error: message }, { status: /Invalid|must be/.test(message) ? 400 : 500 });
     }
   }
 

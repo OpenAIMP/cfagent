@@ -19,11 +19,14 @@ import { agentSubscriptionPlans, agentSubscriptions } from "./drizzleSchema";
 import {
   applyMigrations,
   MIGRATION_0008_SUBSCRIPTIONS,
+  MIGRATION_0013_SUBSCRIPTION_STRIPE_IDS,
+  MIGRATION_0014_BILLING,
   type MigrationDb,
 } from "./migrationRunner";
 import {
   assertPlan,
   assertSubscriptionStatus,
+  type ProviderBillingPatch,
   type SubscriptionPlanRecord,
   type SubscriptionRecord,
   type SubscriptionStore,
@@ -45,9 +48,9 @@ export function createD1SubscriptionDb(d1: D1Database): SubscriptionDb {
   });
 }
 
-/** Idempotent schema-ensure: applies migration 0008 if unapplied. */
+/** Idempotent schema-ensure: applies migrations 0008 + 0013 + 0014 if unapplied (0013 adds the native Stripe id columns; 0014 adds the Billing provider columns + policy table). */
 export async function ensureSubscriptionSchema(db: SubscriptionDb): Promise<number[]> {
-  return applyMigrations(db as unknown as MigrationDb, [MIGRATION_0008_SUBSCRIPTIONS]);
+  return applyMigrations(db as unknown as MigrationDb, [MIGRATION_0008_SUBSCRIPTIONS, MIGRATION_0013_SUBSCRIPTION_STRIPE_IDS, MIGRATION_0014_BILLING]);
 }
 
 function toPlan(raw: typeof agentSubscriptionPlans.$inferSelect): SubscriptionPlanRecord {
@@ -71,6 +74,10 @@ function toSubscription(raw: typeof agentSubscriptions.$inferSelect): Subscripti
     planId: raw.planId,
     provider: raw.provider,
     providerPaymentRef: raw.providerPaymentRef,
+    stripeSessionId: raw.stripeSessionId ?? null,
+    stripePaymentIntentId: raw.stripePaymentIntentId ?? null,
+    providerSubscriptionId: raw.providerSubscriptionId ?? null,
+    providerStatus: raw.providerStatus ?? null,
     status: assertSubscriptionStatus(raw.status),
     periodStartMs: raw.periodStartMs,
     periodEndMs: raw.periodEndMs,
@@ -154,6 +161,10 @@ export class D1SubscriptionAdapter implements SubscriptionStore {
     planId: string;
     provider: string;
     providerPaymentRef: string;
+    stripeSessionId?: string | null;
+    stripePaymentIntentId?: string | null;
+    providerSubscriptionId?: string | null;
+    providerStatus?: string | null;
     periodStartMs: number;
     periodEndMs: number;
   }): Promise<SubscriptionRecord> {
@@ -166,6 +177,10 @@ export class D1SubscriptionAdapter implements SubscriptionStore {
     const now = Date.now();
     const record: SubscriptionRecord = {
       ...input,
+      stripeSessionId: input.stripeSessionId ?? null,
+      stripePaymentIntentId: input.stripePaymentIntentId ?? null,
+      providerSubscriptionId: input.providerSubscriptionId ?? null,
+      providerStatus: input.providerStatus ?? null,
       status: "active",
       canceledAtMs: null,
       createdAtMs: now,
@@ -179,6 +194,10 @@ export class D1SubscriptionAdapter implements SubscriptionStore {
         planId: record.planId,
         provider: record.provider,
         providerPaymentRef: record.providerPaymentRef,
+        stripeSessionId: record.stripeSessionId,
+        stripePaymentIntentId: record.stripePaymentIntentId,
+        providerSubscriptionId: record.providerSubscriptionId,
+        providerStatus: record.providerStatus,
         status: record.status,
         periodStartMs: record.periodStartMs,
         periodEndMs: record.periodEndMs,
@@ -210,6 +229,36 @@ export class D1SubscriptionAdapter implements SubscriptionStore {
       .where(eq(agentSubscriptions.userId, userId))
       .orderBy(asc(agentSubscriptions.createdAtMs), asc(agentSubscriptions.id));
     return rows.map(toSubscription);
+  }
+
+  async findByProviderSubscriptionId(providerSubscriptionId: string): Promise<SubscriptionRecord | null> {
+    if (!providerSubscriptionId) return null;
+    const rows = await this.db
+      .select()
+      .from(agentSubscriptions)
+      .where(eq(agentSubscriptions.providerSubscriptionId, providerSubscriptionId))
+      .limit(1);
+    return rows.length === 0 ? null : toSubscription(rows[0]);
+  }
+
+  async updateProviderBilling(subscriptionId: string, patch: ProviderBillingPatch): Promise<SubscriptionRecord> {
+    const existing = await this.getSubscription(subscriptionId);
+    if (!existing) throw new Error(`No subscription ${subscriptionId}.`);
+    const now = Date.now();
+    const set: Record<string, unknown> = { updatedAtMs: now };
+    if (patch.providerSubscriptionId !== undefined) set.providerSubscriptionId = patch.providerSubscriptionId;
+    if (patch.providerStatus !== undefined) set.providerStatus = patch.providerStatus;
+    if (patch.periodStartMs !== undefined) set.periodStartMs = patch.periodStartMs;
+    if (patch.periodEndMs !== undefined) set.periodEndMs = patch.periodEndMs;
+    if (patch.status !== undefined) set.status = patch.status;
+    if (patch.canceledAtMs !== undefined) set.canceledAtMs = patch.canceledAtMs;
+    await this.db
+      .update(agentSubscriptions)
+      .set(set as never)
+      .where(eq(agentSubscriptions.id, subscriptionId));
+    const updated = await this.getSubscription(subscriptionId);
+    if (!updated) throw new Error(`No subscription ${subscriptionId}.`);
+    return updated;
   }
 
   async findByPaymentRef(providerPaymentRef: string): Promise<SubscriptionRecord | null> {

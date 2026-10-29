@@ -11,6 +11,7 @@
  */
 
 import type { Env } from "../types";
+import type { CreateProviderSubscriptionInput, ProviderSubscription } from "./billingPorts";
 import { AGENT_DIDS, createDidAttestation, type DidAttestationProof } from "../agents/did";
 import {
   PaymentStrategyFactory,
@@ -147,6 +148,55 @@ export class PaymentGatewayService {
     // 2. Resolve Strategy via Factory (GoF Strategy + Factory Pattern)
     const strategy = PaymentStrategyFactory.getStrategy(gateway);
     return strategy.createCheckout(this.env, params, didAttestation);
+  }
+
+  /**
+   * Issue #2193 (slice 1, #2146) — retrieve a Stripe Checkout
+   * Session by id, via the Stripe strategy (the only Stripe API
+   * surface). Used by the native gate's confirm-by-retrieve rule:
+   * a session is evidence only when the gate judges it complete,
+   * paid, amount-matched, and reference-matched. Throws on
+   * missing configuration or transport failure (fail closed, and
+   * retryable in a durable step); never consults a redirect.
+   */
+  async retrieveCheckoutSession(sessionId: string): Promise<{
+    id: string;
+    status: string;
+    payment_status: string;
+    amount_total: number;
+    client_reference_id: string;
+    payment_intent?: string;
+  }> {
+    const stripeStrategy = PaymentStrategyFactory.getStrategy("stripe") as StripePaymentStrategy;
+    return stripeStrategy.retrieveCheckoutSession(this.env, sessionId);
+  }
+
+  /**
+   * Issue #2202 (implementation of design #2145) — Stripe
+   * Billing subscription calls, via the Stripe strategy
+   * (the only Stripe API surface). Used by the Billing
+   * adapter: the adapter never fetches Stripe itself.
+   * Throws on missing configuration or transport failure
+   * (fail closed); never consults a redirect.
+   */
+  async createProviderSubscription(params: CreateProviderSubscriptionInput): Promise<ProviderSubscription> {
+    const stripeStrategy = PaymentStrategyFactory.getStrategy("stripe") as StripePaymentStrategy;
+    return stripeStrategy.createProviderSubscription(this.env, params);
+  }
+
+  async retrieveProviderSubscription(providerSubscriptionId: string): Promise<ProviderSubscription> {
+    const stripeStrategy = PaymentStrategyFactory.getStrategy("stripe") as StripePaymentStrategy;
+    return stripeStrategy.retrieveProviderSubscription(this.env, providerSubscriptionId);
+  }
+
+  async cancelProviderAtPeriodEnd(providerSubscriptionId: string): Promise<ProviderSubscription> {
+    const stripeStrategy = PaymentStrategyFactory.getStrategy("stripe") as StripePaymentStrategy;
+    return stripeStrategy.cancelProviderAtPeriodEnd(this.env, providerSubscriptionId);
+  }
+
+  async cancelProviderImmediately(providerSubscriptionId: string): Promise<ProviderSubscription> {
+    const stripeStrategy = PaymentStrategyFactory.getStrategy("stripe") as StripePaymentStrategy;
+    return stripeStrategy.cancelProviderImmediately(this.env, providerSubscriptionId);
   }
 
   /**

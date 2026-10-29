@@ -437,6 +437,86 @@ CREATE INDEX IF NOT EXISTS agent_journal_entries_ref_idx ON agent_journal_entrie
 `,
 };
 
+/**
+ * Migration 0011 — externalized price catalogue (#2185, sub-issue
+ * of #2012). Portable subset (same rules as migrations
+ * 0001-0010): `?` params only where params exist (DDL has none),
+ * epoch-ms integers, no dialect date functions, no RETURNING.
+ * Seeding is data, not schema: the proposed seed rows are written
+ * by ensurePriceCatalogueSchema (INSERT OR IGNORE), not by DDL,
+ * so an operator-edited price survives re-ensure.
+ */
+export const MIGRATION_0011_PRICE_CATALOGUE: DataMigration = {
+  version: 11,
+  name: "0011_price_catalogue",
+  sql: `
+CREATE TABLE IF NOT EXISTS agent_price_catalogue (
+  family TEXT PRIMARY KEY,
+  price_usd REAL NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);
+`,
+};
+
+/**
+ * Migration 0013 — native subscription payment ids (#2198,
+ * sub-issue of #2012, slice 2 of #2146). Number claimed
+ * deliberately, not next-in-line: 0010 is claimed by #2187/#2188,
+ * 0011 by the price catalogue (#2189, in this stack), and 0012 by
+ * the native-ledger draft — so this slice claims 0013 to avoid a
+ * merge-sequencing collision. Portable subset (same rules as
+ * migrations 0001-0011): DDL only, no params, no dialect date
+ * functions, no RETURNING. Both columns are nullable: pre-native
+ * (cfpay-era) subscription rows have no Stripe ids, and the
+ * replay guard stays the UNIQUE index on provider_payment_ref,
+ * unchanged. The Drizzle mapping in drizzleSchema.ts must agree
+ * with this DDL.
+ */
+export const MIGRATION_0013_SUBSCRIPTION_STRIPE_IDS: DataMigration = {
+  version: 13,
+  name: "0013_subscription_stripe_ids",
+  sql: `
+ALTER TABLE agent_subscriptions ADD COLUMN stripe_session_id TEXT;
+ALTER TABLE agent_subscriptions ADD COLUMN stripe_payment_intent_id TEXT;
+`,
+};
+
+/**
+ * Migration 0014 — Billing (#2202, sub-issue of #2020,
+ * implementation of design #2145). Number claimed
+ * deliberately, not next-in-line in this stack alone:
+ * 0010 is claimed by #2187/#2188, 0011 by the price
+ * catalogue (#2189, in this stack), 0012 by the
+ * native-ledger draft (#2194), and 0013 by the
+ * subscription-routes slice (#2200, in this stack) — so
+ * this slice claims 0014 to avoid a merge-sequencing
+ * collision (no open draft claimed 0014 at check time).
+ * Portable subset (same rules as migrations 0001-0013):
+ * DDL only, no params, no dialect date functions, no
+ * RETURNING. Both subscription columns are nullable:
+ * repurchase rows have no provider subscription, and the
+ * replay guard stays the UNIQUE index on
+ * provider_payment_ref, unchanged. The policy table is
+ * seeded by ensureBillingPolicySchema (INSERT OR
+ * IGNORE), not by DDL, so operator edits survive
+ * re-ensure. PREREQUISITE: migrations 0008 + 0013 must
+ * be applied first (0014 alters agent_subscriptions).
+ */
+export const MIGRATION_0014_BILLING: DataMigration = {
+  version: 14,
+  name: "0014_billing",
+  sql: `
+CREATE TABLE IF NOT EXISTS agent_billing_policy (
+  key TEXT PRIMARY KEY,
+  value_json TEXT NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);
+ALTER TABLE agent_subscriptions ADD COLUMN provider_subscription_id TEXT;
+ALTER TABLE agent_subscriptions ADD COLUMN provider_status TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS agent_subscriptions_provider_subscription_idx ON agent_subscriptions (provider_subscription_id);
+`,
+};
+
 export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0001_AGENT_GOVERNANCE,
   MIGRATION_0002_AGENT_CHAINS_SCHEDULES,
@@ -447,6 +527,9 @@ export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0007_COMMERCIAL_STORE,
   MIGRATION_0008_SUBSCRIPTIONS,
   MIGRATION_0009_JOURNAL,
+  MIGRATION_0011_PRICE_CATALOGUE,
+  MIGRATION_0013_SUBSCRIPTION_STRIPE_IDS,
+  MIGRATION_0014_BILLING,
 ];
 
 function splitStatements(sqlText: string): string[] {
