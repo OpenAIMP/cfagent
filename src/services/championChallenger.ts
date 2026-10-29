@@ -30,6 +30,26 @@
  * row did not exist"). Evaluation is deterministic over the frozen
  * set (runResearchEvaluation, #583/#340 idiom) — no model call
  * decides a promotion.
+ *
+ * Issue #2346 (#1976 step 3b, ADR 0022 D-C): the promotion
+ * transition — promote / resolve / rollback — is ONE unit of
+ * work on the transaction aspect's DO leg (its first production
+ * use), entered through the registered TransactionRunner when
+ * the caller supplies the DO storage object (the routes pass
+ * ctx.getStorage()). Before this slice the transition was a
+ * sequence of bare statements: a crash between the apply leg
+ * and the promotion record left production weights changed
+ * with no rollback data, and a crash after the record left a
+ * challenger that read evaluated and could double-apply
+ * (step-3 audit §3.2). The guard reads stay pre-checks; the
+ * challenger status is RE-READ inside the unit, so the pre-read
+ * status is never trusted across the unit boundary. Successful
+ * paths are byte-for-byte the pre-wrap behaviour (pinned by the
+ * step-3b characterization suite); only atomicity changed.
+ * Absence discipline (the step-2 contract): no storage object,
+ * a storage without transactionSync, or no registered runner
+ * resolves to the sequential legacy execution — registration
+ * and the storage argument are what turn the wrap on.
  */
 
 import { loadEvaluationDataset } from "./researchEvaluationDatasets";
@@ -55,6 +75,12 @@ import {
 } from "./strategyPolicyState";
 import { applyAdaptation, isAdaptationHalted } from "./adaptationAudit";
 import { ensureWeightsV2Tables } from "./strategyWeightsV2";
+import { getTransactionRunner } from "../data/transactionRunnerProvider";
+import type { DoTransactionStorage } from "../aspects/transactionAspect";
+import {
+  DataFoundationCode,
+  DataFoundationError,
+} from "../aspects/errorCodes";
 
 /** Actors that run the autonomous loop. They may CREATE challengers;
  *  they may never APPROVE or PROMOTE them. */
@@ -665,11 +691,55 @@ function appendActiveSet(
 /* Promotion / outcomes / rollback                                     */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Issue #2346: run one promotion transition as a unit of work
+ * on the transaction aspect's DO leg, via the registered
+ * TransactionRunner (the step-2 seam — this module cannot
+ * import the aspect itself; the runner provider is the
+ * client-safe resolution point). The gating mirrors
+ * doSqliteFeedSnapshotAdapter exactly: a storage object with
+ * transactionSync AND a registered runner turn the wrap on;
+ * anything else runs the transition sequentially, which is the
+ * pre-#2346 behaviour.
+ *
+ * One consumer-side guard, stated plainly: runSyncUnit
+ * captures failures that pass through its synchronous closure.
+ * A failure that prevents the closure from running at all — a
+ * primitive that refuses before invoking it, or an ambient
+ * unit naming a different backend — reaches the runner as an
+ * undefined return instead of a throw. The transition
+ * functions never legitimately return undefined, so an
+ * undefined here means the unit did not run: surface the
+ * catalog's cannot-honour outcome rather than a silent
+ * no-result. The aspect and the runner are not modified.
+ */
+function runPromotionUnit<T>(
+  txStorage: DoTransactionStorage | null | undefined,
+  operationName: string,
+  fn: () => T,
+): T {
+  const runner = txStorage?.transactionSync ? getTransactionRunner() : null;
+  if (!txStorage || !runner) return fn();
+  const result = runner.runSyncUnit(
+    txStorage,
+    { operationName, domain: "champion-challenger" },
+    fn,
+  );
+  if (result === undefined) {
+    throw new DataFoundationError(
+      DataFoundationCode.TX_CANNOT_HONOUR,
+      `The promotion unit (${operationName}) did not run: the store refused the unit or an ambient unit names a different backend. No part of the transition was applied by this call.`,
+    );
+  }
+  return result;
+}
+
 export function promoteChallenger(
   sql: any,
   userLogin: string,
   challengerId: string,
-  input: { actor: string; now?: Date }
+  input: { actor: string; now?: Date },
+  txStorage?: DoTransactionStorage | null
 ): { ok: boolean; reason?: string } {
   ensureChallengerTables(sql);
   const now = input.now ?? new Date();
@@ -704,15 +774,17 @@ export function promoteChallenger(
     return { ok: false, reason: "adaptation is halted by the kill switch; promotion refused" };
   }
 
-  let prior: unknown = null;
-  let applied: unknown = null;
-  let weightsVersion: number | null = null;
-
+  // Spec-shape pre-checks: functions of the challenger row
+  // only, in the pre-wrap refusal order. The transition below
+  // consumes them unchanged.
+  let targets: Array<{ strategy: string; regime: string; weight: number }> | null =
+    null;
+  let strategies: string[] | null = null;
   if (challenger.kind === "weights") {
     if (!challenger.regime) {
       return { ok: false, reason: "weights challenger has no regime; weights v2 are regime-scoped" };
     }
-    const targets = Object.entries(challenger.spec.weights ?? {}).map(
+    targets = Object.entries(challenger.spec.weights ?? {}).map(
       ([strategy, weight]) => ({
         strategy,
         regime: challenger.regime as string,
@@ -720,28 +792,8 @@ export function promoteChallenger(
       })
     );
     if (!targets.length) return { ok: false, reason: "weights challenger carries no target weights" };
-    const current = getStrategyWeightsV2(sql);
-    prior = {
-      weights: targets.map((t) => {
-        const key = weightsV2Key(t.strategy, t.regime);
-        return {
-          strategy: t.strategy,
-          regime: t.regime,
-          weight: current[key] ?? null,
-          rowExisted: key in current,
-        };
-      }),
-    };
-    const res = applyWeightsV2Targets(sql, targets, {
-      actor: input.actor,
-      rationale: `champion/challenger promotion ${challenger.id} (${challenger.title}); frozen set ${challenger.evalSetVersion} holdout pass; approved by ${approver}`,
-      now,
-    });
-    if (res.halted) return { ok: false, reason: "adaptation is halted by the kill switch; promotion refused" };
-    applied = { weights: res.applied };
-    weightsVersion = currentWeightsVersion(sql);
   } else {
-    const strategies =
+    strategies =
       challenger.spec.activeStrategies ?? challenger.spec.ranking ?? null;
     if (!strategies) {
       return {
@@ -749,14 +801,64 @@ export function promoteChallenger(
         reason: "active-set/ranking challenger carries no strategies (retire specs resolve via resolveChallengerOutcome)",
       };
     }
-    prior = { activeSet: getActiveStrategySet(sql, userLogin) };
-    const version = appendActiveSet(sql, userLogin, strategies, challenger.id, now);
-    applied = { activeSet: { strategies, version } };
   }
 
-  recordPromotion(sql, challenger, "promoted", prior, applied, weightsVersion, input.actor, null, now);
-  setChallengerStatus(sql, challenger, "promoted", undefined, now);
-  return { ok: true };
+  const transition = (): { ok: boolean; reason?: string } => {
+    // #2346: the status is re-read inside the unit — the
+    // pre-read status is never trusted across the boundary, so
+    // an evaluated→promoted interleave can never double-apply.
+    const fresh = getChallenger(sql, userLogin, challengerId);
+    if (
+      !fresh ||
+      fresh.status !== "evaluated" ||
+      !fresh.evaluation ||
+      fresh.evaluation.verdict !== "pass"
+    ) {
+      return {
+        ok: false,
+        reason: `challenger status changed before the promotion unit ran (now ${fresh ? fresh.status : "missing"}); promotion refused without applying`,
+      };
+    }
+    let prior: unknown = null;
+    let applied: unknown = null;
+    let weightsVersion: number | null = null;
+    if (fresh.kind === "weights") {
+      const weightTargets = targets as Array<{
+        strategy: string;
+        regime: string;
+        weight: number;
+      }>;
+      const current = getStrategyWeightsV2(sql);
+      prior = {
+        weights: weightTargets.map((t) => {
+          const key = weightsV2Key(t.strategy, t.regime);
+          return {
+            strategy: t.strategy,
+            regime: t.regime,
+            weight: current[key] ?? null,
+            rowExisted: key in current,
+          };
+        }),
+      };
+      const res = applyWeightsV2Targets(sql, weightTargets, {
+        actor: input.actor,
+        rationale: `champion/challenger promotion ${fresh.id} (${fresh.title}); frozen set ${fresh.evalSetVersion} holdout pass; approved by ${approver}`,
+        now,
+      });
+      if (res.halted) return { ok: false, reason: "adaptation is halted by the kill switch; promotion refused" };
+      applied = { weights: res.applied };
+      weightsVersion = currentWeightsVersion(sql);
+    } else {
+      const activeStrategies = strategies as string[];
+      prior = { activeSet: getActiveStrategySet(sql, userLogin) };
+      const version = appendActiveSet(sql, userLogin, activeStrategies, fresh.id, now);
+      applied = { activeSet: { strategies: activeStrategies, version } };
+    }
+    recordPromotion(sql, fresh, "promoted", prior, applied, weightsVersion, input.actor, null, now);
+    setChallengerStatus(sql, fresh, "promoted", undefined, now);
+    return { ok: true };
+  };
+  return runPromotionUnit(txStorage, "championChallenger.promote", transition);
 }
 
 export function resolveChallengerOutcome(
@@ -768,7 +870,8 @@ export function resolveChallengerOutcome(
     actor: string;
     reason: string;
     now?: Date;
-  }
+  },
+  txStorage?: DoTransactionStorage | null
 ): { ok: boolean; reason?: string } {
   ensureChallengerTables(sql);
   const now = input.now ?? new Date();
@@ -779,9 +882,20 @@ export function resolveChallengerOutcome(
     if (challenger.status !== "evaluated") {
       return { ok: false, reason: "keep-champion resolves an evaluated challenger" };
     }
-    recordPromotion(sql, challenger, "keep_champion", null, null, null, input.actor, input.reason, now);
-    setChallengerStatus(sql, challenger, "kept_champion", undefined, now);
-    return { ok: true };
+    const transition = (): { ok: boolean; reason?: string } => {
+      // #2346: status re-read inside the unit, as in promote.
+      const fresh = getChallenger(sql, userLogin, challengerId);
+      if (!fresh || fresh.status !== "evaluated") {
+        return {
+          ok: false,
+          reason: `challenger status changed before the resolve unit ran (now ${fresh ? fresh.status : "missing"}); keep-champion refused without applying`,
+        };
+      }
+      recordPromotion(sql, fresh, "keep_champion", null, null, null, input.actor, input.reason, now);
+      setChallengerStatus(sql, fresh, "kept_champion", undefined, now);
+      return { ok: true };
+    };
+    return runPromotionUnit(txStorage, "championChallenger.resolveKeepChampion", transition);
   }
 
   // retire_strategy: consequential — same approval discipline as promotion.
@@ -800,41 +914,51 @@ export function resolveChallengerOutcome(
   if (isAdaptationHalted(sql)) {
     return { ok: false, reason: "adaptation is halted by the kill switch; retirement refused" };
   }
-  const prior = {
-    gate: {
-      strategy,
-      rowExisted: hasStrategyGateRow(sql, strategy),
-      gatedOff: isStrategyGatedOff(sql, strategy),
-      cap: getStrategyWeightCap(sql, strategy),
-    },
+  const transition = (): { ok: boolean; reason?: string } => {
+    // #2346: the prior gate snapshot is read inside the unit —
+    // it is the rollback data for the state the unit changes.
+    const fresh = getChallenger(sql, userLogin, challengerId);
+    if (!fresh) {
+      return { ok: false, reason: "challenger not found for this tenant" };
+    }
+    const prior = {
+      gate: {
+        strategy,
+        rowExisted: hasStrategyGateRow(sql, strategy),
+        gatedOff: isStrategyGatedOff(sql, strategy),
+        cap: getStrategyWeightCap(sql, strategy),
+      },
+    };
+    const out = applyAdaptation(
+      sql,
+      {
+        actor: input.actor,
+        subject: `strategy-gate:${strategy}`,
+        parameter: "gate",
+        before: prior.gate.gatedOff ? "off" : "on",
+        after: "off",
+        delta: null,
+        rationale: `retire strategy via challenger ${fresh.id}: ${input.reason}`,
+        dataWindow: `frozen set ${fresh.evalSetVersion}`,
+      },
+      () => setStrategyGate(sql, strategy, true, now),
+      now,
+      { enforceBudgets: false }
+    );
+    if (!out.applied) return { ok: false, reason: out.reason ?? "adaptation seam refused" };
+    recordPromotion(sql, fresh, "retire_strategy", prior, { gate: { strategy, gatedOff: true } }, null, input.actor, input.reason, now);
+    setChallengerStatus(sql, fresh, "retired", undefined, now);
+    return { ok: true };
   };
-  const out = applyAdaptation(
-    sql,
-    {
-      actor: input.actor,
-      subject: `strategy-gate:${strategy}`,
-      parameter: "gate",
-      before: prior.gate.gatedOff ? "off" : "on",
-      after: "off",
-      delta: null,
-      rationale: `retire strategy via challenger ${challenger.id}: ${input.reason}`,
-      dataWindow: `frozen set ${challenger.evalSetVersion}`,
-    },
-    () => setStrategyGate(sql, strategy, true, now),
-    now,
-    { enforceBudgets: false }
-  );
-  if (!out.applied) return { ok: false, reason: out.reason ?? "adaptation seam refused" };
-  recordPromotion(sql, challenger, "retire_strategy", prior, { gate: { strategy, gatedOff: true } }, null, input.actor, input.reason, now);
-  setChallengerStatus(sql, challenger, "retired", undefined, now);
-  return { ok: true };
+  return runPromotionUnit(txStorage, "championChallenger.resolveRetire", transition);
 }
 
 export function rollbackChallengerPromotion(
   sql: any,
   userLogin: string,
   challengerId: string,
-  input: { actor: string; now?: Date }
+  input: { actor: string; now?: Date },
+  txStorage?: DoTransactionStorage | null
 ): { ok: boolean; reason?: string } {
   ensureChallengerTables(sql);
   const now = input.now ?? new Date();
@@ -852,54 +976,69 @@ export function rollbackChallengerPromotion(
     return { ok: false, reason: "adaptation is halted by the kill switch; rollback refused" };
   }
 
-  if (target.action === "promoted" && target.prior?.weights) {
-    const res = applyWeightsV2Targets(
-      sql,
-      (target.prior.weights as Array<{ strategy: string; regime: string; weight: number | null }>).map(
-        (w) => ({ strategy: w.strategy, regime: w.regime, weight: w.weight })
-      ),
-      {
-        actor: input.actor,
-        rationale: `rollback of challenger promotion ${challenger.id}; exact restore of prior weights state`,
-        now,
-      }
-    );
-    if (res.halted) return { ok: false, reason: "adaptation is halted by the kill switch; rollback refused" };
-  } else if (target.action === "promoted" && target.prior?.activeSet !== undefined) {
-    const priorSet = target.prior.activeSet as ActiveStrategySet | null;
-    appendActiveSet(sql, userLogin, priorSet?.strategies ?? [], challenger.id, now);
-  } else if (target.action === "retire_strategy" && target.prior?.gate) {
-    const gate = target.prior.gate as {
-      strategy: string;
-      rowExisted: boolean;
-      gatedOff: boolean;
-    };
-    const out = applyAdaptation(
-      sql,
-      {
-        actor: input.actor,
-        subject: `strategy-gate:${gate.strategy}`,
-        parameter: "gate",
-        before: "off",
-        after: gate.rowExisted ? (gate.gatedOff ? "off" : "on") : "none",
-        delta: null,
-        rationale: `rollback of strategy retirement ${challenger.id}; exact restore`,
-        dataWindow: `frozen set ${challenger.evalSetVersion}`,
-      },
-      () =>
-        setStrategyGate(
-          sql,
-          gate.strategy,
-          gate.rowExisted ? gate.gatedOff : null,
-          now
-        ),
-      now,
-      { enforceBudgets: false }
-    );
-    if (!out.applied) return { ok: false, reason: out.reason ?? "adaptation seam refused" };
-  }
+  const transition = (): { ok: boolean; reason?: string } => {
+    // #2346: the rollback target is re-derived from records
+    // read inside the unit — the promotion record is the
+    // unit's own input, never a pre-read snapshot.
+    const freshRecords = listPromotionRecords(sql, userLogin, challengerId);
+    const freshRolledBack = freshRecords.some((r) => r.action === "rollback");
+    const target = [...freshRecords]
+      .reverse()
+      .find((r) => r.action === "promoted" || r.action === "retire_strategy");
+    if (!target || freshRolledBack) {
+      return { ok: false, reason: "no live promotion to roll back" };
+    }
 
-  recordPromotion(sql, challenger, "rollback", target.prior, null, currentWeightsVersion(sql), input.actor, "rollback of promotion", now);
-  setChallengerStatus(sql, challenger, "rolled_back", undefined, now);
-  return { ok: true };
+    if (target.action === "promoted" && target.prior?.weights) {
+      const res = applyWeightsV2Targets(
+        sql,
+        (target.prior.weights as Array<{ strategy: string; regime: string; weight: number | null }>).map(
+          (w) => ({ strategy: w.strategy, regime: w.regime, weight: w.weight })
+        ),
+        {
+          actor: input.actor,
+          rationale: `rollback of challenger promotion ${challenger.id}; exact restore of prior weights state`,
+          now,
+        }
+      );
+      if (res.halted) return { ok: false, reason: "adaptation is halted by the kill switch; rollback refused" };
+    } else if (target.action === "promoted" && target.prior?.activeSet !== undefined) {
+      const priorSet = target.prior.activeSet as ActiveStrategySet | null;
+      appendActiveSet(sql, userLogin, priorSet?.strategies ?? [], challenger.id, now);
+    } else if (target.action === "retire_strategy" && target.prior?.gate) {
+      const gate = target.prior.gate as {
+        strategy: string;
+        rowExisted: boolean;
+        gatedOff: boolean;
+      };
+      const out = applyAdaptation(
+        sql,
+        {
+          actor: input.actor,
+          subject: `strategy-gate:${gate.strategy}`,
+          parameter: "gate",
+          before: "off",
+          after: gate.rowExisted ? (gate.gatedOff ? "off" : "on") : "none",
+          delta: null,
+          rationale: `rollback of strategy retirement ${challenger.id}; exact restore`,
+          dataWindow: `frozen set ${challenger.evalSetVersion}`,
+        },
+        () =>
+          setStrategyGate(
+            sql,
+            gate.strategy,
+            gate.rowExisted ? gate.gatedOff : null,
+            now
+          ),
+        now,
+        { enforceBudgets: false }
+      );
+      if (!out.applied) return { ok: false, reason: out.reason ?? "adaptation seam refused" };
+    }
+
+    recordPromotion(sql, challenger, "rollback", target.prior, null, currentWeightsVersion(sql), input.actor, "rollback of promotion", now);
+    setChallengerStatus(sql, challenger, "rolled_back", undefined, now);
+    return { ok: true };
+  };
+  return runPromotionUnit(txStorage, "championChallenger.rollback", transition);
 }
