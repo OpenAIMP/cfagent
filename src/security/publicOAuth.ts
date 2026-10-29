@@ -38,6 +38,7 @@
  */
 
 import type { Env } from "../types";
+import { SESSION_LIMITS } from "../config/sessionLimits";
 import { createStoreKv, type DoNamespaceLike } from "./durableKv";
 import { type KvLike } from "./kvResilience";
 import { createState, verifyState } from "./session";
@@ -57,8 +58,8 @@ export const DEFAULT_PUBLIC_OAUTH_SCOPES = "openid offline_access marketdata tra
 export const PUBLIC_CLIENT_METADATA_PATH = "/.well-known/oauth-client-id-metadata-document";
 export const PUBLIC_CALLBACK_PATH = "/auth/public/callback";
 
-const PENDING_MAX_AGE_MS = 10 * 60 * 1000; // matches session.ts STATE_MAX_AGE_MS
-const EXPIRY_SKEW_MS = 60_000;
+const PENDING_MAX_AGE_MS = SESSION_LIMITS.publicOAuthPendingMaxAgeMs;
+const EXPIRY_SKEW_MS = SESSION_LIMITS.oauthExpirySkewMs;
 
 /**
  * Shown when Public refuses this client_id (see the header's

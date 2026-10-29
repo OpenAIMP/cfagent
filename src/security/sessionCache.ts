@@ -1,4 +1,5 @@
 import type { Env, SessionData } from "../types";
+import { SESSION_LIMITS } from "../config/sessionLimits";
 import { getSession } from "./session";
 import type {
   ResourceAttribution,
@@ -38,9 +39,9 @@ import type {
  * src/security/revocationTargets.ts, which the proving tests pin to
  * this exact constant so the two cannot drift apart).
  */
-export const SESSION_CACHE_POSITIVE_TTL_MS = 60_000;
-const NEGATIVE_TTL_MS = 10_000;
-const MAX_ENTRIES = 2000;
+export const SESSION_CACHE_POSITIVE_TTL_MS = SESSION_LIMITS.cachePositiveTtlMs;
+const NEGATIVE_TTL_MS = SESSION_LIMITS.cacheNegativeTtlMs;
+const MAX_ENTRIES = SESSION_LIMITS.cacheMaxEntries;
 
 interface CacheEntry {
   data: SessionData | null;
