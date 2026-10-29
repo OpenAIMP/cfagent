@@ -42,6 +42,7 @@ import {
   storeReportAtGeneration,
   ensureScheduledReportsTable,
   type ScheduledReportInput,
+  type CanonicalStoreResult,
 } from "../services/scheduledReports";
 import type { IndexEnv } from "../services/reportSemanticIndex";
 import { ensureSharedTable, ensureAuditChainColumns } from "./ormSchema";
@@ -710,7 +711,7 @@ export class DatabaseORM {
   storeCanonicalReport(
     input: ScheduledReportInput,
     env?: IndexEnv
-  ): { reportId: string; created: boolean } | null {
+  ): CanonicalStoreResult | null {
     return storeReportAtGeneration(this.sql, input, env);
   }
 }
