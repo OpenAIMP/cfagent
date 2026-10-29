@@ -189,6 +189,63 @@ describe("Agent conformance (issue #1738)", () => {
     expect(wrangler).toMatch(/"new_sqlite_classes":\s*\[[^\]]*"SlackAgent"/);
   });
 
+  it("AiSearchAgent extends PortThink with the framework overrides (issue #2223)", () => {
+    const src = read("src/agents/aiSearchAgent.ts");
+    // Think behind the actor port (tracker #1951, shape (a)): the
+    // class reaches Think only through PortThink, never raw Think
+    // and never the Agents SDK base.
+    expect(src).toMatch(/import\s*\{\s*PortThink\s*\}\s*from\s*"\.\.\/actors\/thinkAdapter"/);
+    expect(src).toMatch(/export\s+class\s+AiSearchAgent\s+extends\s+PortThink\b/);
+    expect(src).not.toMatch(/import\s*\{\s*Agent\s*\}\s*from\s*"agents"/);
+    // Unlike Browser/Slack (no turn path), the port hooks ARE set:
+    // the namespace-binding search is the turn tool as well as the
+    // direct door (user priority directive 2026-10-29).
+    expect(src).toContain("getModel()");
+    expect(src).toContain("getSystemPrompt()");
+    expect(src).toContain("getTools()");
+    expect(src).toContain("portHooks");
+    // The agent's single tool is the search itself.
+    expect(src).toContain("search: tool({");
+    // Reference docs carried in the class header (issue directive).
+    expect(src).toContain("https://developers.cloudflare.com/ai-search/");
+    expect(src).toContain("https://developers.cloudflare.com/agents/tools/ai-search/");
+    expect(src).toContain("https://developers.cloudflare.com/ai-search/agent-sdks/agents-sdk/");
+    expect(src).toContain("https://developers.cloudflare.com/ai-search/api/search/mcp/");
+    // OUT of scope (S4-5 bridge, #1169): no provisioning, no upload
+    // calls on the class. (The semantic_cache fallback gate itself
+    // lives in the runner, src/agents/aiSearchPaths.ts, and is
+    // behavior-pinned in tests/a2a_aisearch_dispatch_p2223.test.ts.)
+    expect(src).not.toMatch(/\.create\s*\(/);
+    expect(src).not.toMatch(/items\.upload/);
+  });
+
+  it("the Worker exports AiSearchAgent as a Durable Object class (issue #2223)", () => {
+    const server = read("src/server.ts");
+    expect(server).toMatch(
+      /export\s*\{\s*AiSearchAgent\s*\}\s*from\s*"\.\/agents\/aiSearchAgent"/
+    );
+  });
+
+  it("wrangler binds AI_SEARCH_AGENT to AiSearchAgent with migration v12 (issue #2223)", () => {
+    const wrangler = read("wrangler.jsonc");
+    expect(wrangler).toMatch(
+      /"name":\s*"AI_SEARCH_AGENT",\s*"class_name":\s*"AiSearchAgent"/
+    );
+    expect(wrangler).toMatch(
+      /"tag":\s*"v12",\s*"new_sqlite_classes":\s*\[[^\]]*"AiSearchAgent"/
+    );
+    // The ai_search_namespaces binding is NOT declared as config:
+    // its "namespace" value is dashboard-issued and not in the repo,
+    // and inventing one would bind the wrong namespace. The
+    // namespace code path ships config-gated (env.AI_SEARCH +
+    // AI_SEARCH_INSTANCE) as the slice's named residual. The check
+    // parses the config (comments stripped, as the slice-1
+    // foundation suite does) so the explanatory comments in
+    // wrangler.jsonc / src/types.ts don't trip it.
+    const configOnly = wrangler.replace(/\/\/[^\n]*/g, "");
+    expect(configOnly).not.toContain('"ai_search_namespaces"');
+  });
+
   it("the orchestrator dispatches research through the Agent actor", () => {
     const orchestrator = read("src/agents/orchestrator.ts");
     // The dispatch call itself lives in the extracted researchPublish
