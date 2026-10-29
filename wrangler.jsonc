@@ -68,7 +68,11 @@
       // bootstrap: the agents SDK resolves ctx.exports by the parent's
       // constructor.name, so the SearchAgent alias above cannot satisfy
       // it. The alias stays (live orchestrator address + stored state).
-      { "name": "ORCHESTRATOR_AGENT", "class_name": "OrchestratorAgent" }
+      { "name": "ORCHESTRATOR_AGENT", "class_name": "OrchestratorAgent" },
+      // Issue #2215 — BrowserAgent + SlackAgent DO bindings (Think agents
+      // via PortThink; server.ts already exports both classes).
+      { "name": "BROWSER_AGENT", "class_name": "BrowserAgent" },
+      { "name": "SLACK_AGENT", "class_name": "SlackAgent" }
     ]
   },
   "migrations": [
@@ -87,7 +91,9 @@
     // Issue #291 — TradingAgent
     { "tag": "v8", "new_sqlite_classes": ["TradingAgent"] },
     // Issue #1387 — OrchestratorAgent root namespace for sub-agent bootstrap
-    { "tag": "v9", "new_sqlite_classes": ["OrchestratorAgent"] }
+    { "tag": "v9", "new_sqlite_classes": ["OrchestratorAgent"] },
+    // Issue #2215 — BrowserAgent + SlackAgent bindings
+    { "tag": "v10", "new_sqlite_classes": ["BrowserAgent", "SlackAgent"] }
   ],
   // Issue #606 (phase 4 of #415): no KV namespaces remain — sessions and
   // E*TRADE credentials live in the SessionStore DO (#329), report PDFs
