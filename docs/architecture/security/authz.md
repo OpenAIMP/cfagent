@@ -231,7 +231,9 @@ say so (see §10).
 Step-up/idle thresholds are settled as CISO values by #1757 (see the
 decision record, `iaaa-decisions-1757.md`): the 15-minute step-up window
 and the 30-minute idle window are the enforced platform defaults, adopted
-as CISO values with no change to enforcement. Audit retention and tamper
+as CISO values with no change to enforcement. The owner overrode the
+production idle window to 8 hours on 2026-10-29 (`SESSION_IDLE_TIMEOUT_MS`);
+the 30-minute default remains the code and test default. Audit retention and tamper
 response are undecided and carried (see the same record). A failed audit
 write does **not** block a wired login on the live path — recorded as
 deliberately non-blocking by #1757, with its risk stated in the record;
@@ -262,7 +264,7 @@ must deny (0 ms past the deadline).
 | Session revocation | 0 ms same-isolate; ≤ 60,000 ms every isolate | Session gate (`requireAuth`). The logout path invalidates the isolate cache before deleting the record, so its own next read denies. Any other isolate serves its stale cached copy until the 60-second isolate-cache TTL lapses, then re-reads the store and denies. A wired session is denied immediately on every isolate: the wired validation path fresh-reads and denies on a missing record even when a cached copy exists, so the 60 s tier never applies to it. |
 | API-key deletion | 0 ms — next verification denies | API-key verification (`verifyApiKey`) at the MCP transport. Verification reads the key store fresh (hash lookup, then record read) with no cache layer. API keys carry no expiry; deletion is the only key-revocation trigger. |
 | Admin removal | 0 ms — next admin-gate check denies | Admin gates (GET `/api/iaaa/overview` gate, PDP, grant gate), all fresh membership reads. Admin removal IS membership revocation applied to an admin binding, so it shares the membership mechanism and bound. |
-| Token expiry | 0 ms past the deadline | Session gate (wired validation) and OIDC claim validation. Absolute session expiry: first wired gate check at or after `createdAt + SESSION_TTL` (7 days) denies. Idle expiry: first wired gate check at or after recorded last-activity + the enforced idle default (30 minutes) denies. OIDC claims: a claim with `exp` at or before now denies on presentation. The idle and step-up windows are settled CISO values (#1757); these targets reuse the enforced defaults. |
+| Token expiry | 0 ms past the deadline | Session gate (wired validation) and OIDC claim validation. Absolute session expiry: first wired gate check at or after `createdAt + SESSION_TTL` (7 days; `createdAt` slides on authenticated page navigation when 2 days remain, capped at 30 days from `firstCreatedAt`) denies. Idle expiry: first wired gate check at or after recorded last-activity + the enforced idle window (default 30 minutes; production 8 hours) denies. OIDC claims: a claim with `exp` at or before now denies on presentation. The idle and step-up windows are settled CISO values (#1757); these targets reuse the enforced defaults. |
 
 Proving tests: `tests/iaaa_revocation_targets_1750.test.ts` (one
 group per trigger, revoke-then-gate at the bound) and

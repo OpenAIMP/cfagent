@@ -1,0 +1,4 @@
+### Fixed
+
+- **Refreshing no longer forces a weekly sign-in for active users:** the session's 7-day absolute window now slides on an authenticated page load when two days or less remain. Renewal rewrites the same session id (other tabs stay valid), re-issues the cookie, and stops at a new 30-day hard cap (`SESSION_MAX_TTL`, measured from `firstCreatedAt`); an expired session is never renewed. The client also remembers the page being refreshed (`auth:next` in sessionStorage) and restores it after login instead of dropping to the default tab.
+- **Idle window is owner-overridable:** `SESSION_IDLE_TIMEOUT_MS` resolves the idle window (default stays the settled 30 minutes, clamped 5 minutes–7 days); production sets 8 hours so an actively-used dashboard is not signed out mid-workday. Step-up freshness (15 minutes) is unchanged. Pinned by `tests/session_refresh_renewal.test.ts`.

@@ -109,6 +109,7 @@ import {
 } from "./iaaaMigration";
 import {
   createSession,
+  SESSION_MAX_TTL,
   SESSION_TTL,
   setSessionCookie,
 } from "./session";
@@ -411,6 +412,8 @@ export function buildExtendedSessionData(
     authTimeMs: nowMs,
     // Phase 2a: login counts as activity, so idle tracking starts here.
     lastActivityMs: nowMs,
+    // Sliding renewal preserves this; the 30-day hard cap is measured here.
+    firstCreatedAt: base.firstCreatedAt ?? nowMs,
     sessionVersion: IAAA_SESSION_VERSION,
   };
 }
@@ -464,6 +467,17 @@ export function getValidatedSession(
   }
   if (session.createdAt + SESSION_TTL * 1000 <= nowMs) {
     return { ok: false, code: "SESSION_EXPIRED", error: "session passed its absolute expiry" };
+  }
+  const firstCreatedAt =
+    typeof session.firstCreatedAt === "number" && Number.isFinite(session.firstCreatedAt)
+      ? session.firstCreatedAt
+      : session.createdAt;
+  if (firstCreatedAt + SESSION_MAX_TTL * 1000 <= nowMs) {
+    return {
+      ok: false,
+      code: "SESSION_EXPIRED",
+      error: "session passed its 30-day lifetime cap",
+    };
   }
   const idleTimeoutMs =
     typeof options?.idleTimeoutMs === "number" &&
