@@ -12,10 +12,8 @@
  * applies to live loads.
  */
 import type { OptionsDataSnapshot } from "../trading";
-import type {
-  FeedSnapshotLoadParams,
-  SqlFeedSnapshotStore,
-} from "./feedSnapshotStore";
+import type { FeedSnapshotLoadParams } from "./feedSnapshotStore";
+import type { FeedSnapshotStore } from "../data/feedSnapshotPorts";
 
 export interface FeedSnapshotDescriptor {
   artifactId: string;
@@ -27,7 +25,7 @@ export interface FeedSnapshotDescriptor {
 }
 
 export async function produceFeedSnapshot(args: {
-  store: SqlFeedSnapshotStore;
+  store: FeedSnapshotStore;
   userLogin: string;
   symbol: string;
   loadSnapshot: (params: FeedSnapshotLoadParams & { symbol: string }) => Promise<OptionsDataSnapshot>;
