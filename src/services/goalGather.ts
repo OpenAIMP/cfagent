@@ -46,11 +46,14 @@ import {
   type CaptureBlobStorage,
   type DataProviderId,
   type QuoteScreenerDeps,
+  type RecordCaptureInput,
   type ScreenLiveEnrichment,
   type ScreenLiveEnrichmentResult,
   type YahooHistoryDeps,
 } from "../trading";
 import type { ObservabilitySink } from "../observability/observabilityPorts";
+import type { ProviderConfigStore } from "../data/providerConfigPorts";
+import type { ProviderCaptureStore } from "../data/providerCapturePorts";
 
 export const GATHER_REQUEST_MARKER = "goal-gather-1998";
 
@@ -93,6 +96,17 @@ export interface GoalGatherInput {
   routes?: CapabilityRouteRecord[];
   /** #1743 sink; absent = no emission, never a failure. */
   sink?: ObservabilitySink;
+  /**
+   * #2303 (#1976 step 1): the data-layer ports. When the host
+   * supplies them, the gather's capture writes + read-back run
+   * through the capture port (the D1 capture log the adapters
+   * wrote under the same run id) and the route snapshot reads
+   * through the config port; otherwise the sql reads/writes run
+   * unchanged. Consistency rule: a gather must read back from
+   * the same store its adapters wrote to.
+   */
+  capturePort?: ProviderCaptureStore | null;
+  configPort?: ProviderConfigStore | null;
 }
 
 function routeSnapshotHash(routes: CapabilityRouteRecord[]): Promise<string> {
@@ -144,6 +158,13 @@ async function fetchSide(
 
 export function createGoalGatherEnrichment(input: GoalGatherInput): ScreenLiveEnrichment {
   const blobDeps: CaptureBlobDeps = { storage: input.blobStorage, env: input.blobEnv };
+  // #2303: the gather's capture writes run through the capture
+  // port when the host wired one — the same store the gather's
+  // adapters wrote to (see the input's consistency rule).
+  const recordGatherCapture = (recInput: RecordCaptureInput) =>
+    input.capturePort
+      ? input.capturePort.recordCapture(blobDeps, recInput)
+      : recordCapture(input.sql, blobDeps, recInput);
   return {
     async enrich(quotes: ETradeQuote[]): Promise<ScreenLiveEnrichmentResult> {
       const listingsBySymbol = new Map<string, ETradeQuote>();
@@ -178,7 +199,11 @@ export function createGoalGatherEnrichment(input: GoalGatherInput): ScreenLiveEn
       // run chose); without a quotes route there is no live provider
       // to attribute, so kept symbols go missing instead of riding
       // an invented provider.
-      const routes = input.routes ?? listCapabilityRoutes(input.sql);
+      const routes =
+        input.routes ??
+        (input.configPort
+          ? await input.configPort.listCapabilityRoutes()
+          : listCapabilityRoutes(input.sql));
       const routeVersionHash = await routeSnapshotHash(routes);
       const quotesRoute = routes.find((r) => r.capability === "quotes");
       const providerId: DataProviderId | null =
@@ -225,7 +250,7 @@ export function createGoalGatherEnrichment(input: GoalGatherInput): ScreenLiveEn
         };
         const missing = missingFieldsFor(enriched);
         missingFields[symbol] = missing;
-        await recordCapture(input.sql, blobDeps, {
+        await recordGatherCapture({
           providerId,
           capability: "quotes",
           requestParams: {
@@ -258,7 +283,9 @@ export function createGoalGatherEnrichment(input: GoalGatherInput): ScreenLiveEn
       // Duplicate rows for a symbol (retries) dedup to the latest
       // write; a corrupt latest row fails closed to missing, never
       // silently back to a stale row.
-      const rows = listCapturesByRun(input.sql, input.tenantId, input.runId)
+      const rows = (input.capturePort
+        ? await input.capturePort.listCapturesByRun(input.tenantId, input.runId)
+        : listCapturesByRun(input.sql, input.tenantId, input.runId))
         .filter(
           (r) =>
             r.capability === "quotes" &&
@@ -277,7 +304,9 @@ export function createGoalGatherEnrichment(input: GoalGatherInput): ScreenLiveEn
         if (!symbol || seen.has(symbol)) continue;
         seen.add(symbol);
         try {
-          const read = await readCaptureRaw(input.sql, blobDeps, input.tenantId, row.id);
+          const read = input.capturePort
+            ? await input.capturePort.readCaptureRaw(blobDeps, input.tenantId, row.id)
+            : await readCaptureRaw(input.sql, blobDeps, input.tenantId, row.id);
           if (!read || !read.rawBytes) continue;
           const parsed = JSON.parse(new TextDecoder().decode(read.rawBytes)) as ETradeQuote;
           if (row.normalizedDigest) {
