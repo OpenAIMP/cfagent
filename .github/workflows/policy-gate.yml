@@ -46,6 +46,13 @@ concurrency:
 jobs:
   policy-gate:
     name: Policy Gate
+    # Only an open PR can be gated. A merged or closed PR has its changes in
+    # `main` already, so the diff these checks read is empty and (d) CHANGELOG
+    # fails even though the gate passed before the merge — an `edited` event on
+    # a merged PR body (GitHub allows it) manufactured exactly that false red
+    # on #2272. Skipping closed PRs keeps the merged record equal to the gate
+    # that actually gated the merge.
+    if: github.event.pull_request.state == 'open'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out PR head
