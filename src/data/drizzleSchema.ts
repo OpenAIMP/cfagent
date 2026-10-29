@@ -742,3 +742,30 @@ export const agentDataCaptures = sqliteTable("agent_data_captures", {
   failureMessage: text("failure_message"),
   createdAt: text("created_at").notNull(),
 });
+
+
+/**
+ * IV history (#1976 step 2, issue #2337; ADR 0022 D-I step 2).
+ * This schema MAPS the table; it does not create it — DDL
+ * authority lives in migration 0020 (src/data/migrationRunner
+ * .ts), and a test pins that this mapping and that DDL agree
+ * on columns. The family's only tenant-free table: keyed
+ * (symbol, date), first-write-wins. Dates are ISO TEXT (the
+ * record contract's own shape — IvHistoryRecord.date is an ISO
+ * day string), mirroring the DO table's columns exactly.
+ */
+export const agentIvHistory = sqliteTable(
+  "agent_iv_history",
+  {
+    symbol: text("symbol").notNull(),
+    date: text("date").notNull(),
+    atmIv: real("atm_iv").notNull(),
+    spot: real("spot").notNull(),
+    expiryDate: text("expiry_date").notNull(),
+    dte: integer("dte").notNull(),
+    collectedAt: text("collected_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.symbol, table.date] }),
+  ],
+);
