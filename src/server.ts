@@ -227,6 +227,7 @@ export { TickerAgent, TICKER_INSTANCE_NAME } from "./agents/ticker-agent";
 export { OptionsScannerMCP } from "./services/cloudflareWalletsScanner";
 export { BrowserAgent } from "./agents/browserAgent";
 export { SlackAgent } from "./agents/slackAgent";
+export { AiSearchAgent } from "./agents/aiSearchAgent";
 // Issue #197: wrangler.jsonc binds PAYMENTS_AGENT/SCHEDULED_AGENT as Durable
 // Objects — wrangler requires every bound DO class to be exported from the
 // entrypoint, otherwise `wrangler deploy` fails.

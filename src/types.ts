@@ -60,6 +60,29 @@ export interface Env {
   SCREENER_AGENT: DurableObjectNamespace;
   // PR #6 — Vectorize binding for VectorMemory (issue #164)
   VECTOR_MEMORY: any; // Vectorize binding (type varies by workers-types version)
+  // Issue #2223 (AiSearchAgent): the ai_search_namespaces binding —
+  // the agent-tool door onto the Cloudflare AI Search instance.
+  // Optional: the binding is NOT declared in wrangler.jsonc in this
+  // slice, because its "namespace" value is dashboard-issued (the
+  // account's AI Search namespace id) and is not recorded anywhere
+  // in this repo; inventing one would bind the wrong namespace.
+  // Absence = the namespace path is unconfigured and the agent
+  // degrades honestly to the MCP / REST paths. Owner enablement:
+  // add the ai_search_namespaces entry (binding "AI_SEARCH",
+  // namespace <dashboard value>, remote true) to wrangler.jsonc and
+  // set AI_SEARCH_INSTANCE.
+  AI_SEARCH?: AiSearchNamespace;
+  // Issue #2223 (AiSearchAgent): the instance name the namespace
+  // path searches (env.AI_SEARCH.get(AI_SEARCH_INSTANCE)). Additive
+  // config — the REST leg keeps using AI_SEARCH_ENDPOINT below,
+  // the same var the SearchHub knowledge surface uses.
+  AI_SEARCH_INSTANCE?: string;
+  // Issue #2223 (AiSearchAgent): the instance's public MCP endpoint
+  // URL (…search.ai.cloudflare.com/mcp) for the MCP path. Additive
+  // config; the endpoint exists only when the owner enables the
+  // instance's Public Endpoint in the Cloudflare dashboard, so
+  // absence = the MCP path is unconfigured, never an error.
+  AI_SEARCH_MCP_ENDPOINT?: string;
   AI_SEARCH_ENDPOINT: string;
   APP_NAME: string;
   GITHUB_CLIENT_ID: string;
