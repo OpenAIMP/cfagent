@@ -41,6 +41,7 @@ import {
 } from "../../trading";
 import { SqlScanRunStore, SqlStrategyProfileStore } from "../../trading";
 import { createDiscoveryService } from "../../services/discoveryService";
+import { buildDataProviderPorts } from "../../data/buildDataProviderPorts";
 import { createFitDiscoveryRunner } from "../../services/fitDiscoveryRunner";
 import type { TransactionSnapData } from "../../types";
 import type { Env } from "../../types";
@@ -77,17 +78,20 @@ export interface TradingIntegrationsRouteContext {
  * and channel messages are untrusted inbound content). The userLogin
  * is the resolved principal's login (never a session/instance id).
  */
-function buildChannelNlqDeps(
+async function buildChannelNlqDeps(
   ctx: TradingIntegrationsRouteContext,
   orm: DatabaseORM,
   userLogin: string
-): ChannelNlqDeps {
+): Promise<ChannelNlqDeps> {
   const sql = ctx.getStorageSql();
+  // #2303: the discovery runner's history resolution runs
+  // through the platform ports when AGENT_DB is bound.
+  const dpPorts = await buildDataProviderPorts(ctx.env);
   return {
     scanRunStore: new SqlScanRunStore(sql),
     profileStore: new SqlStrategyProfileStore(sql),
     schedulingPort: ctx.nlqSchedulingPort(),
-    discoveryRunner: createDiscoveryService({ env: ctx.env, userLogin, orm, sql, blobStorage: ctx.agentCtx.storage }),
+    discoveryRunner: createDiscoveryService({ env: ctx.env, userLogin, orm, sql, blobStorage: ctx.agentCtx.storage, ...(dpPorts.config ? { configPort: dpPorts.config } : {}), ...(dpPorts.captures ? { capturePort: dpPorts.captures } : {}) }),
     fitDiscoveryRunner: createFitDiscoveryRunner({ env: ctx.env, userLogin, sql, storage: ctx.agentCtx.storage }),
   };
 }
@@ -142,7 +146,7 @@ export async function handleTradingIntegrationsRoutes(
         orm,
         sessionId,
         principal,
-        buildChannelNlqDeps(ctx, orm, principal?.userLogin ?? sessionId)
+        await buildChannelNlqDeps(ctx, orm, principal?.userLogin ?? sessionId)
       );
       const result = await emailService.processInboundEmail(body);
       ctx.audit("trading.email_processed", "trading", { actionType: result.actionType, from: result.from, orderId: result.orderId });
@@ -215,7 +219,7 @@ export async function handleTradingIntegrationsRoutes(
         sessionId,
         principal,
         slackLinks,
-        buildChannelNlqDeps(ctx, orm, principal?.userLogin ?? sessionId)
+        await buildChannelNlqDeps(ctx, orm, principal?.userLogin ?? sessionId)
       );
       const result = await slackService.processSlackEvent(body);
       ctx.audit("trading.slack_event", "trading", { actionType: result.actionType, handled: result.handled });
@@ -250,7 +254,7 @@ export async function handleTradingIntegrationsRoutes(
         sessionId,
         principal,
         slackLinks,
-        buildChannelNlqDeps(ctx, orm, principal?.userLogin ?? sessionId)
+        await buildChannelNlqDeps(ctx, orm, principal?.userLogin ?? sessionId)
       );
       const result = await slackService.processSlackInteraction(body);
       ctx.audit("trading.slack_interaction", "trading", { actionId: result.actionId, orderId: result.orderId, status: result.status });
@@ -286,7 +290,7 @@ export async function handleTradingIntegrationsRoutes(
         sessionId,
         principal,
         slackLinks,
-        buildChannelNlqDeps(ctx, orm, principal?.userLogin ?? sessionId)
+        await buildChannelNlqDeps(ctx, orm, principal?.userLogin ?? sessionId)
       );
       return slackService.processSlackCommand(formData);
     } catch (err) {
@@ -329,7 +333,7 @@ export async function handleTradingIntegrationsRoutes(
         userLogin,
         ctx.nlqSchedulingPort(),
         principal,
-        buildChannelNlqDeps(ctx, orm, principal?.userLogin ?? userLogin)
+        await buildChannelNlqDeps(ctx, orm, principal?.userLogin ?? userLogin)
       );
       const result = await voiceService.processVoiceTurn({
         ...body,
@@ -355,7 +359,7 @@ export async function handleTradingIntegrationsRoutes(
       userLogin,
       undefined,
       principal,
-      buildChannelNlqDeps(ctx, orm, principal?.userLogin ?? userLogin)
+      await buildChannelNlqDeps(ctx, orm, principal?.userLogin ?? userLogin)
     );
     return Response.json(voiceService.getWelcomeGreeting());
   }
