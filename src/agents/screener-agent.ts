@@ -18,6 +18,7 @@
  */
 
 import { PortThink } from "../actors/thinkAdapter";
+import { codedMessage } from "../errors/errorAspects";
 import {
   dispatchScreenerA2A,
   screenerA2AOutcome,
@@ -1607,7 +1608,7 @@ export class ScreenerAgent extends PortThink {
       outcome.csvKey = key;
       outcome.csvStatus = "generated";
     } catch (err) {
-      outcome.csvError = err instanceof Error ? err.message : String(err);
+      outcome.csvError = codedMessage("REPORT_004", err instanceof Error ? err.message : String(err));
       console.error("[ScreenerAgent] Strategy CSV generation failed:", outcome.csvError);
     }
 
@@ -1691,7 +1692,7 @@ export class ScreenerAgent extends PortThink {
       }, reportRetry, { label: "screener-csv" });
     } catch (csvErr) {
       result.csvStatus = "failed";
-      result.csvError = csvErr instanceof Error ? csvErr.message : String(csvErr);
+      result.csvError = codedMessage("REPORT_004", csvErr instanceof Error ? csvErr.message : String(csvErr));
       console.error("[ScreenerAgent] CSV generation failed:", result.csvError);
     }
   }
