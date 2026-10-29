@@ -105,6 +105,7 @@ interface ScreenRun {
   pdfError?: string;
   xlsxKey?: string;
   xlsxStatus?: "generated" | "failed" | "skipped";
+  xlsxError?: string;
   trigger?: "manual" | "scheduled";
   universe?: string;
   sector: string;
