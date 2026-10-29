@@ -33,6 +33,11 @@ import {
   D1SubscriptionAdapter,
   ensureSubscriptionSchema,
 } from "../src/data/d1SubscriptionAdapter";
+import {
+  createD1JournalDb,
+  D1JournalAdapter,
+  ensureJournalSchema,
+} from "../src/data/d1JournalAdapter";
 import type { DatabaseORM } from "../src/orm";
 
 /** Minimal D1Database stand-in over node:sqlite (test-only, mirrors slice0). */
@@ -275,6 +280,41 @@ describe("subscription checkout + purchase", () => {
       planId: plan.id, tenantId: "t1", checkoutRequestId: checkout.checkoutRequestId, checkoutSessionId: checkout.checkoutSessionId,
     });
     expect(replay?.status).toBe(409);
+  });
+
+  it("purchase posts Dr 1000 / Cr 2100 deferred revenue to the journal; a refused purchase posts nothing (#2155 follow-up)", async () => {
+    const { ctx, env } = await setup({ monetization: true, stripe: true });
+    const plan = await createPlan(ctx, { name: "Pro", priceUSD: 20, periodDays: 30, includedRuns: 10 });
+    const stripe = stubStripe({ status: "open", payment_status: "unpaid" });
+    const checkout = await bodyOf(
+      await call(ctx, "POST", "/payments/agentic/commercial/subscription/checkout", "u1", { planId: plan.id, tenantId: "t1", email: "u1@example.com" }),
+    );
+    const journal = new D1JournalAdapter(createD1JournalDb(env.AGENT_DB as unknown as D1Database));
+    await ensureJournalSchema(journal.db);
+    // Refused (unpaid) purchase: activation nothing, journal nothing.
+    expect((await call(ctx, "POST", "/payments/agentic/commercial/subscription/purchase", "u1", {
+      planId: plan.id, tenantId: "t1", checkoutRequestId: checkout.checkoutRequestId, checkoutSessionId: checkout.checkoutSessionId,
+    }))?.status).toBe(402);
+    expect(await journal.listEntries("t1")).toEqual([]);
+    // Paid purchase: activation succeeds AND the journal pair posts.
+    stripe.setEvidence({ status: "complete", payment_status: "paid" });
+    const bought = await bodyOf(
+      await call(ctx, "POST", "/payments/agentic/commercial/subscription/purchase", "u1", {
+        planId: plan.id, tenantId: "t1", checkoutRequestId: checkout.checkoutRequestId, checkoutSessionId: checkout.checkoutSessionId,
+      }),
+    );
+    expect(bought.subscription.status).toBe("active");
+    const entries = await journal.listEntries("t1");
+    expect(entries.map((e: any) => [e.accountCode, e.debitUSD, e.creditUSD])).toEqual([
+      ["1000", 20, 0],
+      ["2100", 0, 20],
+    ]);
+    for (const e of entries) {
+      expect(e.transactionRef).toBe(checkout.checkoutRequestId);
+      expect(e.runRequestId).toBe(bought.subscription.id);
+      expect(e.family).toBe("subscription");
+    }
+    expect(entries.every((e: any) => e.accountCode !== "4000")).toBe(true);
   });
 
   it("purchase refuses on amount mismatch (mandatory re-check) and activates nothing", async () => {
