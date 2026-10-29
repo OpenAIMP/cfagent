@@ -398,15 +398,14 @@ describe("D2 dispositions register (#1999)", () => {
     (e) => e.classification === "accepted" || e.classification === "follow_up" || e.classification === "out_of_scope",
   );
 
-  it("the register carries the dispositioned shape: 3 fixed + 28 accepted (= 31) + 1 tracked follow-up", () => {
+  it("the register carries the dispositioned shape: 4 fixed + 28 accepted (= 32), no tracked follow-up (#2165 fixed)", () => {
     const fixed = register.entries.filter((e) => e.classification === "fixed");
     const accepted = register.entries.filter((e) => e.classification === "accepted");
     const followUp = register.entries.filter((e) => e.classification === "follow_up");
-    expect(fixed).toHaveLength(3);
+    expect(fixed).toHaveLength(4);
     expect(accepted).toHaveLength(28);
-    expect(fixed.length + accepted.length).toBe(31);
-    expect(followUp).toHaveLength(1);
-    expect(followUp[0].followUp).toBe("#2165");
+    expect(fixed.length + accepted.length).toBe(32);
+    expect(followUp).toHaveLength(0);
     // Accepted families match the source record's split.
     expect(accepted.filter((e) => e.family === "message_record")).toHaveLength(18);
     expect(accepted.filter((e) => e.family === "broadcast")).toHaveLength(8);

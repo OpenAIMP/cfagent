@@ -250,6 +250,53 @@ describe("Autonomous Options Screening & Scheduling Pipeline", () => {
       expect(result.replacementBlocks?.[0]?.text?.text).toContain("OPTIONS ORDER PREVIEW APPROVED");
     });
 
+    it("fails loudly when the options order draft fails to persist (issue #2165)", async () => {
+      const slackService = new ETradeSlackTradingService(mockEnv, mockOrm, "slack_user");
+      vi.spyOn(mockOrm.trades, "create").mockImplementation(() => {
+        throw new Error("SQLITE_FULL: database or disk is full");
+      });
+      const auditSpy = vi.spyOn(mockOrm.events, "create").mockImplementation((r: any) => r);
+      const postSpy = vi.spyOn(slackService, "postResponseUrl").mockResolvedValue(true);
+      const sampleOptionPayload = JSON.stringify({
+        symbol: "NVDA",
+        strategy: "Bull Call Spread",
+        action: "bullish",
+        score: 88,
+        maxLoss: 450,
+        legs: [
+          { symbol: "NVDA", strike: 120, type: "CALL", side: "BUY", quantity: 1 },
+          { symbol: "NVDA", strike: 130, type: "CALL", side: "SELL", quantity: 1 },
+        ],
+      });
+
+      const result = await slackService.processSlackInteraction({
+        type: "block_actions",
+        user: { id: "U123456", name: "trader_alice" },
+        response_url: "https://example.com/response",
+        actions: [
+          {
+            action_id: "etrade_approve_options_order",
+            value: sampleOptionPayload,
+          },
+        ],
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.status).toBe("error");
+      expect(result.orderId).toMatch(/^opt_NVDA_/);
+      expect(result.message).toContain("failed");
+      expect(result.replacementBlocks).toBeUndefined();
+      expect(postSpy).toHaveBeenCalledTimes(1);
+      const posted = JSON.stringify(postSpy.mock.calls[0][1]);
+      expect(posted).not.toContain("QUEUED FOR E*TRADE ROUTING");
+      expect(posted).toContain("failed");
+      expect(auditSpy).toHaveBeenCalledTimes(1);
+      const auditRow = auditSpy.mock.calls[0][0] as any;
+      expect(auditRow.type).toContain("draft");
+      expect(JSON.stringify(auditRow.payload)).toContain(result.orderId);
+      expect(JSON.stringify(auditRow.payload)).toContain("SQLITE_FULL");
+    });
+
     it("handles etrade_dismiss_options_alert gracefully", async () => {
       const slackService = new ETradeSlackTradingService(mockEnv, mockOrm, "slack_user");
       const result = await slackService.processSlackInteraction({

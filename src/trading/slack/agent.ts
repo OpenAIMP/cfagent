@@ -1211,8 +1211,12 @@ export class ETradeSlackTradingService {
       const strat = optData.strategy || "Strategy";
       const legsCount = Array.isArray(optData.legs) ? optData.legs.length : 1;
 
-      // Create an order draft in SQLite if ORM is available
+      // Create an order draft in SQLite if ORM is available. Issue #2165:
+      // the draft row IS the queue entry for E*TRADE routing — a failed
+      // create must fail loudly (error post + failure result + audit),
+      // never the QUEUED claim with no record behind it.
       const draftId = `opt_${sym}_${Date.now()}`;
+      let draftError: Error | null = null;
       if (this.orm?.trades) {
         try {
           this.orm.trades.create({
@@ -1231,9 +1235,75 @@ export class ETradeSlackTradingService {
             createdAt: timestamp,
             updatedAt: timestamp,
           });
-        } catch {
-          // Non-critical trade creation
+        } catch (err) {
+          draftError = err instanceof Error ? err : new Error(String(err));
         }
+      }
+
+      if (draftError) {
+        const message = `Options order draft ${draftId} for ${sym} failed to persist: ${draftError.message}`;
+        // Audit the failure. Fail-visible, never masking: an audit-write
+        // failure warns on the worker-log channel and the draft failure
+        // result below still stands.
+        if (this.orm?.events) {
+          try {
+            this.orm.events.create({
+              id: crypto.randomUUID(),
+              sessionId: this.sessionId,
+              type: "trade.options_draft_create_failed",
+              agent: "trading",
+              payload: {
+                draftId,
+                symbol: sym,
+                strategy: strat,
+                error: draftError.message,
+                authorizerDid,
+              },
+              createdAt: timestamp,
+            });
+          } catch (auditErr) {
+            console.warn(
+              `[ETradeSlackAgent] Audit insertion failed (type=trade.options_draft_create_failed, draft=${draftId}): ${auditErr instanceof Error ? auditErr.message : String(auditErr)}`,
+            );
+          }
+        }
+
+        const errorBlocks = [
+          {
+            type: "header",
+            text: {
+              type: "plain_text",
+              text: "❌ OPTIONS ORDER DRAFT FAILED",
+              emoji: true,
+            },
+          },
+          {
+            type: "section",
+            fields: [
+              { type: "mrkdwn", text: `*Underlying Symbol:*\n*${sym}*` },
+              { type: "mrkdwn", text: `*Strategy:*\n*${strat}*` },
+              { type: "mrkdwn", text: `*Draft ID:*\n\`${draftId}\`` },
+              { type: "mrkdwn", text: `*Error:*\n${draftError.message}` },
+            ],
+          },
+        ];
+
+        if (payload.response_url) {
+          await this.postResponseUrl(payload.response_url, {
+            text: `❌ Options order draft failed for ${sym} (${strat})`,
+            blocks: errorBlocks,
+            replace_original: true,
+          });
+        }
+
+        return {
+          success: false,
+          actionId,
+          orderId: draftId,
+          status: "error",
+          message,
+          timestamp,
+        };
       }
 
       const replacementBlocks = [
