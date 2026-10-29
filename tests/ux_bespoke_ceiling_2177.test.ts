@@ -99,7 +99,11 @@ describe("bespoke-styling ceiling (issue #2177)", () => {
     // rebuild, the branch base) added one raw <label> in
     // CheckoutPanel.tsx after the 8414089 measurement. That label is
     // pre-existing on the base, not growth from this change.
+    // Ratcheted to 121 by the chunk-2 top-4 conversion (EtapiConfigModal
+    // 29, OptionsResearchPanel 25, ScannerPanel 22, DiscoveryFormSections
+    // 26); 5 checkbox-wrapper labels remain in those files by design
+    // (Checkbox is a bare control), counted in the 121.
     expect(inlineStyles).toBeLessThanOrEqual(843);
-    expect(rawLabels).toBeLessThanOrEqual(223);
+    expect(rawLabels).toBeLessThanOrEqual(121);
   });
 });
