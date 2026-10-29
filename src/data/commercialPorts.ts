@@ -63,6 +63,25 @@ export interface CreditRedemptionRecord {
   redeemedAtMs: number;
 }
 
+/**
+ * Issue #2137 (checkout follow-ups): who submitted a paid run.
+ * Recorded by the submit route at submission time, from the
+ * verified session login — never from a caller claim — so the
+ * submission-status read can enforce ownership instead of
+ * trusting that a workflowId is unguessable. One row per
+ * submission; workflowId is the primary key because the status
+ * read is keyed by it. For the payment path the workflowId is
+ * the runRequestId (the binding creates the instance with
+ * id = runRequestId); for a credit-redeemed run it is the
+ * screener workflow id the submit route returns.
+ */
+export interface PaidSubmissionRecord {
+  workflowId: string;
+  userId: string;
+  runRequestId: string;
+  createdAtMs: number;
+}
+
 export function assertStoreTier(tier: unknown): StoreTier {
   if (tier !== "Free" && tier !== "PayPerUse" && tier !== "Subscribed") {
     throw new Error(`Invalid tier: ${String(tier)} (must be Free, PayPerUse, or Subscribed).`);
@@ -148,4 +167,16 @@ export interface CommercialStore {
   findUnredeemedCredit(userId: string, family: string): Promise<{ creditRunId: string; amountUSD: number } | null>;
   /** The atomic claim: throws /already redeemed/ on replay. */
   redeemCredit(creditRunId: string, redeemedByRunId: string): Promise<CreditRedemptionRecord>;
+  /**
+   * Record who submitted a paid run. Idempotent on workflowId:
+   * the FIRST record wins, so a re-record (retry, replay) can
+   * never steal ownership from the original submitter.
+   */
+  recordPaidSubmission(input: {
+    workflowId: string;
+    userId: string;
+    runRequestId: string;
+  }): Promise<PaidSubmissionRecord>;
+  /** The submission that owns this workflowId, or null when unknown. */
+  getPaidSubmission(workflowId: string): Promise<PaidSubmissionRecord | null>;
 }

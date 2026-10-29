@@ -299,11 +299,18 @@ describe("dedicated paid-submission route (#2015)", () => {
   });
 
   it("reports submission status through the binding", async () => {
+    // #2137 follow-ups: status reads are owner-only, so the
+    // submission must be recorded first (via the submit route);
+    // the ownership matrix itself lives in
+    // paid_submission_ownership.test.ts.
     const { ctx } = await setup();
-    const res = await call(ctx, "GET", "/payments/agentic/commercial/submission-status?workflowId=run-1", "u1");
+    const submitted = await call(ctx, "POST", "/payments/agentic/commercial/submit", "u1", submitBody);
+    expect(submitted?.status).toBe(200);
+    const sub = (await submitted?.json()) as { workflowId: string };
+    const res = await call(ctx, "GET", `/payments/agentic/commercial/submission-status?workflowId=${sub.workflowId}`, "u1");
     expect(res?.status).toBe(200);
     expect(((await res?.json()) as { status: string }).status).toBe("completed");
-    const anon = await call(ctx, "GET", "/payments/agentic/commercial/submission-status?workflowId=run-1", null);
+    const anon = await call(ctx, "GET", `/payments/agentic/commercial/submission-status?workflowId=${sub.workflowId}`, null);
     expect(anon?.status).toBe(401);
   });
 });
