@@ -421,7 +421,7 @@ export const MESH_TOOL_FAMILIES: MeshToolFamilyEntry[] = [
       { file: "src/mcp/commands.ts", kind: "deprecated-alias" },
     ],
     notes:
-      "The foss_* names are deprecated aliases (#1906) wrapping the canonical commands; the successor of each foss_* alias is the canonical market_data_*/alpaca_* name for the same command. Alias removal is a follow-up slice.",
+      "The foss_* names are deprecated aliases (#1906) wrapping the canonical commands; each foss_* alias is superseded by the canonical market_data_*/alpaca_* name for the same command. Alias removal is a follow-up slice.",
   },
   {
     id: "agentdb-read-mcp-commands",
