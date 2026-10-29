@@ -162,9 +162,16 @@ const ORCH = "agents/orchestrator.ts";
  *  agentic-payments handlers; the route logic itself lives in
  *  routes/paymentAssuranceLive.ts, the class gains no logic) —
  *  measured 2,571 lines / 117,949 B after the addition, so
- *  budget lines rise to 2580 and bytes rise to 118_500. */
-const BUDGET_LINES = 2580;
-const BUDGET_BYTES = 118_500;
+ *  budget lines rise to 2580 and bytes rise to 118_500.
+ *  A2A door (#2223 slice 1) adds the thin handleA2A delegating
+ *  method + its import (execution in
+ *  orchestrator/a2aDispatch.ts; the class gains no logic beyond
+ *  wiring its storage/audit/session and NLQ ports into the
+ *  dispatch) — measured 2,608 lines / 119,919 B after the
+ *  addition, so budget lines rise to 2620 and bytes rise
+ *  to 120_500. */
+const BUDGET_LINES = 2620;
+const BUDGET_BYTES = 120_500;
 
 const count = (haystack: string, needle: string) =>
   haystack.split(needle).length - 1;

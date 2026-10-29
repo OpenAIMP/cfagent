@@ -173,6 +173,22 @@ describe("Agent conformance (issue #1738)", () => {
     expect(wrangler).toMatch(/"new_sqlite_classes":\s*\[[^\]]*"ResearchAgent"/);
   });
 
+  it("wrangler binds BROWSER_AGENT to BrowserAgent with a SQLite migration (issue #2215)", () => {
+    const wrangler = read("wrangler.jsonc");
+    expect(wrangler).toMatch(
+      /"name":\s*"BROWSER_AGENT",\s*"class_name":\s*"BrowserAgent"/
+    );
+    expect(wrangler).toMatch(/"new_sqlite_classes":\s*\[[^\]]*"BrowserAgent"/);
+  });
+
+  it("wrangler binds SLACK_AGENT to SlackAgent with a SQLite migration (issue #2215)", () => {
+    const wrangler = read("wrangler.jsonc");
+    expect(wrangler).toMatch(
+      /"name":\s*"SLACK_AGENT",\s*"class_name":\s*"SlackAgent"/
+    );
+    expect(wrangler).toMatch(/"new_sqlite_classes":\s*\[[^\]]*"SlackAgent"/);
+  });
+
   it("the orchestrator dispatches research through the Agent actor", () => {
     const orchestrator = read("src/agents/orchestrator.ts");
     // The dispatch call itself lives in the extracted researchPublish
