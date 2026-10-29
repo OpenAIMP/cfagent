@@ -21,11 +21,52 @@ export const COOKIE_NAME = "session_id";
 const STATE_MAX_AGE_MS = SESSION_LIMITS.oauthStateMaxAgeMs;
 const STATE_FUTURE_SKEW_MS = SESSION_LIMITS.oauthStateFutureSkewMs;
 
-export function getSessionId(request: Request): string | null {
+/**
+ * Every `session_id` value the browser sent, in header order, deduplicated.
+ *
+ * Browsers can send more than one when a stale cookie differs by Domain/Path
+ * (an older host-only cookie plus the current one); taking only the first
+ * value binds auth to whichever cookie happens to sort first.
+ */
+export function getSessionIds(request: Request): string[] {
   const cookie = request.headers.get("Cookie");
-  if (!cookie) return null;
-  const match = cookie.match(new RegExp(`(?:^|;\\s*)${COOKIE_NAME}=([^;]+)`));
-  return match ? match[1] : null;
+  if (!cookie) return [];
+  const values: string[] = [];
+  const prefix = `${COOKIE_NAME}=`;
+  for (const part of cookie.split(";")) {
+    const trimmed = part.trim();
+    if (!trimmed.startsWith(prefix)) continue;
+    const value = trimmed.slice(prefix.length).trim();
+    if (value && !values.includes(value)) values.push(value);
+  }
+  return values;
+}
+
+/**
+ * How many cookie candidates a request may make the auth path resolve.
+ *
+ * The cap exists for the same reason the shape check does (#329): the Cookie
+ * header is attacker-controlled, and an unbounded candidate list turns one
+ * request into N SessionStore reads plus N negative-cache entries. Real
+ * duplicate-cookie cases come from at most a handful of Domain/Path variants.
+ */
+export const MAX_SESSION_COOKIE_CANDIDATES = 8;
+
+/**
+ * UUID-shaped session ids the auth path should try, in header order, capped.
+ * `createSession` mints `crypto.randomUUID()`, so any other shape cannot name
+ * a session and must not cost a store read.
+ */
+export function getSessionIdCandidates(request: Request): string[] {
+  return getSessionIds(request)
+    .filter(isSessionIdFormat)
+    .slice(0, MAX_SESSION_COOKIE_CANDIDATES);
+}
+
+/** First UUID-shaped session id (the form `createSession` mints), else the first value. */
+export function getSessionId(request: Request): string | null {
+  const values = getSessionIds(request);
+  return values.find((value) => isSessionIdFormat(value)) ?? values[0] ?? null;
 }
 
 /**
