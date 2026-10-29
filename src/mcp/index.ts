@@ -12,6 +12,7 @@
 
 import type { AsyncJobSubmission, Env } from "../types";
 import type { DatabaseORM } from "../orm";
+import { computeMarketplaceRevenueSummary } from "../data/marketplacePorts";
 import { McpToolFactory } from "./commands";
 import { BusinessError } from "../errors/errorAspects";
 import { createObservabilitySink } from "../observability/createObservabilityPorts";
@@ -309,7 +310,10 @@ export async function readMCPResource(
       };
     }
     case "sqlite://revenue/summary": {
-      const summary = orm.getRevenueSummary();
+      // #2345: revenue computes over the marketplace ports
+      // (fleet counters when D1-bound) + the DO-resident ledger.
+      const mp = await orm.marketplacePorts(context.env ?? {});
+      const summary = await computeMarketplaceRevenueSummary(mp, orm.transactions);
       return {
         uri,
         mimeType: "application/json",
@@ -317,7 +321,8 @@ export async function readMCPResource(
       };
     }
     case "sqlite://categories/list": {
-      const categories = orm.categories.findMany({ orderBy: "sort_order ASC" });
+      const mp = await orm.marketplacePorts(context.env ?? {});
+      const categories = await mp.categories.findMany({ orderBy: "sort_order ASC" });
       return {
         uri,
         mimeType: "application/json",
@@ -325,7 +330,8 @@ export async function readMCPResource(
       };
     }
     case "sqlite://external-ads/inventory": {
-      const ads = orm.externalAds.findMany({ orderBy: "earnings DESC" });
+      const mp = await orm.marketplacePorts(context.env ?? {});
+      const ads = await mp.externalAds.findMany({ orderBy: "earnings DESC" });
       return {
         uri,
         mimeType: "application/json",
