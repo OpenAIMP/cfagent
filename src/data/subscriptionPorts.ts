@@ -171,4 +171,15 @@ export interface SubscriptionStore {
   findByPaymentRef(providerPaymentRef: string): Promise<SubscriptionRecord | null>;
   /** Cancel every unexpired row for the user (cancel-at-period-end: access continues to periodEnd). */
   cancelUnexpiredSubscriptions(userId: string, nowMs: number): Promise<SubscriptionRecord[]>;
+  /**
+   * Issue #2204 (refunds) — revoke ONE subscription immediately:
+   * status canceled AND periodEndMs moved to nowMs, so the
+   * effective tier stops conferring Subscribed at the next read
+   * (resolveEffectiveTier keys on periodEndMs, not on status, so
+   * cancel alone cannot revoke). Returns the updated row, or null
+   * when the id is unknown. This is the full-refund consequence
+   * for policy effect "revoke_immediately"; it changes no other
+   * subscription semantics.
+   */
+  revokeSubscription(subscriptionId: string, nowMs: number): Promise<SubscriptionRecord | null>;
 }
