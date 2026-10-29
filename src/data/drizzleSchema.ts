@@ -687,3 +687,58 @@ export const agentWorkItemEvents = sqliteTable(
   },
   (t) => [primaryKey({ columns: [t.source, t.externalId] })],
 );
+
+/**
+ * Data-provider platform (#1976 step 1, issue #2303; ADR 0022
+ * D-0/D-I step 1). This schema MAPS the tables; it does not
+ * create them — DDL authority lives in migration 0019
+ * (src/data/migrationRunner.ts), and a test pins that this
+ * mapping and that DDL agree on columns. The timestamp columns
+ * are ISO-8601 TEXT by stated deviation (see the migration's
+ * header): the platform record contract carries ISO strings.
+ */
+export const agentDataProviders = sqliteTable("agent_data_providers", {
+  id: text("id").primaryKey(),
+  adapterKind: text("adapter_kind").notNull(),
+  lifecycleState: text("lifecycle_state").notNull(),
+  enabled: integer("enabled").notNull().default(0),
+  precedence: integer("precedence").notNull(),
+  credentialRef: text("credential_ref"),
+  configJson: text("config_json").notNull().default("{}"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const agentDataProviderRoutes = sqliteTable(
+  "agent_data_provider_routes",
+  {
+    capability: text("capability").primaryKey(),
+    primaryProviderId: text("primary_provider_id").notNull(),
+    gapFillProviderId: text("gap_fill_provider_id"),
+    minTier: text("min_tier").notNull().default("freemium"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+);
+
+export const agentDataCaptures = sqliteTable("agent_data_captures", {
+  id: text("id").primaryKey(),
+  providerId: text("provider_id").notNull(),
+  capability: text("capability").notNull(),
+  requestParamsJson: text("request_params_json").notNull().default("{}"),
+  runId: text("run_id").notNull(),
+  tenantId: text("tenant_id").notNull(),
+  userLogin: text("user_login"),
+  fetchedAt: text("fetched_at").notNull(),
+  status: text("status").notNull(),
+  rawKind: text("raw_kind"),
+  rawBlobRef: text("raw_blob_ref"),
+  rawByteSize: integer("raw_byte_size"),
+  rawSha256: text("raw_sha256"),
+  normalizedDigest: text("normalized_digest"),
+  retentionClass: text("retention_class").notNull(),
+  failureError: text("failure_error"),
+  failureKind: text("failure_kind"),
+  failureMessage: text("failure_message"),
+  createdAt: text("created_at").notNull(),
+});
