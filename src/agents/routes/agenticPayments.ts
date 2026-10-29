@@ -22,6 +22,12 @@
  *                                                  write-through — charge and
  *                                                  one-time credit rows, session
  *                                                  screener-payment:<runId>)
+ *   POST     /payments/agentic/ledger/record-native (issue #2192: native
+ *                                                  write-through — charge and
+ *                                                  one-time credit rows in D1,
+ *                                                  session screener-payment-native:
+ *                                                  <runId>, same 409 dedupe
+ *                                                  contract as record-cfpay)
  *   GET      /payments/agentic/ledger/cfpay       (issue #2019: cfpay-origin
  *                                                  rows for one run, for
  *                                                  reconciliation)
@@ -105,6 +111,11 @@ import {
   createJournalAdapter,
   ensureJournalSchema,
 } from "../../data/createJournalPorts";
+import {
+  createNativeLedgerAdapter,
+  ensureNativeLedgerSchema,
+} from "../../data/createNativeLedgerPorts";
+import { parseNativeRail } from "../../data/nativeLedgerPorts";
 import { mapRedemptionToJournalEntries } from "../../data/journalPorts";
 import { postJournalBestEffort } from "../../services/journalPosting";
 import type { D1CommercialAdapter } from "../../data/d1CommercialAdapter";
@@ -342,6 +353,100 @@ export async function handleAgenticPaymentsRoutes(
       return Response.json({ duplicate: false, record: tx });
     } catch (err: any) {
       return Response.json({ error: err.message || "Failed to record cfpay payment in ledger" }, { status: 500 });
+    }
+  }
+
+  // Issue #2192: native-origin rows for one run, written to
+  // D1 (not mas_transactions) via the NativeLedgerPort. The
+  // dedupe contract is IDENTICAL to record-cfpay above: one
+  // charge row and one credit row per run — a replayed write
+  // returns 409 with the existing row instead of a second
+  // row. Differences from record-cfpay, all deliberate: the
+  // gateway is truthful per rail (body `rail`, defaulting by
+  // reference — a claim tx hash means x402, otherwise card),
+  // the session prefix is screener-payment-native:, and
+  // tenantId is required (native rows are tenant-scoped from
+  // day one; the cfpay endpoint predates tenant scoping).
+  // This endpoint RECORDS ONLY: no gate reads these rows
+  // until slice 1, and no payment behavior changes here.
+  // An unbound AGENT_DB fails closed with 503 — the store
+  // cannot be verified, so no row is claimed recorded.
+  if (path.endsWith("/payments/agentic/ledger/record-native") && request.method === "POST") {
+    try {
+      const body = (await request.json().catch(() => ({}))) as {
+        kind?: unknown;
+        runRequestId?: unknown;
+        tenantId?: unknown;
+        userId?: unknown;
+        family?: unknown;
+        priceUSD?: unknown;
+        rail?: unknown;
+        sessionId?: unknown;
+        paymentIntentId?: unknown;
+        claimTxHash?: unknown;
+      };
+      const kind = body.kind === "credit" ? "credit" : body.kind === "charge" ? "charge" : "";
+      const runRequestId = typeof body.runRequestId === "string" ? body.runRequestId.trim() : "";
+      const tenantId = typeof body.tenantId === "string" ? body.tenantId.trim() : "";
+      const userId = typeof body.userId === "string" ? body.userId.trim() : "";
+      const family = typeof body.family === "string" ? body.family.trim() : "";
+      const priceUSD = Number(body.priceUSD);
+      const rail =
+        parseNativeRail(body.rail) ??
+        (typeof body.claimTxHash === "string" && body.claimTxHash.trim() ? "x402" : "stripe");
+      if (
+        !kind ||
+        !runRequestId ||
+        !tenantId ||
+        !userId ||
+        !family ||
+        !Number.isFinite(priceUSD) ||
+        priceUSD <= 0
+      ) {
+        return Response.json(
+          { error: "kind (charge|credit), runRequestId, tenantId, userId, family and a positive priceUSD are required" },
+          { status: 400 },
+        );
+      }
+      if (body.rail !== undefined && parseNativeRail(body.rail) === null) {
+        return Response.json(
+          { error: 'rail must be "stripe" or "x402" when supplied' },
+          { status: 400 },
+        );
+      }
+      const adapter = createNativeLedgerAdapter(ctx.env as { AGENT_DB?: unknown });
+      if (!adapter) {
+        return Response.json(
+          { error: "native ledger unavailable: AGENT_DB is not bound" },
+          { status: 503 },
+        );
+      }
+      await ensureNativeLedgerSchema(adapter.db);
+      const { row, duplicate } = await adapter.recordRow({
+        kind,
+        runRequestId,
+        tenantId,
+        userId,
+        family,
+        priceUSD,
+        rail,
+        sessionId: typeof body.sessionId === "string" ? body.sessionId : undefined,
+        paymentIntentId:
+          typeof body.paymentIntentId === "string" ? body.paymentIntentId : undefined,
+        claimTxHash: typeof body.claimTxHash === "string" ? body.claimTxHash : undefined,
+      });
+      if (duplicate) {
+        return Response.json({ duplicate: true, record: row }, { status: 409 });
+      }
+      ctx.audit("payments_native.recorded", "payments", {
+        transactionId: row.id,
+        runRequestId,
+        kind,
+        priceUSD,
+      });
+      return Response.json({ duplicate: false, record: row });
+    } catch (err: any) {
+      return Response.json({ error: err.message || "Failed to record native payment in ledger" }, { status: 500 });
     }
   }
 
