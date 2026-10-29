@@ -157,5 +157,6 @@ describe("generateAndStoreResearchReport (#2167)", () => {
     expect(body.pdfError).toContain("REPORT_001");
     expect(body.xlsxError).toContain("REPORT_002");
     expect(body.xlsxError).toContain("blob store down");
+    expect(body.csvError).toContain("REPORT_004");
   });
 });
