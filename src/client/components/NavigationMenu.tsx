@@ -26,7 +26,7 @@ export interface NavItemDef {
   shortLabel: string;
   category: "Execution" | "Intelligence" | "Playbooks" | "Platform";
   badge?: string;
-  badgeType?: "pro" | "live" | "ai" | "mcp" | "new";
+  badgeType?: "pro" | "live" | "ai" | "mcp" | "new" | "neutral";
 
   icon: (props: { active?: boolean; className?: string }) => React.ReactNode;
   description: string;
@@ -39,6 +39,7 @@ const NAV_BADGE_TONES: Record<string, BadgeTone> = {
   ai: "purple",
   mcp: "info",
   new: "accent",
+  neutral: "neutral",
   default: "neutral",
 };
 
@@ -143,11 +144,9 @@ export const NavIcons = {
   ),
   Ledger: ({ active }: { active?: boolean; className?: string }) => (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <polyline points="14 2 14 8 20 8" />
-      <line x1="16" y1="13" x2="8" y2="13" />
-      <line x1="16" y1="17" x2="8" y2="17" />
-      <polyline points="10 9 9 9 8 9" />
+      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" fill={active ? "currentColor" : "none"} fillOpacity={0.12} />
+      <line x1="8" y1="7" x2="16" y2="7" />
     </svg>
   ),
   Options: ({ active }: { active?: boolean; className?: string }) => (
@@ -267,6 +266,53 @@ export const NavIcons = {
       <line x1="8.5" y1="13.5" x2="14.5" y2="16.5" />
     </svg>
   ),
+  Approvals: ({ active }: { active?: boolean; className?: string }) => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M22 12h-6l-2 3h-4l-2-3H2" />
+      <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" fill={active ? "currentColor" : "none"} fillOpacity={0.12} />
+    </svg>
+  ),
+  Docs: ({ active }: { active?: boolean; className?: string }) => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill={active ? "currentColor" : "none"} fillOpacity={0.12} />
+      <polyline points="14 2 14 8 20 8" />
+      <line x1="16" y1="13" x2="8" y2="13" />
+      <line x1="16" y1="17" x2="8" y2="17" />
+    </svg>
+  ),
+  Runs: ({ active }: { active?: boolean; className?: string }) => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="18" cy="18" r="3" fill={active ? "currentColor" : "none"} fillOpacity={0.15} />
+      <circle cx="6" cy="6" r="3" fill={active ? "currentColor" : "none"} fillOpacity={0.15} />
+      <path d="M6 21V9a9 9 0 0 0 9 9" />
+    </svg>
+  ),
+  Guides: ({ active }: { active?: boolean; className?: string }) => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" fill={active ? "currentColor" : "none"} fillOpacity={0.1} />
+      <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" fill={active ? "currentColor" : "none"} fillOpacity={0.1} />
+    </svg>
+  ),
+  Search: ({ active }: { active?: boolean; className?: string }) => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="11" cy="11" r="8" fill={active ? "currentColor" : "none"} fillOpacity={0.1} />
+      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </svg>
+  ),
+  Checkout: ({ active }: { active?: boolean; className?: string }) => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="9" cy="21" r="1" fill={active ? "currentColor" : "none"} />
+      <circle cx="20" cy="21" r="1" fill={active ? "currentColor" : "none"} />
+      <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
+    </svg>
+  ),
+  Assurance: ({ active }: { active?: boolean; className?: string }) => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 3h6" />
+      <path d="M10 3v6L4.5 19a2 2 0 0 0 1.8 3h11.4a2 2 0 0 0 1.8-3L14 9V3" fill={active ? "currentColor" : "none"} fillOpacity={0.1} />
+      <line x1="7" y1="15" x2="17" y2="15" />
+    </svg>
+  ),
   LayoutSidebar: () => (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
@@ -358,6 +404,13 @@ const NAV_ICON_MAP: Record<string, NavItemDef["icon"]> = {
   Ads: NavIcons.Ads,
   Revenue: NavIcons.Revenue,
   Social: NavIcons.Social,
+  Approvals: NavIcons.Approvals,
+  Docs: NavIcons.Docs,
+  Runs: NavIcons.Runs,
+  Guides: NavIcons.Guides,
+  Search: NavIcons.Search,
+  Checkout: NavIcons.Checkout,
+  Assurance: NavIcons.Assurance,
 };
 
 /** Nav items, derived from the route table in display order (#1804 S1). */

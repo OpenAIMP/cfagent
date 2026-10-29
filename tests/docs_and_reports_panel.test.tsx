@@ -202,7 +202,7 @@ describe("DocsAndReportsPanel", () => {
     };
     await renderPanel();
 
-    const headers = [...container.querySelectorAll("th")].map((th) => th.textContent);
+    const headers = [...container.querySelectorAll("th .docs-sort-label")].map((el) => el.textContent);
     expect(headers).toEqual(["Date-Time", "Run Type", "Run Source", "PDF", "XLSX", "CSV", "Run ID"]);
 
     const rows = container.querySelectorAll("tbody tr");
