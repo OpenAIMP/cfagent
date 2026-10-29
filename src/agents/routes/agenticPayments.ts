@@ -124,6 +124,19 @@ import {
   createSubscriptionAdapter,
   ensureSubscriptionSchema,
 } from "../../data/createSubscriptionPorts";
+import {
+  createRefundPorts,
+  ensureRefundSchema,
+  type RefundPorts,
+} from "../../data/createRefundPorts";
+import { REFUND_POLICY_COPY } from "../../data/refundPorts";
+import {
+  createSubscriptionPaymentResolver,
+  decideRefund,
+  executeRefund,
+  requestRefund,
+} from "../../services/refundService";
+import { PaymentGatewayService } from "../../services/payments";
 import type { D1SubscriptionAdapter } from "../../data/d1SubscriptionAdapter";
 import { resolveEffectiveTier } from "../../data/subscriptionPorts";
 import { activateSubscription } from "../../services/subscriptionActivation";
@@ -647,6 +660,23 @@ export async function handleAgenticPaymentsRoutes(
       return Response.json({ error: "monetization flag is OFF; subscription purchase is disabled." }, { status: 403 });
     }
     return null;
+  };
+  // Refund routes share the same flag gate with a refund-specific
+  // message. Policy reads/writes below are NOT flag-gated:
+  // operators configure policy before activation.
+  const requireRefundFlag = async (): Promise<Response | null> => {
+    const flagOn = await createFeatureFlagPort(ctx.env).isEnabled("monetization");
+    if (!flagOn) {
+      return Response.json({ error: "monetization flag is OFF; refunds are disabled." }, { status: 403 });
+    }
+    return null;
+  };
+  const requireRefunds = (): RefundPorts | Response => {
+    const ports = createRefundPorts(ctx.env as { AGENT_DB?: unknown });
+    if (!ports) {
+      return Response.json({ error: "Refund store unavailable: AGENT_DB is not bound." }, { status: 503 });
+    }
+    return ports;
   };
   // Both stores, schema ensured. Money routes call this before
   // any read or write: the account upsert writes tier_source
@@ -1514,6 +1544,284 @@ export async function handleAgenticPaymentsRoutes(
     } catch (err: any) {
       const message = err.message || "Failed to set price";
       return Response.json({ error: message }, { status: /Invalid|must be/.test(message) ? 400 : 500 });
+    }
+  }
+
+  // Refund routes (#2204, implementation of #2147). Request ->
+  // operator approval -> gateway execution, all behind the
+  // monetization flag (flag OFF refuses request, approval, and
+  // execution). Crypto requests are refused as non-refundable by
+  // the service; no route here can widen that. Execution resolves
+  // the Stripe payment-intent id from the subscription row (#2200)
+  // or fails closed when it cannot resolve one. Policy reads and
+  // the operator policy update are NOT flag-gated: operators
+  // configure policy before activation.
+  if (path.endsWith("/payments/agentic/commercial/refunds") && request.method === "POST") {
+    try {
+      const login = commercialLogin();
+      if (!login) return Response.json({ error: "Unauthorized: verified login required." }, { status: 401 });
+      const flag = await requireRefundFlag();
+      if (flag) return flag;
+      const body = (await request.json().catch(() => ({}))) as {
+        kind?: unknown; originalPaymentRef?: unknown; amountUSD?: unknown; reason?: unknown;
+        tenantId?: unknown; originalAmountUSD?: unknown; originalPaidAtMs?: unknown;
+        rail?: unknown; family?: unknown;
+      };
+      const ports = requireRefunds();
+      if (ports instanceof Response) return ports;
+      try {
+        await ensureRefundSchema(ports.store.db);
+      } catch (err: any) {
+        return Response.json({ error: `Refund store unavailable: ${err.message || "unknown error"}` }, { status: 503 });
+      }
+      let resolver: ReturnType<typeof createSubscriptionPaymentResolver> | undefined;
+      if (body.kind === "subscription") {
+        const store = requireStore();
+        if (store instanceof Response) return store;
+        const subs = requireSubs();
+        if (subs instanceof Response) return subs;
+        const ensured = await ensureStores(store, subs);
+        if (ensured) return ensured;
+        resolver = createSubscriptionPaymentResolver(subs);
+      }
+      const record = await requestRefund(
+        { policyStore: ports.policy, refundStore: ports.store, sourceResolver: resolver },
+        {
+          kind: body.kind,
+          originalPaymentRef: body.originalPaymentRef,
+          amountUSD: body.amountUSD,
+          reason: body.reason,
+          requesterLogin: login,
+          isOperator: isStoreOperator(login),
+          tenantId: body.tenantId,
+          originalAmountUSD: body.originalAmountUSD,
+          originalPaidAtMs: body.originalPaidAtMs,
+          rail: body.rail,
+          family: body.family,
+        },
+      );
+      ctx.audit("commercial.refund.requested", "payments", {
+        refundId: record.id,
+        userId: record.userId,
+        kind: record.kind,
+        originalPaymentRef: record.originalPaymentRef,
+        amountUSD: record.amountUSD,
+      });
+      return Response.json({ refund: record });
+    } catch (err: any) {
+      const message = err.message || "Failed to request refund";
+      const status = /required|must be|not allowed|exceeds|expired|non-refundable|No subscription|Only the|no stored|determinable|rail is required|resolver/.test(message)
+        ? 400
+        : 500;
+      return Response.json({ error: message }, { status });
+    }
+  }
+
+  // Operator decision on a requested refund: approve or deny.
+  // Approver is operator HITL only (policy enforces the same).
+  if (path.endsWith("/payments/agentic/commercial/refunds/approve") && request.method === "POST") {
+    try {
+      const login = commercialLogin();
+      if (!login) return Response.json({ error: "Unauthorized: verified login required." }, { status: 401 });
+      if (!isStoreOperator(login)) {
+        return Response.json({ error: "Forbidden: store operator required." }, { status: 403 });
+      }
+      const flag = await requireRefundFlag();
+      if (flag) return flag;
+      const body = (await request.json().catch(() => ({}))) as { refundId?: unknown; decision?: unknown; note?: unknown };
+      const refundId = typeof body.refundId === "string" ? body.refundId : "";
+      if (!refundId) return Response.json({ error: "refundId is required." }, { status: 400 });
+      if (body.decision !== "approve" && body.decision !== "deny") {
+        return Response.json({ error: "decision must be approve or deny." }, { status: 400 });
+      }
+      const ports = requireRefunds();
+      if (ports instanceof Response) return ports;
+      try {
+        await ensureRefundSchema(ports.store.db);
+      } catch (err: any) {
+        return Response.json({ error: `Refund store unavailable: ${err.message || "unknown error"}` }, { status: 503 });
+      }
+      const record = await decideRefund(
+        { refundStore: ports.store },
+        { refundId, decision: body.decision, approverLogin: login, note: typeof body.note === "string" ? body.note : undefined },
+      );
+      ctx.audit("commercial.refund.decided", "payments", {
+        refundId: record.id,
+        decision: body.decision,
+        approverLogin: login,
+      });
+      return Response.json({ refund: record });
+    } catch (err: any) {
+      const message = err.message || "Failed to decide refund";
+      const status = /No refund/.test(message) ? 404 : /cannot be decided/.test(message) ? 400 : 500;
+      return Response.json({ error: message }, { status });
+    }
+  }
+
+  // Operator execution of an APPROVED refund via the Stripe
+  // payment-intent id. Unapproved, unresolvable, window/amount, and
+  // crypto cases are refused by the service before any gateway
+  // call; a gateway failure marks execution_failed (retryable).
+  if (path.endsWith("/payments/agentic/commercial/refunds/execute") && request.method === "POST") {
+    try {
+      const login = commercialLogin();
+      if (!login) return Response.json({ error: "Unauthorized: verified login required." }, { status: 401 });
+      if (!isStoreOperator(login)) {
+        return Response.json({ error: "Forbidden: store operator required." }, { status: 403 });
+      }
+      const flagOn = await createFeatureFlagPort(ctx.env).isEnabled("monetization");
+      if (!flagOn) {
+        return Response.json({ error: "monetization flag is OFF; refunds are disabled." }, { status: 403 });
+      }
+      const body = (await request.json().catch(() => ({}))) as { refundId?: unknown };
+      const refundId = typeof body.refundId === "string" ? body.refundId : "";
+      if (!refundId) return Response.json({ error: "refundId is required." }, { status: 400 });
+      const ports = requireRefunds();
+      if (ports instanceof Response) return ports;
+      try {
+        await ensureRefundSchema(ports.store.db);
+      } catch (err: any) {
+        return Response.json({ error: `Refund store unavailable: ${err.message || "unknown error"}` }, { status: 503 });
+      }
+      const store = requireStore();
+      if (store instanceof Response) return store;
+      const subs = requireSubs();
+      if (subs instanceof Response) return subs;
+      const ensured = await ensureStores(store, subs);
+      if (ensured) return ensured;
+      const gateway = {
+        executeRefund: async (params: {
+          transactionId: string; amount: number; gateway: "stripe"; gatewayRef: string; userLogin: string; reason: string;
+        }) => {
+          const service = new PaymentGatewayService(ctx.env);
+          const res = await service.executeRefund(params);
+          return { success: res.success, refundId: res.refundId, amountRefunded: res.amountRefunded, message: res.message };
+        },
+      };
+      const record = await executeRefund(
+        {
+          policyStore: ports.policy,
+          refundStore: ports.store,
+          sourceResolver: createSubscriptionPaymentResolver(subs),
+          subscriptionStore: subs,
+          commercialStore: store,
+          gateway,
+          postJournal: (entries) =>
+            postJournalBestEffort(async () => {
+              const adapter = createJournalAdapter(ctx.env as { AGENT_DB?: unknown });
+              if (!adapter) return null;
+              try {
+                await ensureJournalSchema(adapter.db);
+              } catch {
+                // Best-effort: the post itself reports the failure.
+              }
+              return adapter;
+            }, entries),
+          monetizationEnabled: flagOn,
+        },
+        { refundId },
+      );
+      ctx.audit("commercial.refund.executed", "payments", {
+        refundId: record.id,
+        gatewayRefundId: record.gatewayRefundId,
+        amountUSD: record.amountUSD,
+        entitlementConsequence: record.entitlementConsequence,
+      });
+      return Response.json({ refund: record });
+    } catch (err: any) {
+      const message = err.message || "Failed to execute refund";
+      const status = /No refund/.test(message)
+        ? 404
+        : /Only an approved refund/.test(message)
+          ? 409
+          : /Gateway refund failed/.test(message)
+            ? 502
+            : /not resolvable|non-refundable|window expired|not allowed|exceeds|not configured|flag is OFF/.test(message)
+              ? 422
+              : 500;
+      return Response.json({ error: message }, { status });
+    }
+  }
+
+  // Refund read: one record by id, or the caller's own list (an
+  // operator may list another user's refunds by userId). Reads are
+  // not flag-gated: refund status stays readable when the flag is OFF.
+  if (path.endsWith("/payments/agentic/commercial/refunds") && request.method === "GET") {
+    try {
+      const login = commercialLogin();
+      if (!login) return Response.json({ error: "Unauthorized: verified login required." }, { status: 401 });
+      const ports = requireRefunds();
+      if (ports instanceof Response) return ports;
+      try {
+        await ensureRefundSchema(ports.store.db);
+      } catch (err: any) {
+        return Response.json({ error: `Refund store unavailable: ${err.message || "unknown error"}` }, { status: 503 });
+      }
+      const refundId = url.searchParams.get("refundId") ?? "";
+      if (refundId) {
+        const record = await ports.store.getRefund(refundId);
+        if (!record) return Response.json({ error: `No refund ${refundId}.` }, { status: 404 });
+        if (record.userId !== login && !isStoreOperator(login)) {
+          return Response.json({ error: "Forbidden: only the refund owner or a store operator may read a refund." }, { status: 403 });
+        }
+        return Response.json({ refund: record });
+      }
+      const userId = url.searchParams.get("userId") ?? "";
+      const target = userId && isStoreOperator(login) ? userId : login;
+      const refunds = await ports.store.listRefunds(target);
+      return Response.json({ refunds });
+    } catch {
+      return Response.json({ error: "Failed to read refunds." }, { status: 500 });
+    }
+  }
+
+  // Refund policy read: current operator policy plus the PROPOSED
+  // disclosure copy (the UI slice surfaces this copy later).
+  if (path.endsWith("/payments/agentic/commercial/refund-policy") && request.method === "GET") {
+    try {
+      const login = commercialLogin();
+      if (!login) return Response.json({ error: "Unauthorized: verified login required." }, { status: 401 });
+      const ports = requireRefunds();
+      if (ports instanceof Response) return ports;
+      try {
+        await ensureRefundSchema(ports.store.db);
+      } catch (err: any) {
+        return Response.json({ error: `Refund store unavailable: ${err.message || "unknown error"}` }, { status: 503 });
+      }
+      const policy = await ports.policy.getPolicy();
+      if (!policy) return Response.json({ error: "Refund policy is not configured." }, { status: 503 });
+      return Response.json({ policy, disclosure: REFUND_POLICY_COPY, proposed: true });
+    } catch {
+      return Response.json({ error: "Failed to read refund policy." }, { status: 500 });
+    }
+  }
+
+  // Operator refund policy update: validated partial update, no
+  // code deploy. Not flag-gated (configuration precedes activation).
+  if (path.endsWith("/payments/agentic/commercial/refund-policy") && request.method === "POST") {
+    try {
+      const login = commercialLogin();
+      if (!login) return Response.json({ error: "Unauthorized: verified login required." }, { status: 401 });
+      if (!isStoreOperator(login)) {
+        return Response.json({ error: "Forbidden: store operator required." }, { status: 403 });
+      }
+      const ports = requireRefunds();
+      if (ports instanceof Response) return ports;
+      try {
+        await ensureRefundSchema(ports.store.db);
+      } catch (err: any) {
+        return Response.json({ error: `Refund store unavailable: ${err.message || "unknown error"}` }, { status: 503 });
+      }
+      const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+      try {
+        const policy = await ports.policy.setPolicy(body);
+        ctx.audit("commercial.refund.policy.set", "payments", { policy });
+        return Response.json({ policy });
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to set refund policy" }, { status: 400 });
+      }
+    } catch {
+      return Response.json({ error: "Failed to set refund policy." }, { status: 500 });
     }
   }
 
