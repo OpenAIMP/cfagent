@@ -121,31 +121,31 @@ export function ScreeningActivityPanel({ userLogin }: ScreeningActivityPanelProp
         borderRadius: "8px",
       }}
     >
-      <h4 style={{ margin: "0 0 0.5rem", color: "var(--color-accent)", fontSize: "1.05rem" }}>
+      <h4 style={{ margin: "0 0 0.5rem", color: "var(--color-accent)", fontSize: "var(--font-size-title-sm)" }}>
         🤖 Autonomous Screening Activity
       </h4>
-      <p style={{ margin: "0 0 0.75rem", color: "var(--color-text-secondary)", fontSize: "0.92rem", lineHeight: 1.5 }}>
+      <p style={{ margin: "0 0 0.75rem", color: "var(--color-text-secondary)", fontSize: "var(--font-size-body)", lineHeight: 1.5 }}>
         What the screening system did on its own: discovery runs, strategy re-selections, weight
         adjustments, promotions, and channel deliveries. Everything here is a proposal or a draft —
         nothing trades and nothing activates without a person.
       </p>
 
       {loadError && (
-        <p style={{ margin: 0, color: "var(--color-text-muted)", fontSize: "0.85rem" }}>{loadError}</p>
+        <p style={{ margin: 0, color: "var(--color-text-muted)", fontSize: "var(--font-size-body)" }}>{loadError}</p>
       )}
 
       {!loadError && controls && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-3)", alignItems: "center", marginBottom: "0.75rem" }}>
-          <span style={{ color: "var(--color-text-secondary)", fontSize: "0.85rem" }}>
+          <span style={{ color: "var(--color-text-secondary)", fontSize: "var(--font-size-body)" }}>
             Rollout stage: <strong>{controls.rolloutStage}</strong>
           </span>
-          <span style={{ color: "var(--color-text-secondary)", fontSize: "0.85rem" }}>
+          <span style={{ color: "var(--color-text-secondary)", fontSize: "var(--font-size-body)" }}>
             Channels: <strong>{controls.channelsEnabled ? "on" : "off"}</strong>
           </span>
-          <span style={{ color: "var(--color-text-secondary)", fontSize: "0.85rem" }}>
+          <span style={{ color: "var(--color-text-secondary)", fontSize: "var(--font-size-body)" }}>
             V2-weight ranking: <strong>{controls.weightsV2Ranking ? "on" : "off"}</strong>
           </span>
-          <span style={{ color: "var(--color-text-secondary)", fontSize: "0.85rem" }}>
+          <span style={{ color: "var(--color-text-secondary)", fontSize: "var(--font-size-body)" }}>
             Scheduled screening: <strong>{controls.scheduledPaused ? "paused" : "running"}</strong>
           </span>
           <Button type="button" onClick={() => void togglePaused()} disabled={busy}>
@@ -154,18 +154,18 @@ export function ScreeningActivityPanel({ userLogin }: ScreeningActivityPanelProp
         </div>
       )}
       {actionError && (
-        <p style={{ margin: "0 0 0.75rem", color: "var(--color-text-muted)", fontSize: "0.85rem" }}>{actionError}</p>
+        <p style={{ margin: "0 0 0.75rem", color: "var(--color-text-muted)", fontSize: "var(--font-size-body)" }}>{actionError}</p>
       )}
 
       {!loadError && feed.length === 0 && (
-        <p style={{ margin: 0, color: "var(--color-text-muted)", fontSize: "0.85rem" }}>
+        <p style={{ margin: 0, color: "var(--color-text-muted)", fontSize: "var(--font-size-body)" }}>
           No screening activity recorded yet.
         </p>
       )}
       {feed.length > 0 && (
         <ul style={{ margin: 0, paddingLeft: "var(--space-4)" }}>
           {feed.map((entry) => (
-            <li key={entry.id} style={{ color: "var(--color-text-secondary)", fontSize: "0.88rem", lineHeight: 1.55 }}>
+            <li key={entry.id} style={{ color: "var(--color-text-secondary)", fontSize: "var(--font-size-body)", lineHeight: 1.55 }}>
               <strong>{SCREENING_ACTIVITY_KIND_LABELS[entry.kind] ?? entry.kind}</strong>
               {" — "}
               {entry.summary}

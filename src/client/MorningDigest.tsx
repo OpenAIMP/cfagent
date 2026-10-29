@@ -151,7 +151,7 @@ export function MorningDigest({
   return (
     <Card padding="md">
       <h3 style={{ margin: "0 0 0.25rem" }}>Morning digest</h3>
-      <p style={{ fontSize: "0.85rem", color: "var(--color-text-muted)", margin: "0 0 1rem" }}>
+      <p style={{ fontSize: "var(--font-size-body)", color: "var(--color-text-muted)", margin: "0 0 1rem" }}>
         Overnight: {formatTime(window.startMs)} – {formatTime(window.endMs)}
         {window.inProgress ? " (in progress)" : ""} · {overnight.length} ran · {partialCount} partial ·{" "}
         {failedCount} failed · {held.length} held for review
@@ -184,7 +184,7 @@ export function MorningDigest({
                   <span style={{ fontWeight: 700 }}>
                     {run.universe || "Screen"} {run.sector ? `· ${run.sector}` : ""}
                   </span>
-                  <span style={{ fontSize: "0.85rem", color: "var(--color-text-muted)" }}>
+                  <span style={{ fontSize: "var(--font-size-body)", color: "var(--color-text-muted)" }}>
                     {formatTime(new Date(run.timestamp).getTime())}
                     {typeof run.matchedCount === "number" && typeof run.totalScanned === "number"
                       ? ` · ${run.matchedCount} of ${run.totalScanned} matched`
@@ -192,7 +192,7 @@ export function MorningDigest({
                   </span>
                 </div>
                 {run.partial && (
-                  <div style={{ fontSize: "0.85rem", marginTop: "0.25rem" }}>
+                  <div style={{ fontSize: "var(--font-size-body)", marginTop: "0.25rem" }}>
                     Partial: quoted {run.partial.quotedCount} of {run.partial.requestedCount} requested
                     {run.partial.failedSymbols && run.partial.failedSymbols.length > 0
                       ? ` · failed: ${run.partial.failedSymbols.slice(0, 5).join(", ")}`
@@ -200,12 +200,12 @@ export function MorningDigest({
                   </div>
                 )}
                 {status === "failed" && (
-                  <div style={{ fontSize: "0.85rem", marginTop: "0.25rem" }}>
+                  <div style={{ fontSize: "var(--font-size-body)", marginTop: "0.25rem" }}>
                     {run.error || run.pdfError || "Run failed."}
                   </div>
                 )}
                 {run.pdfStatus === "failed" && run.pdfError && status !== "failed" && (
-                  <div style={{ fontSize: "0.85rem", marginTop: "0.25rem" }}>PDF failed: {run.pdfError}</div>
+                  <div style={{ fontSize: "var(--font-size-body)", marginTop: "0.25rem" }}>PDF failed: {run.pdfError}</div>
                 )}
                 <div style={{ display: "flex", gap: "var(--space-2)", marginTop: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
                   <Button variant="secondary" size="sm" onClick={() => onSelectRun(run.timestamp)}>
@@ -237,13 +237,13 @@ export function MorningDigest({
       {heldLoading ? (
         <Spinner label="Loading held items…" />
       ) : held.length === 0 ? (
-        <p style={{ fontSize: "0.85rem", color: "var(--color-text-muted)", margin: 0 }}>
+        <p style={{ fontSize: "var(--font-size-body)", color: "var(--color-text-muted)", margin: 0 }}>
           Nothing held for review.
         </p>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
           {held.map((item) => (
-            <div key={item.confirmationId} style={{ fontSize: "0.85rem" }}>
+            <div key={item.confirmationId} style={{ fontSize: "var(--font-size-body)" }}>
               <Badge tone="warning">Held for review</Badge>{" "}
               {item.kind}
               {item.detail ? ` · ${item.detail}` : ""}

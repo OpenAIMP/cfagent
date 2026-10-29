@@ -82,10 +82,10 @@ export function ScreeningOutcomesPanel({ userLogin }: ScreeningOutcomesPanelProp
         borderRadius: "8px",
       }}
     >
-      <h4 style={{ margin: "0 0 0.5rem", color: "var(--color-accent)", fontSize: "1.05rem" }}>
+      <h4 style={{ margin: "0 0 0.5rem", color: "var(--color-accent)", fontSize: "var(--font-size-title-sm)" }}>
         📈 Recommendation Track Record
       </h4>
-      <p style={{ margin: "0 0 0.75rem", color: "var(--color-text-secondary)", fontSize: "0.92rem", lineHeight: 1.5 }}>
+      <p style={{ margin: "0 0 0.75rem", color: "var(--color-text-secondary)", fontSize: "var(--font-size-body)", lineHeight: 1.5 }}>
         What actually happened to the screening system's recommendations after they were issued,
         from the outcome ledger. A recommendation is <strong>Verified</strong> only when its
         terminal after-cost P&amp;L was recorded; otherwise it stays <strong>Unverified</strong> —
@@ -94,11 +94,11 @@ export function ScreeningOutcomesPanel({ userLogin }: ScreeningOutcomesPanelProp
       </p>
 
       {loadError && (
-        <p style={{ margin: 0, color: "var(--color-text-muted)", fontSize: "0.85rem" }}>{loadError}</p>
+        <p style={{ margin: 0, color: "var(--color-text-muted)", fontSize: "var(--font-size-body)" }}>{loadError}</p>
       )}
 
       {!loadError && outcomes.length === 0 && (
-        <p style={{ margin: 0, color: "var(--color-text-muted)", fontSize: "0.85rem" }}>
+        <p style={{ margin: 0, color: "var(--color-text-muted)", fontSize: "var(--font-size-body)" }}>
           No recommendation outcomes recorded yet. Outcomes appear here once issued
           recommendations are tracked to a terminal state.
         </p>
@@ -109,7 +109,7 @@ export function ScreeningOutcomesPanel({ userLogin }: ScreeningOutcomesPanelProp
           {outcomes.map((outcome) => (
             <li
               key={outcome.recommendationRef}
-              style={{ color: "var(--color-text-secondary)", fontSize: "0.88rem", lineHeight: 1.55, marginBottom: "0.5rem" }}
+              style={{ color: "var(--color-text-secondary)", fontSize: "var(--font-size-body)", lineHeight: 1.55, marginBottom: "0.5rem" }}
             >
               <strong>{outcome.recommendationRef}</strong>
               {" — "}
