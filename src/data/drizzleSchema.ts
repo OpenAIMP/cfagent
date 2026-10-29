@@ -396,6 +396,51 @@ export const agentJournalEntries = sqliteTable("agent_journal_entries", {
 });
 
 /**
+ * Referral-credit + lifecycle tables (#2208, migration 0015).
+ * Column names match migration 0015 exactly; the test pins the
+ * two together. agent_referral_earnings is a SEPARATE balance
+ * from agent_credit_claims (failure credits) — never joined.
+ */
+export const agentReferralRules = sqliteTable("agent_referral_rules", {
+  id: text("id").primaryKey(),
+  earnAmountUSD: real("earn_amount_usd").notNull(),
+  vestingDelayMs: integer("vesting_delay_ms").notNull(),
+  redemptionScope: text("redemption_scope").notNull(),
+  updatedAtMs: integer("updated_at_ms").notNull(),
+});
+
+export const agentReferralEarnings = sqliteTable("agent_referral_earnings", {
+  id: text("id").primaryKey(),
+  referrerUserId: text("referrer_user_id").notNull(),
+  referredUserId: text("referred_user_id").notNull(),
+  tenantId: text("tenant_id").notNull(),
+  amountUSD: real("amount_usd").notNull(),
+  redeemedAmountUSD: real("redeemed_amount_usd").notNull(),
+  earnedAtMs: integer("earned_at_ms").notNull(),
+  vestedAtMs: integer("vested_at_ms").notNull(),
+  redeemedByRunId: text("redeemed_by_run_id"),
+  redeemedAtMs: integer("redeemed_at_ms"),
+});
+
+export const agentNotificationPreferences = sqliteTable("agent_notification_preferences", {
+  userId: text("user_id").primaryKey(),
+  tenantId: text("tenant_id").notNull(),
+  digestEnabled: integer("digest_enabled").notNull(),
+  welcomeEnabled: integer("welcome_enabled").notNull(),
+  updatedAtMs: integer("updated_at_ms").notNull(),
+});
+
+export const agentDigestSends = sqliteTable(
+  "agent_digest_sends",
+  {
+    userId: text("user_id").notNull(),
+    day: text("day").notNull(),
+    sentAtMs: integer("sent_at_ms").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.day] })],
+);
+
+/**
  * Per-run price catalogue (#2185, sub-issue of #2012) on D1.
  * One row per family; operator data, never code. This schema MAPS
  * the table; it does not create it — DDL authority lives in

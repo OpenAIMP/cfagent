@@ -1,0 +1,95 @@
+/**
+ * Issue #2208 — referral-credit service: the earn event and the
+ * coverage-path redemption.
+ *
+ * Earn: a referred user's FIRST paid run earns the referrer the
+ * stored rule amount (read from the operator rule row at earn
+ * time, so a rule change affects future earnings only). The
+ * port's recordEarning is idempotent per referred user, so a
+ * replayed earn event cannot double-earn.
+ *
+ * Attribution gap, stated plainly: no signup/submit path today
+ * records which referrer a user came from (referral LINKS exist
+ * in ads/referrals tracking, but no referrer attribution lands
+ * on the account). The operator record-earn route is therefore
+ * the earn trigger in this slice; wiring automatic attribution
+ * (referral code captured at account creation, earn fired on
+ * first verified paid run) is follow-up work, not claimed here.
+ *
+ * Redemption and the coverage path: referral credits are NOT
+ * spent by starting a run directly — that would be a parallel
+ * payment bypass around the gate. Instead, conversion settles
+ * referral credit INTO the commercial account (adjustCredits),
+ * and the run then goes through the EXISTING gate + payment
+ * workflow, which covers it via paidVia "credits" and consumes
+ * it via the existing consumeCoverage path. Zero gate changes,
+ * zero new paidVia values, zero price changes. The referral
+ * ledger keeps the audit (which earnings were redeemed, for
+ * which run); the commercial balance is only ever topped up by
+ * exactly the redeemed amount.
+ *
+ * Ordering (fail-safe direction): redeem the referral earnings
+ * FIRST, then top up the commercial account. If the top-up
+ * throws, the redeem already happened — the caller fails closed
+ * (503, no run, no payment workflow) and the earning rows are
+ * the operator's reconcile signal. The reverse order (top-up
+ * first) would mint spendable commercial credit on a redeem
+ * failure, which is strictly worse. Partial balances are NOT
+ * converted: conversion covers an exact run price, and a
+ * balance below the price stays untouched for a later run —
+ * partial-balance discounting needs gate work and is deferred.
+ */
+import type { CommercialStore } from "../data/commercialPorts";
+import type { LifecycleStore } from "../data/lifecyclePorts";
+
+/** The earn event: a referred user's first paid run. Idempotent per referred user. */
+export async function recordFirstPaidRunEarning(
+  store: LifecycleStore,
+  input: { referrerUserId: string; referredUserId: string; tenantId: string },
+) {
+  return store.recordEarning(input);
+}
+
+/**
+ * Convert exactly amountUSD of vested referral credit into
+ * commercial-account credit for one run, then let the normal
+ * gate consume it. Throws (before any payment workflow starts)
+ * on insufficient vested balance, tenant mismatch, or a failed
+ * top-up — the last case after redeem, by the ordering above.
+ */
+export async function convertReferralCreditsForRun(input: {
+  lifecycle: LifecycleStore;
+  commercial: CommercialStore;
+  userId: string;
+  tenantId: string;
+  amountUSD: number;
+  runRequestId: string;
+}): Promise<{ redeemedUSD: number; allocations: Array<{ earningId: string; amountUSD: number }> }> {
+  const existing = await input.commercial.getAccount(input.userId);
+  if (existing && existing.tenantId !== input.tenantId) {
+    throw new Error("Tenant mismatch: referral conversion tenant must equal the account tenant.");
+  }
+  const redeemed = await input.lifecycle.redeem({
+    userId: input.userId,
+    tenantId: input.tenantId,
+    amountUSD: input.amountUSD,
+    runRequestId: input.runRequestId,
+  });
+  try {
+    if (!existing) {
+      await input.commercial.upsertAccount({
+        userId: input.userId,
+        tenantId: input.tenantId,
+        tier: "Free",
+        creditsUSD: 0,
+        includedRuns: 0,
+      });
+    }
+    await input.commercial.adjustCredits(input.userId, redeemed.redeemedUSD);
+  } catch (err: any) {
+    throw new Error(
+      `Referral credit redeemed for run ${input.runRequestId} but commercial top-up failed (${err?.message ?? "unknown error"}); no run started, operator must reconcile from the referral earning rows.`,
+    );
+  }
+  return redeemed;
+}
