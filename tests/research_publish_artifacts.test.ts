@@ -154,6 +154,8 @@ describe("generateAndStoreResearchReport (#2167)", () => {
     expect(rows).toHaveLength(1);
     const body = JSON.parse(String(rows[0].body));
     expect(body.pdfStatus).toBe("failed");
+    expect(body.pdfError).toContain("REPORT_001");
+    expect(body.xlsxError).toContain("REPORT_002");
     expect(body.xlsxError).toContain("blob store down");
   });
 });
