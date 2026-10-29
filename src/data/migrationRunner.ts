@@ -458,6 +458,29 @@ CREATE TABLE IF NOT EXISTS agent_price_catalogue (
 `,
 };
 
+/**
+ * Migration 0013 — native subscription payment ids (#2198,
+ * sub-issue of #2012, slice 2 of #2146). Number claimed
+ * deliberately, not next-in-line: 0010 is claimed by #2187/#2188,
+ * 0011 by the price catalogue (#2189, in this stack), and 0012 by
+ * the native-ledger draft — so this slice claims 0013 to avoid a
+ * merge-sequencing collision. Portable subset (same rules as
+ * migrations 0001-0011): DDL only, no params, no dialect date
+ * functions, no RETURNING. Both columns are nullable: pre-native
+ * (cfpay-era) subscription rows have no Stripe ids, and the
+ * replay guard stays the UNIQUE index on provider_payment_ref,
+ * unchanged. The Drizzle mapping in drizzleSchema.ts must agree
+ * with this DDL.
+ */
+export const MIGRATION_0013_SUBSCRIPTION_STRIPE_IDS: DataMigration = {
+  version: 13,
+  name: "0013_subscription_stripe_ids",
+  sql: `
+ALTER TABLE agent_subscriptions ADD COLUMN stripe_session_id TEXT;
+ALTER TABLE agent_subscriptions ADD COLUMN stripe_payment_intent_id TEXT;
+`,
+};
+
 export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0001_AGENT_GOVERNANCE,
   MIGRATION_0002_AGENT_CHAINS_SCHEDULES,
@@ -469,6 +492,7 @@ export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0008_SUBSCRIPTIONS,
   MIGRATION_0009_JOURNAL,
   MIGRATION_0011_PRICE_CATALOGUE,
+  MIGRATION_0013_SUBSCRIPTION_STRIPE_IDS,
 ];
 
 function splitStatements(sqlText: string): string[] {

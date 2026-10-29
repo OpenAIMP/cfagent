@@ -126,6 +126,26 @@ describe("subscription port contract", () => {
       expect(rows.find((s) => s.id === "s3")?.status).toBe("active");
     }
   });
+
+  it("stores native Stripe session + payment-intent ids, null when absent (#2198)", async () => {
+    for (const { subs } of await adapters()) {
+      const native = await subs.createSubscription({
+        id: "s-native", userId: "u9", tenantId: "t9", planId: "pro", provider: "stripe",
+        providerPaymentRef: "sub-native-1", stripeSessionId: "cs_test_1", stripePaymentIntentId: "pi_test_1",
+        periodStartMs: NOW, periodEndMs: NOW + 30 * MS_PER_DAY,
+      });
+      expect(native.stripeSessionId).toBe("cs_test_1");
+      expect(native.stripePaymentIntentId).toBe("pi_test_1");
+      expect((await subs.getSubscription("s-native"))?.stripeSessionId).toBe("cs_test_1");
+      expect((await subs.getSubscription("s-native"))?.stripePaymentIntentId).toBe("pi_test_1");
+      const legacy = await subs.createSubscription({
+        id: "s-legacy", userId: "u9", tenantId: "t9", planId: "pro", provider: "cfpay",
+        providerPaymentRef: "sub-legacy-1", periodStartMs: NOW, periodEndMs: NOW + 30 * MS_PER_DAY,
+      });
+      expect(legacy.stripeSessionId).toBeNull();
+      expect(legacy.stripePaymentIntentId).toBeNull();
+    }
+  });
 });
 
 describe("resolveEffectiveTier", () => {

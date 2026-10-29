@@ -358,6 +358,8 @@ export const agentSubscriptions = sqliteTable("agent_subscriptions", {
   planId: text("plan_id").notNull(),
   provider: text("provider").notNull(),
   providerPaymentRef: text("provider_payment_ref").notNull(),
+  stripeSessionId: text("stripe_session_id"),
+  stripePaymentIntentId: text("stripe_payment_intent_id"),
   status: text("status").notNull(),
   periodStartMs: integer("period_start_ms").notNull(),
   periodEndMs: integer("period_end_ms").notNull(),
