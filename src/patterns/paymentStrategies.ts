@@ -235,6 +235,7 @@ export class StripePaymentStrategy implements IPaymentGatewayStrategy {
     amount_total: number;
     client_reference_id: string;
     payment_intent?: string;
+    url?: string;
   }> {
     const { apiKey } = this.resolveApiKey(env);
     if (!apiKey) {
@@ -260,6 +261,11 @@ export class StripePaymentStrategy implements IPaymentGatewayStrategy {
       payment_status: typeof data.payment_status === "string" ? data.payment_status : "",
       amount_total: typeof data.amount_total === "number" ? data.amount_total : NaN,
       client_reference_id: typeof data.client_reference_id === "string" ? data.client_reference_id : "",
+      // The hosted checkout URL, when Stripe still serves one (open
+      // sessions). Passed through, never judged: a URL is a redirect,
+      // not proof — the gate judges status/payment_status/amount/
+      // reference, and the UI presents this URL only as a link.
+      url: typeof data.url === "string" ? data.url : undefined,
       payment_intent:
         typeof paymentIntent === "string"
           ? paymentIntent
