@@ -424,13 +424,13 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
       {/* Portfolio-aware sizing (#36) */}
       <div className="prp-subhead">Portfolio-Aware Sizing</div>
       <div className="prp-form-grid">
-        <label>Symbol<TextInput value={sizeSymbol} onChange={(e) => setSizeSymbol(e.target.value)} placeholder="ACME" /></label>
-        <label>Δ $ / contract<TextInput value={sizeDelta} onChange={(e) => setSizeDelta(e.target.value)} placeholder="500" inputMode="decimal" /></label>
-        <label>β-weighted Δ $ / contract<TextInput value={sizeBetaDelta} onChange={(e) => setSizeBetaDelta(e.target.value)} placeholder="600 (blank = unknown)" inputMode="decimal" /></label>
-        <label>Defined max loss $ / contract<TextInput value={sizeMaxLoss} onChange={(e) => setSizeMaxLoss(e.target.value)} placeholder="200 (blank = undefined risk)" inputMode="decimal" /></label>
-        <label>Risk score 0–100<TextInput value={sizeRiskScore} onChange={(e) => setSizeRiskScore(e.target.value)} placeholder="optional" inputMode="decimal" /></label>
-        <label>Requested contracts<TextInput value={sizeRequested} onChange={(e) => setSizeRequested(e.target.value)} placeholder="optional" inputMode="numeric" /></label>
-        <label>Max measured correlation<TextInput value={sizeCorr} onChange={(e) => setSizeCorr(e.target.value)} placeholder="e.g. 0.85 (optional)" inputMode="decimal" /></label>
+        <TextInput label="Symbol" value={sizeSymbol} onChange={(e) => setSizeSymbol(e.target.value)} placeholder="ACME" />
+        <TextInput label="Δ $ / contract" value={sizeDelta} onChange={(e) => setSizeDelta(e.target.value)} placeholder="500" inputMode="decimal" />
+        <TextInput label="β-weighted Δ $ / contract" value={sizeBetaDelta} onChange={(e) => setSizeBetaDelta(e.target.value)} placeholder="600 (blank = unknown)" inputMode="decimal" />
+        <TextInput label="Defined max loss $ / contract" value={sizeMaxLoss} onChange={(e) => setSizeMaxLoss(e.target.value)} placeholder="200 (blank = undefined risk)" inputMode="decimal" />
+        <TextInput label="Risk score 0–100" value={sizeRiskScore} onChange={(e) => setSizeRiskScore(e.target.value)} placeholder="optional" inputMode="decimal" />
+        <TextInput label="Requested contracts" value={sizeRequested} onChange={(e) => setSizeRequested(e.target.value)} placeholder="optional" inputMode="numeric" />
+        <TextInput label="Max measured correlation" value={sizeCorr} onChange={(e) => setSizeCorr(e.target.value)} placeholder="e.g. 0.85 (optional)" inputMode="decimal" />
       </div>
       <Button className="prp-size-btn" onClick={() => void runSizing()} disabled={sizeLoading || !sizeSymbol.trim()}>
       variant="secondary"
@@ -466,7 +466,7 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
       <div className="prp-subhead">Recommendation Bundle (Best Trade v2)</div>
       <div className="ui-footnote">Paste a strategy candidate (strategy-engine JSON) to build its full bundle against the live book: trade + falsification + post-trade risk + optimizer verdict + hedge/repair plans + alternatives including no-trade. Draft only — human approval is required for any order.</div>
       <div className="prp-form-grid">
-        <label>Symbol beta (blank = unknown)<TextInput value={bundleBeta} onChange={(e) => setBundleBeta(e.target.value)} placeholder="e.g. 1.1" inputMode="decimal" /></label>
+        <TextInput label="Symbol beta (blank = unknown)" value={bundleBeta} onChange={(e) => setBundleBeta(e.target.value)} placeholder="e.g. 1.1" inputMode="decimal" />
       </div>
       <TextInput multiline
         className="prp-bundle-json"
@@ -519,7 +519,7 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
           ["gammaSharesPerDollar", "Γ shares/$"], ["thetaDollarsPerDay", "Θ $/day"], ["vegaDollarsPerVolPoint", "Vega $/vol pt"],
           ["rhoDollarsPerRatePoint", "Rho $/1%"], ["definedMaxLoss", "Defined max loss $"],
         ] as Array<[string, string]>).map(([key, label]) => (
-          <label key={key}>{label}<TextInput value={evalForm[key] ?? ""} onChange={(e) => setEvalForm({ ...evalForm, [key]: e.target.value })} inputMode="decimal" /></label>
+          <TextInput key={key} label={label} value={evalForm[key] ?? ""} onChange={(e) => setEvalForm({ ...evalForm, [key]: e.target.value })} inputMode="decimal" />
         ))}
       </div>
       <Button className="prp-size-btn" onClick={() => void runEvaluate()} disabled={evalLoading}>{evalLoading ? "Evaluating…" : "Evaluate post-trade"}</Button>
@@ -545,19 +545,15 @@ export function PortfolioRiskPanel({ activeEnv, onPreviewHedge }: PortfolioRiskP
       <div className="prp-subhead">Trade Guardrail Check</div>
       <div className="ui-footnote">Runs the think harness on live account state. It fails closed — when price, balance, or spread cannot be resolved from the broker, the verdict is INPUTS_UNAVAILABLE and no draft is produced.</div>
       <div className="prp-form-grid">
-        <label>Symbol<TextInput value={thinkSymbol} onChange={(e) => setThinkSymbol(e.target.value)} placeholder="ACME" /></label>
-        <label>Action
-          <Select value={thinkAction} onChange={(e) => setThinkAction(e.target.value as "BUY" | "SELL")}>
-            <option value="BUY">BUY</option><option value="SELL">SELL</option>
-          </Select>
-        </label>
-        <label>Quantity<TextInput value={thinkQuantity} onChange={(e) => setThinkQuantity(e.target.value)} inputMode="numeric" /></label>
-        <label>Order type
-          <Select value={thinkOrderType} onChange={(e) => setThinkOrderType(e.target.value as "MARKET" | "LIMIT" | "STOP")}>
-            <option value="MARKET">MARKET</option><option value="LIMIT">LIMIT</option><option value="STOP">STOP</option>
-          </Select>
-        </label>
-        <label>Price (optional)<TextInput value={thinkPrice} onChange={(e) => setThinkPrice(e.target.value)} inputMode="decimal" /></label>
+        <TextInput label="Symbol" value={thinkSymbol} onChange={(e) => setThinkSymbol(e.target.value)} placeholder="ACME" />
+        <Select label="Action" value={thinkAction} onChange={(e) => setThinkAction(e.target.value as "BUY" | "SELL")}>
+          <option value="BUY">BUY</option><option value="SELL">SELL</option>
+        </Select>
+        <TextInput label="Quantity" value={thinkQuantity} onChange={(e) => setThinkQuantity(e.target.value)} inputMode="numeric" />
+        <Select label="Order type" value={thinkOrderType} onChange={(e) => setThinkOrderType(e.target.value as "MARKET" | "LIMIT" | "STOP")}>
+          <option value="MARKET">MARKET</option><option value="LIMIT">LIMIT</option><option value="STOP">STOP</option>
+        </Select>
+        <TextInput label="Price (optional)" value={thinkPrice} onChange={(e) => setThinkPrice(e.target.value)} inputMode="decimal" />
       </div>
       <Button className="prp-size-btn" onClick={() => void runThink()} disabled={thinkLoading || !thinkSymbol.trim() || !thinkQuantity.trim()}>
       variant="secondary"
