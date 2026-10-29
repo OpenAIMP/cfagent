@@ -138,6 +138,14 @@
       "retryable": true,
       "technicalDetail": "Follow-up report job found no adoptable artifact for the run's recorded keys"
     },
+    "REPORT_004": {
+      "businessMessage": "The CSV report could not be generated.",
+      "category": "report",
+      "code": "REPORT_004",
+      "httpStatus": 500,
+      "retryable": true,
+      "technicalDetail": "Report pipeline CSV generation failed; csvError recorded on the run"
+    },
     "DELIVER_001": {
       "businessMessage": "The delivery recipient is not on the screener email allowlist; delivery refused.",
       "category": "delivery",
