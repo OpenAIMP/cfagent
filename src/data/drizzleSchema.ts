@@ -396,6 +396,39 @@ export const agentJournalEntries = sqliteTable("agent_journal_entries", {
 });
 
 /**
+ * Native ledger rows (#2192, sub-issue of #2012, umbrella
+ * #2146). This schema MAPS the table; it does not create it
+ * — DDL authority lives in migration 0012
+ * (src/data/migrationRunner.ts), and a test pins that this
+ * mapping and that DDL agree on columns. Row shape mirrors
+ * the cfpay twin (src/services/cfpayLedger.ts) with the
+ * native session prefix, a truthful per-rail gateway, and
+ * tenantId + family carried natively. Unlike the cfpay rows
+ * (DO mas_transactions), native rows live in D1, never in
+ * mas_transactions, so BudgetGuard cannot see them.
+ */
+export const agentNativeLedgerRows = sqliteTable("agent_native_ledger_rows", {
+  id: text("id").primaryKey(),
+  sessionId: text("session_id").notNull(),
+  action: text("action").notNull(),
+  amount: real("amount_usd").notNull(),
+  currency: text("currency").notNull(),
+  customer: text("customer").notNull(),
+  gateway: text("gateway").notNull(),
+  gatewayRef: text("gateway_ref").notNull(),
+  status: text("status").notNull(),
+  checkoutUrl: text("checkout_url").notNull(),
+  proposerDid: text("proposer_did").notNull(),
+  proofSignature: text("proof_signature").notNull(),
+  note: text("note").notNull(),
+  tenantId: text("tenant_id").notNull(),
+  family: text("family").notNull(),
+  runRequestId: text("run_request_id").notNull(),
+  createdAtMs: integer("created_at_ms").notNull(),
+  updatedAtMs: integer("updated_at_ms").notNull(),
+});
+
+/**
  * Per-run price catalogue (#2185, sub-issue of #2012) on D1.
  * One row per family; operator data, never code. This schema MAPS
  * the table; it does not create it — DDL authority lives in
