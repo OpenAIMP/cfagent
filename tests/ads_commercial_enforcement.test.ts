@@ -117,13 +117,49 @@ async function setup(
       return [];
     }),
   } as never;
+  // #2345 adaptation: the handlers serve the marketplace
+  // tables through the ports (orm.marketplacePorts); the stub
+  // repositories double as the ports and the /ads serving row
+  // comes from the ads port stub. The impression-increment
+  // assertions moved from the retired UPDATE statement to the
+  // port's incrementAllImpressions call.
+  const adsPort = {
+    findMany: vi.fn(async () => [{
+      id: "ad_workers_ai",
+      title: "Cloudflare Workers AI",
+      tagline: "Run models on serverless GPUs.",
+      sponsor: "Cloudflare",
+      badge: "FLAGSHIP PARTNER",
+      url: "https://developers.cloudflare.com/workers-ai/",
+      ctaText: "Deploy in 60s →",
+      accentColor: "#f38020",
+      impressions: 5,
+      clicks: 2,
+      createdAt: "2026-10-28T00:00:00Z",
+    }]),
+    findById: vi.fn(async () => null),
+    update: vi.fn(async (id: string, patch: Record<string, unknown>) => ({ id, ...patch })),
+    create: vi.fn(async (rec: any) => rec),
+    delete: vi.fn(async () => true),
+    count: vi.fn(async () => 1),
+    incrementCounter: vi.fn(async () => null),
+    incrementAllImpressions: vi.fn(async () => undefined),
+  };
   const adsOrm = {
     externalAds: {
       findMany: vi.fn(() => [{ id: "e1", title: "Ext", impressions: 3, clicks: 1 }]),
       findById: vi.fn(() => ({ id: "e1", impressions: 3, clicks: 1, earnings: 0, cpmRate: 1, cpcRate: 1 })),
       update: vi.fn((id: string, patch: Record<string, unknown>) => ({ id, ...patch })),
     },
+    ads: adsPort,
+    marketplacePorts: vi.fn(async () => ({
+      categories: { findMany: vi.fn(async () => []) },
+      externalAds: (adsOrmRef as any).externalAds,
+      ads: adsPort,
+      referrals: { findMany: vi.fn(async () => []) },
+    })),
   };
+  const adsOrmRef = adsOrm;
   const adsCtx = {
     getOrm: () => adsOrm,
     ensureTables: () => adsSql,
@@ -155,12 +191,12 @@ const callB = (ctx: AdsRevenueReferralsRouteContext, method: string, path: strin
 
 describe("ads suppression from the store (#2022)", () => {
   it("serves Free users with the impression increment", async () => {
-    const { adsCtx, adsSql } = await setup("Free", true);
+    const { adsCtx, adsSql, adsOrm } = await setup("Free", true);
     const res = await callB(adsCtx, "GET", "/ads", "u1");
     const body = (await res?.json()) as { count: number; ads: Array<{ id: string }> };
     expect(body.count).toBe(1);
     expect(body.ads[0].id).toBe("ad_workers_ai");
-    expect(adsSql.exec.mock.calls.some(([q]: [string]) => q.startsWith("UPDATE mas_ads SET impressions"))).toBe(true);
+    expect(adsOrm.ads.incrementAllImpressions).toHaveBeenCalledWith(1);
   });
 
   it("suppresses Subscribed users with no write and no read", async () => {
@@ -202,7 +238,7 @@ describe("ads suppression from the store (#2022)", () => {
   });
 
   it("fails open to serve when the store is unreachable or the caller is anonymous", async () => {
-    const { adsCtx, adsSql } = await setup("Subscribed", true);
+    const { adsCtx, adsSql, adsOrm } = await setup("Subscribed", true);
     const noStoreCtx = {
       ...adsCtx,
       env: {},
@@ -211,7 +247,7 @@ describe("ads suppression from the store (#2022)", () => {
     expect(((await res?.json()) as { count: number }).count).toBe(1);
     const anon = await callB(adsCtx, "GET", "/ads", null);
     expect(((await anon?.json()) as { count: number }).count).toBe(1);
-    expect(adsSql.exec.mock.calls.some(([q]: [string]) => q.startsWith("UPDATE mas_ads SET impressions"))).toBe(true);
+    expect(adsOrm.ads.incrementAllImpressions).toHaveBeenCalledWith(1);
   });
 
   it("a populated Subscribed ctx tier still suppresses on store failure", async () => {
@@ -235,10 +271,10 @@ describe("ads effective tier from subscriptions (#2020/#2127)", () => {
   });
 
   it("an expired subscription stops suppressing ads for a subscription-granted tier", async () => {
-    const { adsCtx, adsSql } = await setup("Subscribed", true, [{ periodStartMs: NOW - 60 * 86_400_000, periodEndMs: NOW - 1000 }], "subscription");
+    const { adsCtx, adsSql, adsOrm } = await setup("Subscribed", true, [{ periodStartMs: NOW - 60 * 86_400_000, periodEndMs: NOW - 1000 }], "subscription");
     const res = await callB(adsCtx, "GET", "/ads", "u1");
     expect(((await res?.json()) as { count: number }).count).toBe(1);
-    expect(adsSql.exec.mock.calls.some(([q]: [string]) => q.startsWith("UPDATE mas_ads SET impressions"))).toBe(true);
+    expect(adsOrm.ads.incrementAllImpressions).toHaveBeenCalledWith(1);
     const cfg = (await (await callB(adsCtx, "GET", "/ads/banner-config", "u1"))?.json()) as Record<string, unknown>;
     expect(cfg.tier).toBe("Free");
     expect(cfg.adsAllowed).toBe(true);
