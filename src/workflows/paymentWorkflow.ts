@@ -86,6 +86,10 @@ import {
   ensureCommercialSchema,
 } from "../data/createCommercialPorts";
 import {
+  createPriceCatalogueAdapter,
+  ensurePriceCatalogueSchema,
+} from "../data/createPriceCataloguePorts";
+import {
   createJournalAdapter,
   ensureJournalSchema,
 } from "../data/createJournalPorts";
@@ -146,6 +150,19 @@ export class PaymentWorkflow extends ThinkWorkflow<
       // Fail closed rather than starting a screener for free at scale.
       throw new Error("Payment workflow: cfpay is not configured (CFPAY_URL / token missing).");
     }
+    // Issue #2185: prices come from the operator catalogue port,
+    // never from a code constant. When AGENT_DB is bound the
+    // schema is ensured first (migration 0011 seeds the proposed
+    // defaults on a fresh store, INSERT OR IGNORE so operator
+    // edits survive). When it is unbound the catalogue is null
+    // and the gate fails closed on price resolution — a money
+    // path never charges without operator price data. The ensure
+    // failure is loud for the same reason: a money path must not
+    // proceed on an unverified store.
+    const priceCatalogue = createPriceCatalogueAdapter(this.env as { AGENT_DB?: unknown });
+    if (priceCatalogue) {
+      await ensurePriceCatalogueSchema(priceCatalogue.db);
+    }
     const gate = new CfPayMonetizationGate(
       {
         createCheckout: async (input) => {
@@ -173,6 +190,7 @@ export class PaymentWorkflow extends ThinkWorkflow<
           { userId: p.userId, userLogin: p.userId },
         ),
         network: ((this.env as unknown as Record<string, unknown>).MONETIZATION_NETWORK as string) ?? "base-sepolia",
+        priceCatalogue,
       },
     );
 

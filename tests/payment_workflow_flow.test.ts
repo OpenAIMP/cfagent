@@ -40,6 +40,7 @@ import {
   type PaymentWorkflowHost,
 } from "../src/services/paymentWorkflowSubmission";
 import type { WorkflowJobCommand } from "../src/workflows/workflowPorts";
+import { InMemoryPriceCatalogueAdapter } from "../src/data/inMemoryPriceCatalogueAdapter";
 
 function stubCfpay(status = "fulfilled"): CfPayCheckoutClient {
   return {
@@ -111,6 +112,9 @@ function gateFor(status = "fulfilled"): CfPayMonetizationGate {
   return new CfPayMonetizationGate(stubCfpay(status), {
     monetizationEnabled: true,
     network: "base-sepolia",
+    // #2185: the gate prices from the catalogue port, never from
+    // code — the test double seeds the proposed defaults.
+    priceCatalogue: new InMemoryPriceCatalogueAdapter(),
   });
 }
 
@@ -138,6 +142,7 @@ describe("payment workflow flow (#2043, ported from the workspace cases)", () =>
     const gate = new CfPayMonetizationGate(stubCfpay(), {
       monetizationEnabled: false,
       network: "base-sepolia",
+      priceCatalogue: new InMemoryPriceCatalogueAdapter(),
     });
     const { deps } = depsFor(gate, { ...baseAccount });
     const out = await runPaymentWorkflowFlow(baseParams, deps, fakeStep());
