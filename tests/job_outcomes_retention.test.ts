@@ -12,8 +12,10 @@ import { describe, it, expect } from "vitest";
 import { MockSqlStorage } from "./mock-sql";
 import {
   JOB_OUTCOMES_KEEP_ROWS,
+  JOB_OUTCOMES_PRUNE_INTERVAL_MS,
   JOB_OUTCOMES_RETENTION_DEFAULT_DAYS,
   ensureJobOutcomesTable,
+  maybePruneJobOutcomes,
   pruneJobOutcomes,
 } from "../src/services/jobOutcomes";
 
@@ -112,6 +114,17 @@ describe("mas_job_outcomes retention (#2294)", () => {
 
     expect(result).toEqual({ deletedByAge: 0, deletedByCap: 0 });
     expect(survivingIds(sql)).toEqual(["ancient", "fresh"]);
+  });
+
+  it("self-bounds each instance once per interval", () => {
+    const sql = new MockSqlStorage();
+    seed(sql, Array.from({ length: 620 }, (_, i) => [`run-${i}`, i * 0.001] as [string, number]));
+
+    // First read of the day prunes; the second within the window does not.
+    expect(maybePruneJobOutcomes(sql, NOW)).toBe(true);
+    expect(rowCount(sql)).toBe(JOB_OUTCOMES_KEEP_ROWS);
+    expect(maybePruneJobOutcomes(sql, NOW + 60_000)).toBe(false);
+    expect(maybePruneJobOutcomes(sql, NOW + JOB_OUTCOMES_PRUNE_INTERVAL_MS + 1)).toBe(true);
   });
 
   it("creates the created_at index the feed orders on", () => {
