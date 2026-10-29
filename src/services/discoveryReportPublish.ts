@@ -47,7 +47,7 @@ export async function generateAndStoreDiscoveryReport(args: {
     return {
       ...outcome,
       pdfError: message,
-      xlsxError: message,
+      xlsxError: codedMessage("REPORT_002", message),
       csvError: codedMessage("REPORT_004", message),
     };
   }
@@ -91,7 +91,7 @@ export async function generateAndStoreDiscoveryReport(args: {
     outcome.xlsxKey = key;
     outcome.xlsxStatus = "generated";
   } catch (err) {
-    outcome.xlsxError = err instanceof Error ? err.message : String(err);
+    outcome.xlsxError = codedMessage("REPORT_002", err instanceof Error ? err.message : String(err));
     console.error("[DiscoveryReport] XLSX generation failed:", outcome.xlsxError);
   }
 
