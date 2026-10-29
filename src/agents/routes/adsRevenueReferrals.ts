@@ -22,7 +22,8 @@
  * new globals and no back-references into the class.
  */
 
-import type { AgentName, CategoryRecord, ExternalAdRecord } from "../../types";
+import type { AdRecord, AgentName, CategoryRecord, ExternalAdRecord } from "../../types";
+import type { MarketplacePorts } from "../../data/marketplacePorts";
 import type { DatabaseORM, SqlStorage } from "../../orm";
 import { runRestTool } from "./restToolBridge";
 import { resolveAdsTier, resolveServerAdsConfig } from "../../services/adsTier";
@@ -222,10 +223,14 @@ export async function handleAdsRevenueReferralsRoutes(
   // list ordering is identical in both modes (sort_order ASC).
   if (path.endsWith("/categories")) {
     const orm = ctx.getOrm();
+    // #2345: categories serve through the marketplace ports
+    // (D1 fleet table when AGENT_DB is bound; the instance's
+    // own table when not).
+    const mp = await orm.marketplacePorts((ctx.env ?? {}) as unknown as { AGENT_DB?: unknown });
 
     if (request.method === "GET") {
       try {
-        const categories = orm.categories.findMany(categoryListOptions());
+        const categories = await mp.categories.findMany(categoryListOptions());
         return Response.json({ count: categories.length, categories });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch categories" }, { status: 500 });
@@ -245,11 +250,11 @@ export async function handleAdsRevenueReferralsRoutes(
         let category: CategoryRecord;
 
         if (body.id) {
-          const existing = orm.categories.findById(body.id);
+          const existing = await mp.categories.findById(body.id);
           if (!existing) {
             return Response.json({ error: "Category not found" }, { status: 404 });
           }
-          const updated = orm.categories.update(body.id, {
+          const updated = await mp.categories.update(body.id, {
             ...categoryUpdatePatch(existing, body, mode),
             updatedAt: now,
           });
@@ -258,8 +263,8 @@ export async function handleAdsRevenueReferralsRoutes(
         } else {
           const slug = categoryCreateSlug(name, body.slug, mode);
           const id = categoryCreateId(slug, name, undefined, mode);
-          const values = categoryCreateValues(name, body, mode, orm.categories.count());
-          category = orm.categories.create({
+          const values = categoryCreateValues(name, body, mode, await mp.categories.count());
+          category = await mp.categories.create({
             id,
             name,
             slug,
@@ -283,7 +288,7 @@ export async function handleAdsRevenueReferralsRoutes(
         if (!id) {
           return Response.json({ error: "Category id is required" }, { status: 400 });
         }
-        orm.categories.delete(id);
+        await mp.categories.delete(id);
         ctx.audit("category.deleted", "orchestrator", { id });
         // #1721: mcp-mode envelope mirrors the command (deleted flag +
         // id); route mode keeps the bare {success: true}.
@@ -304,6 +309,7 @@ export async function handleAdsRevenueReferralsRoutes(
       const summary = await runRestTool("get_revenue_summary", {}, {
         orm: ctx.getOrm(),
         sessionId,
+        env: ctx.env,
         audit: (type, agent, payload) => ctx.audit(type, agent, payload),
       });
       return Response.json(summary);
@@ -317,6 +323,7 @@ export async function handleAdsRevenueReferralsRoutes(
   // route: cpm 15.0 / cpc 1.25, initial impression, 3dp/2dp rounding).
   if (path.endsWith("/external-ads")) {
     const orm = ctx.getOrm();
+    const mp = await orm.marketplacePorts((ctx.env ?? {}) as unknown as { AGENT_DB?: unknown });
 
     if (request.method === "GET") {
       // Issue #2022: a Subscribed caller is served nothing — the
@@ -327,7 +334,7 @@ export async function handleAdsRevenueReferralsRoutes(
       }
       try {
         const mode = resolveRouteMode(ctx, "externalAds", runModeOf(null, url));
-        const ads = orm.externalAds.findMany(externalAdListOptions(mode));
+        const ads = await mp.externalAds.findMany(externalAdListOptions(mode));
         return Response.json({ count: ads.length, ads });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch external ads" }, { status: 500 });
@@ -354,17 +361,17 @@ export async function handleAdsRevenueReferralsRoutes(
           if (mode === "mcp") {
             return Response.json({ error: "External ad update is not supported in mcp mode" }, { status: 400 });
           }
-          const existing = orm.externalAds.findById(body.id);
+          const existing = await mp.externalAds.findById(body.id);
           if (!existing) {
             return Response.json({ error: "Ad not found" }, { status: 404 });
           }
-          const updated = orm.externalAds.update(body.id, externalAdUpdatePatch(existing, body));
+          const updated = await mp.externalAds.update(body.id, externalAdUpdatePatch(existing, body));
           ad = updated || existing;
           ctx.audit("external_ad.updated", "orchestrator", { id: ad.id, title: ad.title });
         } else {
           const id = externalAdCreateId(body.network, mode);
           const values = externalAdCreateValues(title, body, mode);
-          ad = orm.externalAds.create({
+          ad = await mp.externalAds.create({
             id,
             title,
             targetUrl,
@@ -392,12 +399,12 @@ export async function handleAdsRevenueReferralsRoutes(
       const mode = resolveRouteMode(ctx, "externalAds", runModeOf(body, url));
       const id = body.id;
       if (id) {
-        const orm = ctx.getOrm();
-        const ad = orm.externalAds.findById(id);
+        const mp = await ctx.getOrm().marketplacePorts((ctx.env ?? {}) as unknown as { AGENT_DB?: unknown });
+        const ad = await mp.externalAds.findById(id);
         if (ad) {
           const newImpressions = ad.impressions + 1;
           const newEarnings = externalAdImpressionEarnings(ad.earnings, ad.cpmRate, mode);
-          orm.externalAds.update(id, {
+          await mp.externalAds.update(id, {
             impressions: newImpressions,
             earnings: newEarnings,
           });
@@ -426,12 +433,12 @@ export async function handleAdsRevenueReferralsRoutes(
       const mode = resolveRouteMode(ctx, "externalAds", runModeOf(body, url));
       const id = body.id;
       if (id) {
-        const orm = ctx.getOrm();
-        const ad = orm.externalAds.findById(id);
+        const mp = await ctx.getOrm().marketplacePorts((ctx.env ?? {}) as unknown as { AGENT_DB?: unknown });
+        const ad = await mp.externalAds.findById(id);
         if (ad) {
           const newClicks = ad.clicks + 1;
           const newEarnings = externalAdClickEarnings(ad.earnings, ad.cpcRate, mode);
-          orm.externalAds.update(id, {
+          await mp.externalAds.update(id, {
             clicks: newClicks,
             earnings: newEarnings,
           });
@@ -470,28 +477,29 @@ export async function handleReferralsAdsRoutes(
   // "AI & Dev Tools" / "Community referral reward", created_at DESC
   // LIMIT 100). No referral update path exists on either surface and
   // this slice adds none — a POST body id is ignored, as before.
-  const sql = ctx.ensureTables();
+  ctx.ensureTables();
+  // #2345: referrals + sponsored ads serve through the
+  // marketplace ports — the raw statements over the
+  // ensureTables() handle that used to live in this handler
+  // (SELECT/INSERT/DELETE/UPDATE on mas_referrals + mas_ads)
+  // are retired; the ports resolve to D1 when AGENT_DB is
+  // bound and to this instance's tables when it is not.
+  // Composed lazily per block so paths that never touch the
+  // marketplace tables (banner-config) keep not touching the
+  // ORM at all, exactly as before.
+  const marketplace = () =>
+    ctx.getOrm().marketplacePorts((ctx.env ?? {}) as unknown as { AGENT_DB?: unknown });
 
   if (path.endsWith("/referrals")) {
+    const mp = await marketplace();
     if (request.method === "GET") {
       try {
         const mode = resolveRouteMode(ctx, "referrals", runModeOf(null, url));
         const options = referralListOptions(mode);
-        const limitClause = options.limit ? ` LIMIT ${options.limit}` : "";
-        const raw = Array.from(
-          sql.exec(`SELECT id, session_id, title, url, category, reward_text, clicks, signups, created_at FROM mas_referrals ORDER BY ${options.orderBy}${limitClause}`)
-        ) as any[];
-        const referrals = raw.map((r) => ({
-          id: String(r.id),
-          userLogin: String(r.session_id),
-          title: String(r.title),
-          url: String(r.url),
-          category: String(r.category),
-          rewardText: String(r.reward_text),
-          clicks: Number(r.clicks || 0),
-          signups: Number(r.signups || 0),
-          createdAt: String(r.created_at),
-        }));
+        const referrals = await mp.referrals.findMany({
+          orderBy: options.orderBy,
+          limit: options.limit,
+        });
         return Response.json({ count: referrals.length, referrals });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "Failed to fetch referrals" }, { status: 500 });
@@ -518,16 +526,17 @@ export async function handleReferralsAdsRoutes(
 
         const id = `ref_${crypto.randomUUID().slice(0, 8)}`;
         const now = new Date().toISOString();
-        sql.exec(
-          "INSERT INTO mas_referrals (id, session_id, title, url, category, reward_text, clicks, signups, created_at) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?)",
+        await mp.referrals.create({
           id,
-          sessionId,
+          userLogin: sessionId,
           title,
-          targetUrl,
+          url: targetUrl,
           category,
           rewardText,
-          now
-        );
+          clicks: 0,
+          signups: 0,
+          createdAt: now,
+        });
         ctx.audit("referral.created", "orchestrator", { id, title, targetUrl });
         return Response.json({
           success: true,
@@ -547,12 +556,13 @@ export async function handleReferralsAdsRoutes(
           return Response.json({ error: "Referral id is required for delete" }, { status: 400 });
         }
         if (id) {
-          sql.exec("DELETE FROM mas_referrals WHERE id = ?", id);
+          await mp.referrals.delete(id);
           ctx.audit("referral.deleted", "orchestrator", { id });
         }
         // #1721: mcp-mode envelope echoes the id like the command;
-        // the raw-SQL path cannot honestly report a deleted count, so
-        // no `deleted` flag is claimed here (unlike the ORM path).
+        // no `deleted` flag is claimed in this envelope (unlike
+        // the command path) — the response contract is unchanged
+        // by the #2345 port move underneath it.
         return mode === "mcp" && id
           ? Response.json({ success: true, id })
           : Response.json({ success: true });
@@ -563,6 +573,7 @@ export async function handleReferralsAdsRoutes(
   }
 
   if (path.endsWith("/referrals/click") && request.method === "POST") {
+    const mp = await marketplace();
     try {
       const body = (await request.json().catch(() => ({}))) as { id?: string; mode?: unknown };
       const mode = resolveRouteMode(ctx, "referrals", runModeOf(body, url));
@@ -571,20 +582,15 @@ export async function handleReferralsAdsRoutes(
         if (!body.id) {
           return Response.json({ error: "Referral id is required for track_click" }, { status: 400 });
         }
-        const existing = Array.from(
-          sql.exec("SELECT id, clicks FROM mas_referrals WHERE id = ?", body.id)
-        ) as any[];
-        if (existing.length === 0) {
+        const existing = await mp.referrals.findById(body.id);
+        if (!existing) {
           return Response.json({ error: `Referral ${body.id} not found` }, { status: 404 });
         }
-        sql.exec("UPDATE mas_referrals SET clicks = clicks + 1 WHERE id = ?", body.id);
-        const after = Array.from(
-          sql.exec("SELECT id, clicks FROM mas_referrals WHERE id = ?", body.id)
-        ) as any[];
-        return Response.json({ success: true, clicks: Number(after[0]?.clicks ?? 0) });
+        const clicks = await mp.referrals.incrementCounter(body.id, "clicks", 1);
+        return Response.json({ success: true, clicks: clicks ?? 0 });
       }
       if (body.id) {
-        sql.exec("UPDATE mas_referrals SET clicks = clicks + 1 WHERE id = ?", body.id);
+        await mp.referrals.incrementCounter(body.id, "clicks", 1);
       }
       return Response.json({ success: true });
     } catch {
@@ -596,14 +602,16 @@ export async function handleReferralsAdsRoutes(
   // Seed default sponsor offers when the table is empty (the orchestrator's
   // table-creation seed only runs on first creation — an existing-but-empty
   // table never gets seeded).
-  function ensureAdsSeeded(sql: SqlStorage): void {
+  async function ensureAdsSeeded(ads: MarketplacePorts["ads"]): Promise<void> {
     try {
-      const count = Array.from(
-        sql.exec("SELECT COUNT(*) AS count FROM mas_ads")
-      ) as Array<{ count: number }>;
-      if ((count[0]?.count ?? 0) > 0) return;
+      if ((await ads.count()) > 0) return;
       const now = new Date().toISOString();
-      const seedAds = [
+      // #2345: the route's supplementary seed set, unchanged —
+      // it fires only when the serving table is completely
+      // empty (in D1 composition the canonical seed in
+      // ensureD1Marketplace lands first, so this stays the
+      // unbound-composition seed, as the PR discloses).
+      const seedAds: AdRecord[] = [
         {
           id: "ad_workers_ai",
           title: "Cloudflare Workers AI",
@@ -611,8 +619,11 @@ export async function handleReferralsAdsRoutes(
           sponsor: "Cloudflare",
           badge: "FLAGSHIP PARTNER",
           url: "https://developers.cloudflare.com/workers-ai/",
-          cta_text: "Deploy in 60s →",
-          accent_color: "#f38020",
+          ctaText: "Deploy in 60s →",
+          accentColor: "#f38020",
+          impressions: 0,
+          clicks: 0,
+          createdAt: now,
         },
         {
           id: "ad_ai_search",
@@ -621,8 +632,11 @@ export async function handleReferralsAdsRoutes(
           sponsor: "Cloudflare AI",
           badge: "FEATURED TOOL",
           url: "https://developers.cloudflare.com/ai-search/",
-          cta_text: "Explore Docs →",
-          accent_color: "#38bdf8",
+          ctaText: "Explore Docs →",
+          accentColor: "#38bdf8",
+          impressions: 0,
+          clicks: 0,
+          createdAt: now,
         },
         {
           id: "ad_durable_objects",
@@ -631,8 +645,11 @@ export async function handleReferralsAdsRoutes(
           sponsor: "Cloudflare Platform",
           badge: "INFRASTRUCTURE",
           url: "https://developers.cloudflare.com/durable-objects/",
-          cta_text: "Learn More →",
-          accent_color: "#a855f7",
+          ctaText: "Learn More →",
+          accentColor: "#a855f7",
+          impressions: 0,
+          clicks: 0,
+          createdAt: now,
         },
         {
           id: "ad_openaimp",
@@ -641,15 +658,15 @@ export async function handleReferralsAdsRoutes(
           sponsor: "OpenAIMP",
           badge: "SPONSOR",
           url: "https://agent.openaimp.com",
-          cta_text: "Join Program →",
-          accent_color: "#10b981",
+          ctaText: "Join Program →",
+          accentColor: "#10b981",
+          impressions: 0,
+          clicks: 0,
+          createdAt: now,
         },
       ];
       for (const ad of seedAds) {
-        sql.exec(
-          "INSERT OR IGNORE INTO mas_ads (id, title, tagline, sponsor, badge, url, cta_text, accent_color, impressions, clicks, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)",
-          ad.id, ad.title, ad.tagline, ad.sponsor, ad.badge, ad.url, ad.cta_text, ad.accent_color, now
-        );
+        await ads.create(ad);
       }
     } catch {
       // Ignore if seeding fails
@@ -673,6 +690,7 @@ export async function handleReferralsAdsRoutes(
   }
 
   if (path.endsWith("/ads")) {
+    const mp = await marketplace();
     if (request.method === "GET") {
       // Issue #2022: a Subscribed caller is served nothing — before
       // seeding and before the fetch impression increment, so no
@@ -681,24 +699,25 @@ export async function handleReferralsAdsRoutes(
         return Response.json({ count: 0, ads: [] });
       }
       try {
-        ensureAdsSeeded(sql);
+        await ensureAdsSeeded(mp.ads);
         // Increment impressions on fetch
-        sql.exec("UPDATE mas_ads SET impressions = impressions + 1");
-        const raw = Array.from(
-          sql.exec("SELECT id, title, tagline, sponsor, badge, url, cta_text, accent_color, impressions, clicks, created_at FROM mas_ads ORDER BY clicks DESC, impressions ASC LIMIT 20")
-        ) as any[];
-        const ads = raw.map((a) => ({
+        await mp.ads.incrementAllImpressions(1);
+        const records = await mp.ads.findMany({
+          orderBy: "clicks DESC, impressions ASC",
+          limit: 20,
+        });
+        const ads = records.map((a) => ({
           id: String(a.id),
           title: String(a.title),
           tagline: String(a.tagline),
           sponsor: String(a.sponsor),
           badge: String(a.badge),
           url: String(a.url),
-          ctaText: String(a.cta_text),
-          accentColor: String(a.accent_color || "#6366f1"),
+          ctaText: String(a.ctaText),
+          accentColor: String(a.accentColor || "#6366f1"),
           impressions: Number(a.impressions || 0),
           clicks: Number(a.clicks || 0),
-          createdAt: String(a.created_at),
+          createdAt: String(a.createdAt),
         }));
         return Response.json({ count: ads.length, ads });
       } catch (err) {
@@ -731,18 +750,19 @@ export async function handleReferralsAdsRoutes(
 
         const id = `ad_${crypto.randomUUID().slice(0, 8)}`;
         const now = new Date().toISOString();
-        sql.exec(
-          "INSERT INTO mas_ads (id, title, tagline, sponsor, badge, url, cta_text, accent_color, impressions, clicks, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?)",
+        await mp.ads.create({
           id,
           title,
           tagline,
           sponsor,
           badge,
-          targetUrl,
+          url: targetUrl,
           ctaText,
           accentColor,
-          now
-        );
+          impressions: 1,
+          clicks: 0,
+          createdAt: now,
+        });
         ctx.audit("ad.submitted", "orchestrator", { id, title, sponsor });
         return Response.json({
           success: true,
@@ -759,10 +779,11 @@ export async function handleReferralsAdsRoutes(
     if (await isAdsSuppressed(request, ctx)) {
       return Response.json({ success: false });
     }
+    const mp = await marketplace();
     try {
       const body = (await request.json().catch(() => ({}))) as { id?: string };
       if (body.id) {
-        sql.exec("UPDATE mas_ads SET clicks = clicks + 1 WHERE id = ?", body.id);
+        await mp.ads.incrementCounter(body.id, "clicks", 1);
         ctx.audit("ad.clicked", "orchestrator", { id: body.id });
       }
       return Response.json({ success: true });
