@@ -63,6 +63,7 @@ import {
   listCapturesByProvider,
   type DataCaptureRecord,
 } from "./captureStore";
+import type { ProviderCaptureStore } from "../../data/providerCapturePorts";
 import type { FetchFailureKind } from "./fetchOutcome";
 
 export type ProviderHealthStatus = "healthy" | "degraded" | "down" | "no-data";
@@ -252,17 +253,15 @@ export function deriveProviderHealth(
 }
 
 /**
- * Aggregate one provider's captures (tenant-scoped, through the
- * store's own read API) into its health block. `now` is injectable
- * for tests; production callers take the current time.
+ * The derivation as a PURE function of a record set — the same
+ * records always yield the same health block, whichever store
+ * supplied them (#2303: the sync store and the capture port run
+ * this identical derivation over their reads).
  */
-export function aggregateProviderHealth(
-  sql: SqlStorage,
-  tenantId: string,
-  providerId: DataProviderId,
+export function aggregateProviderHealthFromRecords(
+  records: readonly DataCaptureRecord[],
   now: number = Date.now()
 ): ProviderHealth {
-  const records = listCapturesByProvider(sql, tenantId, providerId);
   const aggregates = aggregateRecords(records, now);
   const byCapability: Partial<Record<DataProviderCapability, CaptureAggregates>> =
     {};
@@ -274,4 +273,38 @@ export function aggregateProviderHealth(
     );
   }
   return { ...aggregates, status: deriveProviderHealth(aggregates), byCapability };
+}
+
+/**
+ * Aggregate one provider's captures (tenant-scoped, through the
+ * store's own read API) into its health block. `now` is injectable
+ * for tests; production callers take the current time.
+ */
+export function aggregateProviderHealth(
+  sql: SqlStorage,
+  tenantId: string,
+  providerId: DataProviderId,
+  now: number = Date.now()
+): ProviderHealth {
+  return aggregateProviderHealthFromRecords(
+    listCapturesByProvider(sql, tenantId, providerId),
+    now
+  );
+}
+
+/**
+ * The same aggregation over the ProviderCaptureStore port
+ * (#2303) — production wiring reads the D1 capture log through
+ * the port; the derivation is the shared pure function above.
+ */
+export async function aggregateProviderHealthViaPort(
+  port: ProviderCaptureStore,
+  tenantId: string,
+  providerId: DataProviderId,
+  now: number = Date.now()
+): Promise<ProviderHealth> {
+  return aggregateProviderHealthFromRecords(
+    await port.listCapturesByProvider(tenantId, providerId),
+    now
+  );
 }
