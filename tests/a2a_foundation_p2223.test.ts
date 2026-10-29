@@ -67,9 +67,13 @@ const WRANGLER_BINDINGS = new Set(wrangler.durable_objects.bindings.map((b) => b
 const ORCHESTRATOR_FAMILY = ["orchestrator", "search", "tasks", "memory", "nlq"];
 
 describe("A2A resolution map (#2223 slice 1)", () => {
-  it("contains exactly this slice's names", () => {
+  it("contains exactly the programme's final name set", () => {
+    // Slice 1's set, extended by the payments/AiSearchAgent slices
+    // and completed by the final slice (screener, research,
+    // report-asset, browser, slack). Updated in the final slice per
+    // the §7 pin rule — this is the full #2223 set.
     expect(Object.keys(A2A_RESOLUTIONS).sort()).toEqual(
-      ["aisearch", "memory", "nlq", "orchestrator", "payments", "scheduled", "search", "tasks", "trading"].sort(),
+      ["aisearch", "browser", "memory", "nlq", "orchestrator", "payments", "report-asset", "research", "scheduled", "screener", "search", "slack", "tasks", "trading"].sort(),
     );
   });
 
@@ -151,6 +155,7 @@ function makeA2aEnv() {
     SEARCH_AGENT: namespace("SEARCH_AGENT"),
     SCHEDULED_AGENT: namespace("SCHEDULED_AGENT"),
     TRADING_AGENT: namespace("TRADING_AGENT"),
+    REPORT_ASSET_AGENT: namespace("REPORT_ASSET_AGENT"),
     // PaymentsAgent implements no handleA2A in this slice — parity
     // with production: the dispatcher's stub check must 500.
     PAYMENTS_AGENT: namespace("PAYMENTS_AGENT", false),
@@ -227,11 +232,14 @@ describe("A2A dispatcher resolves through the map (#2223 slice 1)", () => {
   });
 
   it("hyphenated names reach resolution instead of dying at the route", async () => {
-    const { env } = makeA2aEnv();
+    const { env, idFromNameCalls, stubCalls } = makeA2aEnv();
     const res = await handleA2A(postA2a("/a2a/report-asset", "test-token"), env);
-    expect(res.status).toBe(404);
-    // The resolution 404 names the agent; the pre-fix route 404 was a
-    // bare "Not found" because the regex could not match the hyphen.
-    expect(await res.text()).toContain("Unknown agent: report-asset");
+    // Slice 1 proved the hyphenated name reaches resolution (it 404'd
+    // there as an unknown agent); the final slice adds the
+    // report-asset resolution, so the same request now lands on
+    // REPORT_ASSET_AGENT's "default" instance and reaches the stub.
+    expect(res.status).toBe(200);
+    expect(idFromNameCalls).toEqual([{ binding: "REPORT_ASSET_AGENT", name: "default" }]);
+    expect(stubCalls).toHaveLength(1);
   });
 });
