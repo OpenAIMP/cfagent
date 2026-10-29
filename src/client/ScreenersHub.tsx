@@ -869,12 +869,9 @@ export function ScreenersHub({
             )}
           </div>
           <form className="options-request-form screeners-filter-form" onSubmit={(event) => void runScreen(event)}>
-            <label className="options-field">
-              <span>Data provider / API</span>
-              <Select value={providerId} onChange={(event) => setProviderId(event.target.value)}>
-                {providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.label}</option>)}
-              </Select>
-            </label>
+            <Select label="Data provider / API" value={providerId} onChange={(event) => setProviderId(event.target.value)}>
+              {providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.label}</option>)}
+            </Select>
 
             <div className="screener-feed-callout">
               {providerId === "etrade" ? (
@@ -926,82 +923,64 @@ export function ScreenersHub({
               )}
             </div>
             {providerSupportsFilter(activeProvider, assetClass, "search") && (
-              <label className="options-field">
-                <span>Ticker or company search</span>
-                <TextInput
-                  value={symbolSearch}
-                  onChange={(event) => setSymbolSearch(event.target.value)}
-                  placeholder="Optional; e.g. NVDA, AAPL"
-                />
-              </label>
+              <TextInput label="Ticker or company search"
+                value={symbolSearch}
+                onChange={(event) => setSymbolSearch(event.target.value)}
+                placeholder="Optional; e.g. NVDA, AAPL"
+              />
             )}
             {providerSupportsFilter(activeProvider, assetClass, "exchange") && (
-              <label className="options-field">
-                <span>Exchange</span>
-                <Select value={exchange} onChange={(event) => setExchange(event.target.value)}>
-                  <option value="ALL">All U.S. listings</option>
-                  <option value="NASDAQ">Nasdaq</option>
-                  <option value="NYSE">NYSE</option>
-                  <option value="AMEX">AMEX</option>
-                </Select>
-              </label>
+              <Select label="Exchange" value={exchange} onChange={(event) => setExchange(event.target.value)}>
+                <option value="ALL">All U.S. listings</option>
+                <option value="NASDAQ">Nasdaq</option>
+                <option value="NYSE">NYSE</option>
+                <option value="AMEX">AMEX</option>
+              </Select>
             )}
             {providerSupportsFilter(activeProvider, assetClass, "price-range") && (
               <>
-                <label className="options-field"><span>Min price</span><TextInput type="number" min="0" step="0.01" value={minPrice} onChange={(event) => setMinPrice(event.target.value)} /></label>
-                <label className="options-field"><span>Max price</span><TextInput type="number" min="0" step="0.01" value={maxPrice} onChange={(event) => setMaxPrice(event.target.value)} /></label>
+                <TextInput label="Min price" type="number" min="0" step="0.01" value={minPrice} onChange={(event) => setMinPrice(event.target.value)} />
+                <TextInput label="Max price" type="number" min="0" step="0.01" value={maxPrice} onChange={(event) => setMaxPrice(event.target.value)} />
               </>
             )}
-            <label className="options-field">
-              <span>Universe</span>
-              <Select value={universe} onChange={(event) => setUniverse(event.target.value)} title="Index/ETF universe to screen">
-                <option value="TECH">Technology (discovery)</option>
-                <option value="NASDAQ100">Nasdaq-100</option>
-                <option value="SP100">S&P 100</option>
-                <option value="SP500">S&P 500</option>
-                <option value="RUSSELL2000">Russell 2000</option>
-                <option value="ETF">ETFs</option>
-                <option value="LEV_ETF">Leveraged ETFs</option>
-                <option value="ALL">All (auto-sharded, parallel)</option>
-              </Select>
-            </label>
-            <label className="options-field">
-              <span>Sector</span>
-              <Select value={sector} onChange={(event) => setSector(event.target.value)} title="Industry sector filter">
-                <option value="ALL">All Sectors</option>
-                <option value="Technology">Technology</option>
-                <option value="Semiconductors">Semiconductors</option>
-                <option value="Financial">Financial / Banking</option>
-                <option value="Healthcare">Healthcare / Biotech</option>
-                <option value="Consumer Discretionary">Consumer Discretionary</option>
-                <option value="Communication Services">Communication Services</option>
-                <option value="Energy">Energy</option>
-                <option value="Industrials">Industrials</option>
-              </Select>
-            </label>
-            <label className="options-field">
-              <span>Min Score (0–100)</span>
-              <TextInput
-                type="number"
-                min="0"
-                max="100"
-                value={minScore}
-                onChange={(event) => setMinScore(event.target.value)}
-                placeholder="Optional; e.g. 50"
-              />
-            </label>
+            <Select label="Universe" value={universe} onChange={(event) => setUniverse(event.target.value)} title="Index/ETF universe to screen">
+              <option value="TECH">Technology (discovery)</option>
+              <option value="NASDAQ100">Nasdaq-100</option>
+              <option value="SP100">S&P 100</option>
+              <option value="SP500">S&P 500</option>
+              <option value="RUSSELL2000">Russell 2000</option>
+              <option value="ETF">ETFs</option>
+              <option value="LEV_ETF">Leveraged ETFs</option>
+              <option value="ALL">All (auto-sharded, parallel)</option>
+            </Select>
+            <Select label="Sector" value={sector} onChange={(event) => setSector(event.target.value)} title="Industry sector filter">
+              <option value="ALL">All Sectors</option>
+              <option value="Technology">Technology</option>
+              <option value="Semiconductors">Semiconductors</option>
+              <option value="Financial">Financial / Banking</option>
+              <option value="Healthcare">Healthcare / Biotech</option>
+              <option value="Consumer Discretionary">Consumer Discretionary</option>
+              <option value="Communication Services">Communication Services</option>
+              <option value="Energy">Energy</option>
+              <option value="Industrials">Industrials</option>
+            </Select>
+            <TextInput label="Min Score (0–100)"
+              type="number"
+              min="0"
+              max="100"
+              value={minScore}
+              onChange={(event) => setMinScore(event.target.value)}
+              placeholder="Optional; e.g. 50"
+            />
             {providerSupportsFilter(activeProvider, assetClass, "trend") && (
-              <label className="options-field">
-                <span>Daily trend</span>
-                <Select value={trend} onChange={(event) => setTrend(event.target.value)}>
-                  <option value="all">All</option>
-                  <option value="gainers">Gainers</option>
-                  <option value="losers">Losers</option>
-                </Select>
-              </label>
+              <Select label="Daily trend" value={trend} onChange={(event) => setTrend(event.target.value)}>
+                <option value="all">All</option>
+                <option value="gainers">Gainers</option>
+                <option value="losers">Losers</option>
+              </Select>
             )}
             {providerSupportsFilter(activeProvider, assetClass, "limit") && (
-              <label className="options-field"><span>Max results</span><TextInput type="number" min="1" value={stockLimit} onChange={(event) => setStockLimit(event.target.value)} /></label>
+              <TextInput label="Max results" type="number" min="1" value={stockLimit} onChange={(event) => setStockLimit(event.target.value)} />
             )}
             <div className="screener-criteria-presets-deck">
               <ScreenerPresetManager
