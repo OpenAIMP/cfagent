@@ -1,36 +1,48 @@
 /**
  * S7 (consolidation, umbrella #958): THE one schedule UI. This panel
  * hosts the screening-schedule section (ScheduledOptionsManager —
- * kind-specific cards, structured create/edit forms, latest runs,
+ * kind-specific rows, structured create/edit forms, latest runs,
  * audit trail, live preview) for the three screening callbacks and
  * renders every other schedule in the store (system, queued, NLQ
- * reminders, …) as generic cards below it. Before S7 the two UIs
- * sat in different tabs over the same store with different payload
- * builders and feature sets; payload construction for the screening
- * kinds now lives in exactly one place
+ * reminders, …) as generic rows below it. Payload construction for the
+ * screening kinds lives in exactly one place
  * (scheduledOptionsManager/payloadBuilders).
  *
+ * Issue #2329: the page is one table per surface — one row per
+ * schedule, the full id, and every action on that row. One Edit
+ * control (the full form, cadence included), one Details dialog
+ * (scheduleDetail.ts's canonical model), one cadence dialog for the
+ * generic rows, one confirmation dialog for destructive actions, and
+ * exactly one create action on the page (the screening section's hero
+ * button). The page's one Refresh control refetches both surfaces.
+ *
  * Issue #309: Schedules Panel with tabbed grouping.
- * Issue #273: full schedules management UI — pause/resume, inline
- * frequency editing, per-job trigger, delete, and a create form fed by
- * the server's callback allow-list (GET /api/schedules returns
- * `creatableCallbacks`).
+ * Issue #273: full schedules management UI — pause/resume, per-job
+ * trigger, delete, and a create form fed by the server's callback
+ * allow-list (GET /api/schedules returns `creatableCallbacks`).
  *
  * Displays all durable schedules grouped by category:
  * - All | Stocks | Options | System | Queued
- *
- * Each schedule card shows:
- * - Human-readable schedule description (cron → English)
- * - Universe/thesis/payload summary, job ID, next run, status
- * - Trigger Now, Pause/Resume, Edit frequency, Delete actions
  *
  * Paused jobs stay listed with a Paused badge (the backend keeps their
  * definition in the paused store; see services/scheduleManagement.ts).
  */
 
 import { useState, useEffect, useCallback } from "react";
-import { Button, TextInput, useToast, Modal } from "./components/ui";
+import {
+  Badge,
+  Button,
+  Notice,
+  PillGroup,
+  Table,
+  useToast,
+  type TableColumn,
+} from "./components/ui";
 import { apiFetch as fetch } from "./apiFetch";
+import { CadenceModal } from "./scheduledOptionsManager/CadenceModal";
+import { ConfirmModal } from "./scheduledOptionsManager/ConfirmModal";
+import { ScheduleDetailModal } from "./scheduledOptionsManager/ScheduleDetailModal";
+import { formatNextRun } from "./scheduledOptionsManager/format";
 import "./reports.css";
 
 export interface ScheduleItem {
@@ -40,6 +52,8 @@ export interface ScheduleItem {
   payload?: any;
   intervalSeconds?: number;
   cron?: string;
+  date?: string;
+  delayInSeconds?: number;
   /** Unix seconds of the next run (SDK schedules). */
   time?: number;
   createdAt?: string;
@@ -51,11 +65,10 @@ export interface ScheduleItem {
 
 type ScheduleGroup = "all" | "stocks" | "options" | "system" | "queued";
 
-/** Frequency presets for the inline editor — defined once in the
- *  screening section's format module since S7 (both card kinds use
- *  the same editor); re-exported here for existing importers. */
+/** Frequency presets for the one cadence dialog — defined once in the
+ *  screening section's format module since S7; re-exported here for
+ *  existing importers. */
 export { FREQUENCY_PRESETS } from "./scheduledOptionsManager/format";
-import { FREQUENCY_PRESETS } from "./scheduledOptionsManager/format";
 import { ScheduledOptionsManager } from "./ScheduledOptionsManager";
 
 /**
@@ -99,7 +112,7 @@ export function cronToEnglish(cron: string): string {
 }
 
 /**
- * Categorize a schedule into a group for tabbed display.
+ * Categorize a schedule into a group for filtered display.
  */
 export function categorizeSchedule(s: ScheduleItem): Exclude<ScheduleGroup, "all" | "queued"> {
   const cb = s.callback.toLowerCase();
@@ -163,22 +176,39 @@ export const SCREENING_CALLBACKS = new Set([
   "autonomousStrategyDiscovery",
 ]);
 
+const ACCOUNT_SCOPED = [
+  "autonomousmarketscreen",
+  "autonomousoptionsanalysis",
+  "autorenewetradetokens",
+  "collectivhistory",
+];
+
+/** Cadence sentence for a generic row. */
+function genericCadence(s: ScheduleItem): string {
+  if (s.cron) return cronToEnglish(s.cron);
+  if (s.type === "interval") return `Every ${Math.round((s.intervalSeconds || 0) / 60)} min`;
+  if (s.type === "delayed") return "Delayed (queued)";
+  return s.type;
+}
+
 export function SchedulesPanel({ activeEnv, userLogin, onPreviewTrade }: SchedulesPanelProps) {
   const toast = useToast();
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<ScheduleGroup>("all");
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [customCron, setCustomCron] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
-  // S7: the generic raw-JSON create form is gone — the server's
-  // creatable allow-list is exactly the three screening callbacks,
-  // whose one structured create form lives in the screening section.
-  // These counters are the host signals that open it / refresh it.
-  const [openCreateSignal, setOpenCreateSignal] = useState(0);
-  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [refreshSignal, setRefreshSignal] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<ScheduleItem | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [cadenceTarget, setCadenceTarget] = useState<ScheduleItem | null>(null);
+  const [cadenceBusy, setCadenceBusy] = useState(false);
+  const [cadenceError, setCadenceError] = useState<string | null>(null);
+  const [detailsTarget, setDetailsTarget] = useState<ScheduleItem | null>(null);
+  const [detail, setDetail] = useState<any | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
   const envHeaders = activeEnv ? { "x-environment": activeEnv } : undefined;
 
@@ -221,42 +251,85 @@ export function SchedulesPanel({ activeEnv, userLogin, onPreviewTrade }: Schedul
     }
   };
 
-  const handleDelete = async (id: string) => {
-    setDeleteTarget(id);
+  /** The page's ONE refresh: both surfaces, one round trip each. */
+  const refreshAll = async () => {
+    setRefreshing(true);
+    try {
+      await fetchSchedules();
+      setRefreshSignal((n) => n + 1);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
-  const handleTriggerNow = async (id: string) => {
+  const handleTriggerNow = async (s: ScheduleItem) => {
     const ok = await runAction(() =>
-      fetch(`/api/schedules/${id}/trigger`, { method: "POST", headers: envHeaders })
+      fetch(`/api/schedules/${s.id}/trigger`, { method: "POST", headers: envHeaders })
     );
-    if (ok) toast.success("Triggered successfully");
+    if (ok) {
+      toast.success(`Triggered ${s.callback}`);
+      setRefreshSignal((n) => n + 1);
+    }
   };
 
   const handlePauseResume = async (s: ScheduleItem) => {
-    await runAction(() =>
+    const ok = await runAction(() =>
       fetch(`/api/schedules/${s.id}/${s.paused ? "resume" : "pause"}`, {
         method: "POST",
         headers: envHeaders,
       })
     );
+    if (ok) setRefreshSignal((n) => n + 1);
   };
 
-  const applyFrequency = async (s: ScheduleItem, body: Record<string, unknown>) => {
-    const ok = await runAction(() =>
-      fetch(`/api/schedules/${s.id}`, {
+  const applyFrequency = async (
+    s: ScheduleItem,
+    body: { scheduleType: "interval" | "cron"; intervalSeconds?: number; cron?: string }
+  ) => {
+    setCadenceBusy(true);
+    setCadenceError(null);
+    try {
+      const res = await fetch(`/api/schedules/${s.id}`, {
         method: "PUT",
         headers: { ...envHeaders, "Content-Type": "application/json" },
         body: JSON.stringify(body),
-      })
-    );
-    if (ok) {
-      setEditingId(null);
-      setCustomCron("");
+      });
+      const data = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok || data.success === false) {
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+      setCadenceTarget(null);
+      toast.success(`Cadence updated for ${s.id}`);
+      await fetchSchedules();
+      setRefreshSignal((n) => n + 1);
+    } catch (err) {
+      setCadenceError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCadenceBusy(false);
     }
   };
 
-  // The screening kinds render in the screening section (kind
-  // cards); the generic grid below carries every other callback.
+  const readDetails = async (s: ScheduleItem) => {
+    setDetail(null);
+    setDetailError(null);
+    setDetailLoading(true);
+    try {
+      const res = await fetch(`/api/schedules/${encodeURIComponent(s.id)}`, { headers: envHeaders });
+      const data = (await res.json().catch(() => ({}))) as any;
+      if (res.ok && data && typeof data === "object" && typeof data.id === "string") {
+        setDetail(data);
+      } else {
+        setDetailError(data?.error || "Schedule details unavailable.");
+      }
+    } catch (err) {
+      setDetailError(err instanceof Error ? err.message : "Schedule details unavailable.");
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  // The screening kinds render in the screening section (kind rows);
+  // the generic table below carries every other callback.
   const genericSchedules = schedules.filter((s) => !SCREENING_CALLBACKS.has(s.callback));
 
   // Filter by active tab
@@ -275,6 +348,12 @@ export function SchedulesPanel({ activeEnv, userLogin, onPreviewTrade }: Schedul
     queued: schedules.filter((s) => s.type === "delayed").length,
   };
 
+  // The generic table only appears when it has something to say: on
+  // the groups it owns, or when rows exist. On "all" with no generic
+  // rows the screening section's own empty state is the page's single
+  // empty state (issue #2329: no duplicate "nothing here" blocks).
+  const showGenericSection = filtered.length > 0 || activeTab === "system" || activeTab === "queued";
+
   const tabs: { id: ScheduleGroup; label: string }[] = [
     { id: "all", label: `All (${counts.all})` },
     { id: "stocks", label: `Stocks (${counts.stocks})` },
@@ -283,74 +362,244 @@ export function SchedulesPanel({ activeEnv, userLogin, onPreviewTrade }: Schedul
     { id: "queued", label: `Queued (${counts.queued})` },
   ];
 
-  if (loading) return <div className="schedules-panel">Loading schedules…</div>;
-  if (error) return <div className="schedules-panel error">Error: {error} <Button onClick={fetchSchedules}>Retry</Button></div>;
-
-  return (
-    <div className="schedules-panel">
-      <Modal
-        open={deleteTarget !== null}
-        onClose={() => setDeleteTarget(null)}
-        title="Delete schedule?"
-        footer={
-          <>
+  const genericColumns: TableColumn<ScheduleItem>[] = [
+    {
+      key: "job",
+      header: "Schedule",
+      render: (s) => (
+        <div className="schedule-row-job">
+          <span className="schedule-row-name">{s.callback}</span>
+          <span className="schedule-row-badges">
+            {/* #2329: the same badge vocabulary as the screening rows — a
+                generic job is a System job, never a screening kind. */}
+            <Badge tone="neutral" size="xs">
+              System
+            </Badge>
+            <Badge tone={s.paused ? "warning" : "success"} size="xs" dot>
+              {s.paused ? "Paused" : "Active"}
+            </Badge>
+            <Badge tone="neutral" size="xs" uppercase>
+              {s.type}
+            </Badge>
+          </span>
+        </div>
+      ),
+    },
+    {
+      key: "id",
+      header: "Schedule ID",
+      render: (s) => (
+        <code className="schedule-row-id" title={s.id}>
+          {s.id}
+        </code>
+      ),
+    },
+    {
+      key: "cadence",
+      header: "Cadence",
+      render: (s) => (
+        <div className="schedule-row-stack">
+          <span className="schedule-row-value">{genericCadence(s)}</span>
+          <span className="schedule-row-muted">
+            Next run: {s.paused ? "paused" : formatNextRun(s)}
+          </span>
+        </div>
+      ),
+    },
+    {
+      key: "scope",
+      header: "Scope",
+      render: (s) => {
+        const payload = s.payload || {};
+        const universe = payload.universe;
+        const thesis = payload.thesis;
+        const summary = !universe && !thesis ? payloadSummary(payload) : "";
+        const lines: string[] = [];
+        if (universe) lines.push(`Universe: ${universe}`);
+        if (thesis) lines.push(`Thesis: ${thesis}`);
+        if (summary) lines.push(summary);
+        if (payload.maxItems != null) lines.push(`Max items: ${payload.maxItems}`);
+        const accountScoped = ACCOUNT_SCOPED.some((name) => s.callback.toLowerCase().includes(name));
+        const owner = payload.userLogin;
+        const environment = payload.environment || payload.env;
+        const account = accountScoped
+          ? owner
+            ? `E*TRADE account: ${owner}${environment ? ` · ${environment}` : ""}`
+            : "E*TRADE account: missing — this schedule cannot authenticate"
+          : "";
+        return (
+          <div className="schedule-row-stack">
+            <span className="schedule-row-value">{lines.length > 0 ? lines[0] : "—"}</span>
+            {(lines.length > 1 || account) && (
+              <span className="schedule-row-muted">
+                {[...lines.slice(1), account].filter(Boolean).join(" · ")}
+              </span>
+            )}
+          </div>
+        );
+      },
+    },
+    {
+      key: "actions",
+      header: "Actions",
+      align: "right",
+      headerClassName: "schedule-row-actions-head",
+      render: (s) => {
+        const recurring = s.type === "cron" || s.type === "interval";
+        return (
+          <div className="schedule-row-actions">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                setDetailsTarget(s);
+                void readDetails(s);
+              }}
+              title="Open every stored detail for this schedule"
+            >
+              Details
+            </Button>
+            <Button
+              type="button"
+              variant="accent"
+              tone="subtle"
+              size="sm"
+              disabled={!!s.paused}
+              onClick={() => handleTriggerNow(s)}
+              title={s.paused ? "Resume before triggering" : "Run this job now"}
+            >
+              Trigger Now
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => handlePauseResume(s)}
+              title={s.paused ? "Resume schedule" : "Pause schedule"}
+            >
+              {s.paused ? "Resume" : "Pause"}
+            </Button>
+            {recurring && (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  setCadenceError(null);
+                  setCadenceTarget(s);
+                }}
+                title="Edit this schedule's cadence"
+              >
+                Edit frequency
+              </Button>
+            )}
             <Button
               type="button"
               variant="danger"
-              onClick={async () => {
-                const target = deleteTarget;
-                setDeleteTarget(null);
-                if (target)
-                  await runAction(() =>
-                    fetch(`/api/schedules/${target}`, { method: "DELETE", headers: envHeaders })
-                  );
-              }}
+              tone="subtle"
+              size="sm"
+              onClick={() => setDeleteTarget(s)}
+              title="Delete this schedule"
             >
-              Delete schedule
-            </Button>{" "}
-            <Button type="button" variant="secondary" onClick={() => setDeleteTarget(null)}>
-              Cancel
+              Delete
             </Button>
-          </>
-        }
+          </div>
+        );
+      },
+    },
+  ];
+
+  return (
+    <div className="schedules-panel">
+      <ScheduleDetailModal
+        item={detailsTarget}
+        detail={detail}
+        loading={detailLoading}
+        error={detailError}
+        profiles={[]}
+        activeEnv={activeEnv || ""}
+        userLogin={userLogin || ""}
+        onRetry={() => {
+          if (detailsTarget) void readDetails(detailsTarget);
+        }}
+        onClose={() => {
+          setDetailsTarget(null);
+          setDetail(null);
+          setDetailError(null);
+        }}
+      />
+
+      <CadenceModal
+        item={cadenceTarget}
+        busy={cadenceBusy}
+        error={cadenceError}
+        onApply={applyFrequency}
+        onClose={() => {
+          setCadenceTarget(null);
+          setCadenceError(null);
+        }}
+      />
+
+      <ConfirmModal
+        open={deleteTarget !== null}
+        title="Delete this schedule?"
+        confirmLabel="Delete schedule"
+        cancelLabel="Keep schedule"
+        busy={deleting}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={async () => {
+          const target = deleteTarget;
+          if (!target) return;
+          setDeleting(true);
+          try {
+            const ok = await runAction(() =>
+              fetch(`/api/schedules/${target.id}`, { method: "DELETE", headers: envHeaders })
+            );
+            if (ok) setRefreshSignal((n) => n + 1);
+          } finally {
+            setDeleting(false);
+            setDeleteTarget(null);
+          }
+        }}
       >
-        <p>Delete this schedule? This cannot be undone.</p>
-      </Modal>
+        <p>
+          <code>{deleteTarget?.callback}</code> (<code>{deleteTarget?.id}</code>) is removed from
+          the schedule store and will not fire again. This cannot be undone.
+        </p>
+      </ConfirmModal>
+
       {userLogin && (
         <div className="schedule-context">
           Schedules for <strong>{userLogin}</strong>{activeEnv ? ` · E*TRADE ${activeEnv}` : ""}
         </div>
       )}
-      <div className="schedules-tabs">
-        {tabs.map((t) => (
-          <Button
-            key={t.id}
-            className={`tab ${activeTab === t.id ? "active" : ""}`}
-            onClick={() => setActiveTab(t.id)}
-          >
-            {t.label}
-          </Button>
-        ))}
+
+      <div className="schedules-toolbar">
+        <PillGroup
+          options={tabs.map((t) => ({ id: t.id, label: t.label }))}
+          value={activeTab}
+          onChange={(value) => setActiveTab(value as ScheduleGroup)}
+          size="sm"
+          ariaLabel="Filter schedules by group"
+        />
         <Button
-          className="tab refresh"
-          onClick={() => {
-            fetchSchedules();
-            setRefreshSignal((n) => n + 1);
-          }}
-          title="Refresh"
+          type="button"
+          variant="secondary"
+          size="sm"
+          onClick={refreshAll}
+          loading={refreshing}
+          title="Refresh schedules, latest runs, and the audit trail"
         >
           ↻ Refresh
         </Button>
-        <Button
-          className="tab refresh"
-          onClick={() => setOpenCreateSignal((n) => n + 1)}
-          title="Create a new schedule"
-        >
-          ＋ New schedule
-        </Button>
       </div>
 
-      {actionError && <div className="schedule-action-error">{actionError}</div>}
+      {actionError && (
+        <Notice tone="danger" title="Schedule action failed" onDismiss={() => setActionError(null)}>
+          {actionError}
+        </Notice>
+      )}
 
       {userLogin && (activeTab === "all" || activeTab === "stocks" || activeTab === "options") && (
         <ScheduledOptionsManager
@@ -359,132 +608,39 @@ export function SchedulesPanel({ activeEnv, userLogin, onPreviewTrade }: Schedul
           onPreviewTrade={onPreviewTrade}
           groupFilter={activeTab === "all" ? "all" : activeTab}
           refreshSignal={refreshSignal}
-          openCreateSignal={openCreateSignal}
         />
       )}
 
-      <div className="schedules-grid">
-        {filtered.length === 0 &&
-          schedules.filter(
-            (s) =>
-              SCREENING_CALLBACKS.has(s.callback) &&
-              (activeTab === "all" ||
-                (activeTab === "stocks" && s.callback === "autonomousMarketScreen") ||
-                (activeTab === "options" &&
-                  s.callback !== "autonomousMarketScreen"))
-          ).length === 0 && (
-            <div className="empty">No schedules in this group.</div>
-          )}
-        {filtered.map((s) => {
-          const scheduleDesc = s.cron
-            ? cronToEnglish(s.cron)
-            : s.type === "interval"
-            ? `Every ${Math.round((s.intervalSeconds || 0) / 60)} min`
-            : s.type === "delayed"
-            ? "Delayed (queued)"
-            : s.type;
-          const universe = s.payload?.universe;
-          const thesis = s.payload?.thesis;
-          const summary = !universe && !thesis ? payloadSummary(s.payload) : "";
-          const accountScoped = ["autonomousmarketscreen", "autonomousoptionsanalysis", "autorenewetradetokens", "collectivhistory"]
-            .some((name) => s.callback.toLowerCase().includes(name));
-          const owner = s.payload?.userLogin;
-          const environment = s.payload?.environment || s.payload?.env;
-          const shortId = s.id.slice(0, 8) + "…";
-          const recurring = s.type === "cron" || s.type === "interval";
-          const nextRun = !s.paused && s.time
-            ? new Date(s.time * 1000).toLocaleString()
-            : null;
-
-          return (
-            <div key={s.id} className="schedule-card">
-              <div className="card-header">
-                <span className="schedule-type">{s.type}</span>
-                <span className="schedule-id" title={s.id}>{shortId}</span>
-                {s.paused ? (
-                  <span className="schedule-status paused">Paused</span>
-                ) : (
-                  <span className="schedule-status active">Active</span>
-                )}
-              </div>
-              <div className="schedule-callback">{s.callback}</div>
-              <div className="schedule-when">{scheduleDesc}</div>
-              {universe && <div className="schedule-meta">Universe: {universe}</div>}
-              {thesis && <div className="schedule-meta">Thesis: {thesis}</div>}
-              {summary && <div className="schedule-meta">{summary}</div>}
-              {s.payload?.maxItems != null && (
-                <div className="schedule-meta">Max items: {s.payload.maxItems}</div>
-              )}
-              {nextRun && <div className="schedule-meta">Next run: {nextRun}</div>}
-              {accountScoped && (
-                <div className={`schedule-meta ${owner ? "schedule-auth-ok" : "schedule-auth-missing"}`}>
-                  {owner
-                    ? `E*TRADE account: ${owner}${environment ? ` · ${environment}` : ""}`
-                    : "E*TRADE account: missing — this schedule cannot authenticate"}
-                </div>
-              )}
-              <div className="card-actions">
-                <Button onClick={() => handleTriggerNow(s.id)} disabled={!!s.paused} title={s.paused ? "Resume before triggering" : "Run now"}>
-                  ⚡ Trigger Now
-                </Button>
-                <Button onClick={() => handlePauseResume(s)} title={s.paused ? "Resume schedule" : "Pause schedule"}>
-                  {s.paused ? "▶ Resume" : "⏸ Pause"}
-                </Button>
-                {recurring && (
-                  <Button
-                    onClick={() => {
-                      setEditingId(editingId === s.id ? null : s.id);
-                      setCustomCron("");
-                    }}
-                    title="Edit frequency"
-                  >
-                    🕐 Edit frequency
-                  </Button>
-                )}
-                <Button
-                  onClick={() => handleDelete(s.id)}
-                  className="danger"
-                  title="Delete schedule"
-                >
-                  ✕ Delete
-                </Button>
-              </div>
-              {editingId === s.id && (
-                <div className="schedule-editor">
-                  <div className="schedule-presets">
-                    {FREQUENCY_PRESETS.map((p) => (
-                      <Button
-                        key={p.id}
-                        type="button"
-                        className="preset"
-                        onClick={() => applyFrequency(s, { ...p.body })}
-                        title={`Set frequency to ${p.label}`}
-                      >
-                        {p.label}
-                      </Button>
-                    ))}
-                  </div>
-                  <div className="schedule-editor-custom">
-                    <TextInput
-                      type="text"
-                      placeholder="Custom cron, e.g. 0 9 * * 1-5"
-                      value={customCron}
-                      onChange={(e) => setCustomCron(e.target.value)}
-                    />
-                    <Button
-                      type="button"
-                      disabled={!customCron.trim()}
-                      onClick={() => applyFrequency(s, { scheduleType: "cron", cron: customCron.trim() })}
-                    >
-                      Apply cron
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+      {loading && schedules.length === 0 ? (
+        <p className="sched-table-status">Loading schedules…</p>
+      ) : error ? (
+        <Notice tone="danger" title="Schedules could not be loaded">
+          {error}{" "}
+          <Button type="button" variant="secondary" size="sm" onClick={fetchSchedules}>
+            Retry
+          </Button>
+        </Notice>
+      ) : showGenericSection ? (
+        <section className="sched-section-card">
+          <header className="sched-section-header">
+            <h4>
+              <span aria-hidden="true">🗂️</span> Other Durable Schedules
+              <span className="sched-count-pill">{filtered.length} Shown</span>
+            </h4>
+            {loading && <span className="schedule-row-muted">Refreshing…</span>}
+          </header>
+          <Table
+            columns={genericColumns}
+            rows={filtered}
+            rowKey={(s) => s.id}
+            rowClassName="schedule-item-card"
+            rowTitle={(s) => `${s.id} · ${s.callback}`}
+            caption="Durable schedules outside the screening kinds"
+            containerClassName="sched-table-scroll"
+            empty={<p className="sched-table-status">No schedules in this group.</p>}
+          />
+        </section>
+      ) : null}
     </div>
   );
 }

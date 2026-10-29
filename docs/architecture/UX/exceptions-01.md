@@ -55,10 +55,7 @@ The following **28 components** render interactive UI controls, tabular data, or
   - **Custom Layouts:** Ad-hoc card containers with custom inline padding.
   - **Target Primitives:** `Button`, `TextInput`, `Card`.
 
-* **`src/client/SchedulesPanel.tsx`** (463 lines)
-  - **Raw Controls Found:** `<button>`, `<input>`
-  - **Custom Layouts:** Custom schedule card boxes and action rows.
-  - **Target Primitives:** `Button`, `TextInput`, `Card`, `Badge`.
+* **`src/client/SchedulesPanel.tsx`** — **resolved 2026-10-29 by #2329**; moved to Category 3 (item 13). The finding below is kept as the audit record: cards with custom action rows and raw `<button>`/`<input>` controls.
 
 ### 2. Core Chat & Workspace Components
 * **`src/client/chat/AgentChatTabContent.tsx`** (574 lines)
@@ -243,6 +240,7 @@ The following **12 components** (and sub-sections) properly import and consisten
 10. `src/client/scheduledOptionsManager/NotificationFields.tsx`
 11. `src/client/scheduledOptionsManager/CadenceFields.tsx`
 12. `src/client/components/PartnerDealsModal.tsx` *(uses Modal primitive, though contains minor card raw elements)*
+13. `src/client/SchedulesPanel.tsx` *(resolved by #2329: one `Table` of `Badge`/`Button` rows per surface, `PillGroup` filters, `Modal`-based Details/cadence/confirm dialogs, no raw `<button>`/`<input>`; pattern recorded in `docs/architecture/UX/schedule-surface-01.md`)*
 
 ---
 

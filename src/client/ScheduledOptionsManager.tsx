@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { Button, Modal } from "./components/ui";
+import { Button, Notice } from "./components/ui";
 import { apiFetch as fetch } from "./apiFetch";
 import { listProfiles } from "./scannerApi";
 import type { StrategyProfile } from "../trading";
@@ -31,6 +31,7 @@ import {
   noViewDraftFromConstraintSets,
 } from "./scheduledOptionsManager/noView";
 import { payloadOf } from "./scheduledOptionsManager/format";
+import { scheduleTitle } from "./scheduledOptionsManager/scheduleDetail";
 import {
   buildOptionsRunNowPayload,
   buildScheduleSubmission,
@@ -41,6 +42,8 @@ import { LatestRunsSection } from "./scheduledOptionsManager/LatestRunsSection";
 import { SchedulesSection } from "./scheduledOptionsManager/SchedulesSection";
 import { AuditTrailSection } from "./scheduledOptionsManager/AuditTrailSection";
 import { ScheduleFormModal } from "./scheduledOptionsManager/ScheduleFormModal";
+import { ScheduleDetailModal } from "./scheduledOptionsManager/ScheduleDetailModal";
+import { ConfirmModal } from "./scheduledOptionsManager/ConfirmModal";
 
 export type {
   CreatableJob,
@@ -94,7 +97,6 @@ export function ScheduledOptionsManager({
   onSendPrompt,
   groupFilter = "all",
   refreshSignal,
-  openCreateSignal,
 }: ScheduledOptionsManagerProps) {
   // Schedules List State
   const [schedules, setSchedules] = useState<ScheduledTaskItem[]>([]);
@@ -109,7 +111,10 @@ export function ScheduledOptionsManager({
 
   // Modal State
   const [modalOpen, setModalOpen] = useState(false);
-  const [cancelTarget, setCancelTarget] = useState<string | null>(null);
+  // Destructive actions confirm in one dialog that names the schedule
+  // (Details and Edit are non-destructive, so they are separate dialogs).
+  const [deleteTarget, setDeleteTarget] = useState<ScheduledTaskItem | null>(null);
+  const [cancelling, setCancelling] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
 
@@ -171,13 +176,10 @@ export function ScheduledOptionsManager({
   const [triggeringKey, setTriggeringKey] = useState<string | null>(null);
   const [liveResult, setLiveResult] = useState<any | null>(null);
 
-  // S7: frequency editing folded in from the nav panel — presets +
-  // custom cron applied with PUT /api/schedules/:id.
-  const [freqEditingId, setFreqEditingId] = useState<string | null>(null);
-  const [freqCustomCron, setFreqCustomCron] = useState("");
-
-  // Detail expansion state (GET /api/schedules/:id, fetched on demand)
-  const [detailId, setDetailId] = useState<string | null>(null);
+  // Details dialog state (GET /api/schedules/:id, fetched when the
+  // dialog opens). The dialog renders the row's canonical model
+  // immediately and adds the server's run definition once it lands.
+  const [detailsTarget, setDetailsTarget] = useState<ScheduledTaskItem | null>(null);
   const [detail, setDetail] = useState<any | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -252,7 +254,7 @@ export function ScheduledOptionsManager({
   }, [fetchSchedules, fetchAudit]);
 
   // Strategy Profiles for the profile-derived discovery form and
-  // for resolving profile names on schedule cards (issue #533).
+  // for resolving profile names on schedule rows (issue #533; rows since #2329).
   // Best-effort: a failed load leaves the picker empty with the
   // error shown in the form, and cards fall back to the stored
   // profile id — the client never invents a profile name.
@@ -523,8 +525,8 @@ export function ScheduledOptionsManager({
     }
   };
 
-  const handleCancelSchedule = async (scheduleId: string) => {
-    setCancelTarget(scheduleId);
+  const handleCancelSchedule = async (item: ScheduledTaskItem) => {
+    setDeleteTarget(item);
   };
 
   // S7: pause/resume folded in from the nav panel (issue #273
@@ -549,38 +551,6 @@ export function ScheduledOptionsManager({
     } catch (err: any) {
       setError(err.message || "Failed to update schedule");
     }
-  };
-
-  // S7: frequency-only edit (the nav panel's PUT path) — cadence
-  // changes without re-opening the full form.
-  const applyFrequency = async (
-    item: ScheduledTaskItem,
-    body: { scheduleType: "interval" | "cron"; intervalSeconds?: number; cron?: string }
-  ) => {
-    setError(null);
-    try {
-      const res = await fetch(`/api/schedules/${item.id}`, {
-        method: "PUT",
-        headers: authHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify(body),
-      });
-      const data = (await res.json().catch(() => ({}))) as any;
-      if (res.ok && data.success !== false) {
-        setFreqEditingId(null);
-        setFreqCustomCron("");
-        setSuccessMsg(`✓ Schedule ${item.id} frequency updated`);
-        fetchSchedules();
-      } else {
-        setError(data.error || "Failed to update frequency");
-      }
-    } catch (err: any) {
-      setError(err.message || "Failed to update frequency");
-    }
-  };
-
-  const handleToggleFrequency = (item: ScheduledTaskItem) => {
-    setFreqEditingId(freqEditingId === item.id ? null : item.id);
-    setFreqCustomCron("");
   };
 
   // Run one schedule's own job on demand, via that job's trigger route.
@@ -712,15 +682,9 @@ export function ScheduledOptionsManager({
     }
   };
 
-  // Detail expansion: fetch the authoritative SDK Schedule by id.
-  const handleToggleDetails = async (item: ScheduledTaskItem) => {
-    if (detailId === item.id) {
-      setDetailId(null);
-      setDetail(null);
-      setDetailError(null);
-      return;
-    }
-    setDetailId(item.id);
+  // Details dialog: open immediately from the row's own data, then read
+  // the authoritative SDK Schedule by id (the server record, not a guess).
+  const readDetails = async (item: ScheduledTaskItem) => {
     setDetail(null);
     setDetailError(null);
     setDetailLoading(true);
@@ -741,24 +705,29 @@ export function ScheduledOptionsManager({
     }
   };
 
-  // S7 host signals: the hosting SchedulesPanel asks this section
-  // to refetch (its Refresh button) or to open the create modal (its
-  // "New schedule" button — the one structured create form).
+  const openDetails = (item: ScheduledTaskItem) => {
+    setDetailsTarget(item);
+    void readDetails(item);
+  };
+
+  const closeDetails = () => {
+    setDetailsTarget(null);
+    setDetail(null);
+    setDetailError(null);
+  };
+
+  // The hosting SchedulesPanel owns the page's ONE Refresh control:
+  // one bump refetches everything this surface reads — the schedule
+  // list, the latest runs, and the audit trail.
   const prevRefreshSignal = useRef(refreshSignal);
   useEffect(() => {
     if (prevRefreshSignal.current !== refreshSignal) {
       prevRefreshSignal.current = refreshSignal;
       fetchSchedules();
+      fetchLatestRuns();
+      fetchAudit();
     }
-  }, [refreshSignal, fetchSchedules]);
-
-  const prevOpenCreateSignal = useRef(openCreateSignal);
-  useEffect(() => {
-    if (prevOpenCreateSignal.current !== openCreateSignal) {
-      prevOpenCreateSignal.current = openCreateSignal;
-      openCreateModal();
-    }
-  }, [openCreateSignal]);
+  }, [refreshSignal, fetchSchedules, fetchLatestRuns, fetchAudit]);
 
   // S7: the host's tab filter narrows which screening kinds show.
   const visibleSchedules = schedules.filter((s) =>
@@ -777,86 +746,95 @@ export function ScheduledOptionsManager({
 
   return (
     <div className="scheduled-options-manager">
-      <Modal
-        open={cancelTarget !== null}
-        onClose={() => setCancelTarget(null)}
-        title="Cancel scheduled task?"
-        footer={
-          <>
-            <Button
-              type="button"
-              variant="danger"
-              onClick={async () => {
-                const target = cancelTarget;
-                setCancelTarget(null);
-                if (target) await doCancelSchedule(target);
-              }}
-            >
-              Cancel task
-            </Button>{" "}
-            <Button type="button" variant="secondary" onClick={() => setCancelTarget(null)}>
-              Keep task
-            </Button>
-          </>
-        }
+      <ScheduleDetailModal
+        item={detailsTarget}
+        detail={detail}
+        loading={detailLoading}
+        error={detailError}
+        profiles={profiles}
+        activeEnv={activeEnv}
+        userLogin={userLogin}
+        onRetry={() => {
+          if (detailsTarget) void readDetails(detailsTarget);
+        }}
+        onClose={closeDetails}
+      />
+
+      <ConfirmModal
+        open={deleteTarget !== null}
+        title="Cancel this schedule?"
+        confirmLabel="Cancel schedule"
+        cancelLabel="Keep schedule"
+        busy={cancelling}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={async () => {
+          const target = deleteTarget;
+          if (!target) return;
+          setCancelling(true);
+          try {
+            await doCancelSchedule(target.id);
+          } finally {
+            setCancelling(false);
+            setDeleteTarget(null);
+          }
+        }}
       >
         <p>
-          Cancel scheduled task {cancelTarget}? This cannot be undone.
+          <strong>{deleteTarget ? scheduleTitle(deleteTarget, profiles) : "This schedule"}</strong>{" "}
+          (<code>{deleteTarget?.id}</code>) stops firing and its definition is removed from
+          the schedule store. This cannot be undone.
         </p>
-      </Modal>
+      </ConfirmModal>
       {/* Top Hero Banner */}
       <div className="sched-hero-banner">
         <div className="sched-hero-info">
           <h3>
-            <span>⏰</span> Autonomous Options Screening &amp; Schedulers
+            <span aria-hidden="true">⏰</span> Autonomous Options Screening &amp; Schedulers
           </h3>
           <p>
-            Persistent Background Timers (<code>schedule</code> / <code>scheduleEvery</code>) run within the autonomous orchestration runtime — each registered job fires on its own schedule, independently of whether your browser tab is open. When a scheduled analysis or screen completes, its results are broadcast to connected app clients, and notifications are sent only to the channels configured on that job (Slack, email, webhook) — a channel the job doesn&apos;t configure receives nothing.
+            <strong>Persistent Background Timers</strong> (<code>schedule</code> /{" "}
+            <code>scheduleEvery</code>) run inside the autonomous orchestration runtime — each
+            registered job fires on its own schedule, whether or not your browser tab is open.
+            Results are broadcast to connected app clients, and notifications are sent only to the
+            channels configured on that job (Slack, email, webhook); a channel the job does not
+            configure receives nothing.
           </p>
         </div>
 
         <div className="sched-hero-actions">
           <Button
             type="button"
-            className="btn-sched-secondary"
+            variant="secondary"
             onClick={() => handleTriggerNow()}
             disabled={triggeringKey !== null}
-            title="Execute the options intelligence scan immediately on demand"
+            title="Run the options intelligence scan immediately, on demand"
           >
-            {triggeringKey === "hero" ? "⚡ Running Screen…" : "⚡ Run Now"}
+            {triggeringKey === "hero" ? "Running…" : "Run Now"}
           </Button>
           <Button
             type="button"
-            className="btn-sched-primary"
+            variant="accent"
             onClick={openCreateModal}
             title="Register a new durable schedule"
           >
-            <span>+</span> New Schedule
+            <span aria-hidden="true">+</span> New Schedule
           </Button>
         </div>
       </div>
 
-      <div className="sched-arch-callout">
-        <div>
-          🛡️ <strong>Page-Independent Execution Guarantee:</strong> Timers persist in server-side distributed state. You can close this browser anytime — scheduled tasks continue firing on schedule.
-        </div>
-        <div className="sched-arch-badges">
-          <span className="arch-pill">💬 Slack Block Kit [✓ Approve]</span>
-          <span className="arch-pill">📧 Dark-Mode Payoff Briefs</span>
-          <span className="arch-pill">🔗 Signed Webhooks</span>
-          <span className="arch-pill">📡 WebSocket Push</span>
-        </div>
-      </div>
+      <Notice tone="info" variant="box" density="compact" icon="🛡️" className="sched-guarantee">
+        <strong>Page-independent execution guarantee:</strong> timers live in server-side distributed state, so closing this browser never stops a scheduled job.
+      </Notice>
 
       {error && (
-        <div className="options-error" role="alert" style={{ margin: 0 }}>
+        <Notice tone="danger" title="Schedule action failed" onDismiss={() => setError(null)}>
           {error}
-        </div>
+        </Notice>
       )}
       {successMsg && (
-        <div className="execution-result-banner success" style={{ margin: 0 }}>
-          <span>{successMsg}</span>
-        </div>
+        <Notice tone="success" onDismiss={() => setSuccessMsg(null)}>
+          {successMsg}
+        </Notice>
       )}
 
       {/* Live Result Preview Banner */}
@@ -867,40 +845,28 @@ export function ScheduledOptionsManager({
         latestRuns={latestRuns}
         runsLoading={runsLoading}
         runsError={runsError}
-        fetchLatestRuns={fetchLatestRuns}
       />
 
       {/* Active Schedules Section */}
       <SchedulesSection
         schedules={visibleSchedules}
         loading={loading}
-        fetchSchedules={fetchSchedules}
         openCreateModal={openCreateModal}
         activeEnv={activeEnv}
         userLogin={userLogin}
         profiles={profiles}
-        triggeringKey={triggeringKey}
-        detailId={detailId}
-        detail={detail}
-        detailLoading={detailLoading}
-        detailError={detailError}
-        handleToggleDetails={handleToggleDetails}
-        handleTriggerCard={handleTriggerCard}
-        handleEditSchedule={handleEditSchedule}
-        handleCancelSchedule={handleCancelSchedule}
-        handlePauseResume={handlePauseResume}
-        freqEditingId={freqEditingId}
-        freqCustomCron={freqCustomCron}
-        setFreqCustomCron={setFreqCustomCron}
-        handleToggleFrequency={handleToggleFrequency}
-        handleApplyFrequency={applyFrequency}
+        busyKey={triggeringKey}
+        onShowDetails={openDetails}
+        onEdit={handleEditSchedule}
+        onTrigger={handleTriggerCard}
+        onTogglePause={handlePauseResume}
+        onCancel={handleCancelSchedule}
       />
 
       {/* Execution Audit Trail Section */}
       <AuditTrailSection
         auditLogs={auditLogs}
         loadingAudit={loadingAudit}
-        fetchAudit={fetchAudit}
       />
 
       {/* Create Schedule Modal */}
