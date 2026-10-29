@@ -32,6 +32,7 @@ import { sizeCandidateAgainstPortfolio, type SizingCandidate } from "../services
 import { generateHedgeProposals } from "../services/hedgeProposals";
 import { ensureFrameworkQueueIndexes } from "../services/frameworkQueueIndexes";
 import { ensureAsyncJobGateIndexes } from "../services/asyncJobGate";
+import { ensureMasRetentionIndexes } from "../services/masRetentionIndexes";
 import { sharedCorrelationService } from "../services/correlationService";
 import type { ScreenerAgent } from "./screener-agent";
 import type { ResearchAgent } from "./research-agent";
@@ -1074,6 +1075,10 @@ export class OrchestratorAgent extends PortThink {
     // Issue #1123: job-graph columns (parent/sub-job tracking) — additive.
     ensureAsyncJobGraphColumns(sql);
     ensureSharedTable(sql, "mas_events");
+    // Issue #2280 (slice 3): the nightly retention batches' covering indexes.
+    // Both tables exist by now (mas_messages above, mas_events just created),
+    // so no lazy-creation ordering issue.
+    ensureMasRetentionIndexes(sql);
     ensureSharedTable(sql, "mas_memory");
     // Autopilot policy state (autopilot Phase 1): server-owned run state,
     // limits, kill switch, and daily order budget. Previously all four lived in
