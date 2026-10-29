@@ -1,17 +1,21 @@
 /**
- * Issues #2020/#2127 — subscription endpoints through
- * handleAgenticPaymentsRoutes: plans as operator data, the
- * route-owned cfpay checkout, purchase activation on verified
- * payment, cancel-at-period-end, and the effective-tier status
- * read — plus the submit route's effective-tier wiring.
+ * Issues #2020/#2127 + #2198 (slice 2, #2146) — subscription
+ * endpoints through handleAgenticPaymentsRoutes: plans as
+ * operator data, the route-owned NATIVE Stripe checkout,
+ * purchase activation on verified payment (session retrieve +
+ * mandatory amount re-check), cancel-at-period-end, and the
+ * effective-tier status read — plus the submit route's
+ * effective-tier wiring.
  *
  * D1 is shared, so there is no canonical-instance hop: the
  * handler builds both store adapters straight from
  * ctx.env.AGENT_DB. Tests supply a MockD1Database (node:sqlite,
- * the slice0 pattern) with migrations 0007 + 0008 applied, so
- * the real Drizzle adapters run. cfpay is stubbed at fetch:
- * checkout.create returns an opaque payload, checkout.status
- * returns the test's chosen fulfillment state.
+ * the slice0 pattern) with migrations 0007 + 0008 + 0013 applied
+ * (via ensureSubscriptionSchema), so the real Drizzle adapters
+ * run. Stripe is stubbed at fetch: POST /v1/checkout/sessions
+ * mints a session (recording its draft id + amount), GET
+ * /v1/checkout/sessions/{id} returns the test's scripted
+ * session evidence.
  */
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -29,6 +33,11 @@ import {
   D1SubscriptionAdapter,
   ensureSubscriptionSchema,
 } from "../src/data/d1SubscriptionAdapter";
+import {
+  createD1JournalDb,
+  D1JournalAdapter,
+  ensureJournalSchema,
+} from "../src/data/d1JournalAdapter";
 import type { DatabaseORM } from "../src/orm";
 
 /** Minimal D1Database stand-in over node:sqlite (test-only, mirrors slice0). */
@@ -65,7 +74,7 @@ class MockD1Database {
   }
 }
 
-async function setup(opts: { monetization?: boolean; cfpayToken?: boolean } = {}) {
+async function setup(opts: { monetization?: boolean; stripe?: boolean } = {}) {
   const mock = new MockD1Database();
   const commercialDb = createD1CommercialDb(mock as unknown as D1Database);
   await ensureCommercialSchema(commercialDb);
@@ -92,7 +101,7 @@ async function setup(opts: { monetization?: boolean; cfpayToken?: boolean } = {}
     SCREENER_WORKFLOW: screenerBinding,
   };
   if (opts.monetization) env.MONETIZATION_ENABLED = "true";
-  if (opts.cfpayToken) env.CFPAY_A2A_TOKEN = "test-token";
+  if (opts.stripe) env.STRIPE_SECRET_KEY = "sk_test_stub";
   const ctx = {
     env,
     getOrm: () => ({}) as DatabaseORM,
@@ -124,26 +133,54 @@ const call = (
 
 const bodyOf = async (res: Response | null) => (await res?.json()) as any;
 
-/** Stub fetch so cfpayA2AOperation sees JSON-RPC data parts. */
-function stubCfpay(statusPayload: Record<string, unknown> | null, ok = true) {
+/**
+ * Stub fetch as the Stripe REST API. POST /v1/checkout/sessions
+ * mints a session id and records the draft id (client_reference_id)
+ * + amount (unit_amount) the strategy sent; GET
+ * /v1/checkout/sessions/{id} returns evidence for that session,
+ * defaulting to complete + paid + amount-matched + reference-matched
+ * + a payment intent, unless the test overrides fields via
+ * setEvidence. Unknown sessions 404 (retrieve then fails closed).
+ */
+function stubStripe(overrides: Record<string, unknown> = {}) {
+  const sessions = new Map<string, { draft: string; amount: number }>();
+  let counter = 0;
+  let evidenceOverrides: Record<string, unknown> = { ...overrides };
+  const setEvidence = (partial: Record<string, unknown>) => {
+    evidenceOverrides = { ...evidenceOverrides, ...partial };
+  };
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init: any) => {
-      const parsed = JSON.parse(init.body as string);
-      const dataPart = parsed.params.message.parts[0].data as { operation: string };
-      const payload =
-        dataPart.operation === "checkout.create"
-          ? { ok: true, checkoutId: "co_1" }
-          : (statusPayload ?? { ok: false, error: "not_found" });
-      return {
-        ok,
-        status: ok ? 200 : 502,
-        json: async () => ({
-          result: { artifacts: [{ parts: [{ kind: "data", data: payload }] }] },
-        }),
-      };
+      const href = String(url);
+      if (href === "https://api.stripe.com/v1/checkout/sessions" && init?.method === "POST") {
+        const params = new URLSearchParams(String(init.body));
+        const draft = params.get("client_reference_id") ?? "";
+        const amount = Number(params.get("line_items[0][price_data][unit_amount]") ?? 0);
+        counter += 1;
+        const id = `cs_test_${counter}`;
+        sessions.set(id, { draft, amount });
+        return { ok: true, status: 200, json: async () => ({ id, url: `https://checkout.stripe.com/pay/${id}` }) };
+      }
+      const m = href.match(/^https:\/\/api\.stripe\.com\/v1\/checkout\/sessions\/([^/]+)$/);
+      if (m && init?.method === "GET") {
+        const session = sessions.get(decodeURIComponent(m[1]));
+        if (!session) return { ok: false, status: 404, json: async () => ({ error: { message: "not found" } }) };
+        const evidence = {
+          id: decodeURIComponent(m[1]),
+          status: "complete",
+          payment_status: "paid",
+          amount_total: session.amount,
+          client_reference_id: session.draft,
+          payment_intent: "pi_test_1",
+          ...evidenceOverrides,
+        };
+        return { ok: true, status: 200, json: async () => evidence };
+      }
+      return { ok: false, status: 404, json: async () => ({}) };
     }),
   );
+  return { setEvidence };
 }
 
 afterEach(() => {
@@ -181,47 +218,52 @@ describe("subscription plans", () => {
 });
 
 describe("subscription checkout + purchase", () => {
-  it("flag OFF refuses checkout and purchase before any cfpay call", async () => {
-    const { ctx } = await setup({ cfpayToken: true });
-    stubCfpay({ status: "fulfilled" });
+  it("flag OFF refuses checkout and purchase before any Stripe call", async () => {
+    const { ctx } = await setup({ stripe: true });
+    stubStripe();
     const plan = await createPlan(ctx, { name: "P", priceUSD: 5, periodDays: 30, includedRuns: 0 });
     expect((await call(ctx, "POST", "/payments/agentic/commercial/subscription/checkout", "u1", { planId: plan.id, tenantId: "t1", email: "u1@example.com" }))?.status).toBe(403);
-    expect((await call(ctx, "POST", "/payments/agentic/commercial/subscription/purchase", "u1", { planId: plan.id, tenantId: "t1", checkoutRequestId: "sub-x" }))?.status).toBe(403);
+    expect((await call(ctx, "POST", "/payments/agentic/commercial/subscription/purchase", "u1", { planId: plan.id, tenantId: "t1", checkoutRequestId: "sub-x", checkoutSessionId: "cs_test_1" }))?.status).toBe(403);
   });
 
-  it("cfpay unconfigured fails closed with 503", async () => {
+  it("native card unconfigured fails closed with 503", async () => {
     const { ctx } = await setup({ monetization: true });
     const plan = await createPlan(ctx, { name: "P", priceUSD: 5, periodDays: 30, includedRuns: 0 });
     expect((await call(ctx, "POST", "/payments/agentic/commercial/subscription/checkout", "u1", { planId: plan.id, tenantId: "t1", email: "u1@example.com" }))?.status).toBe(503);
-    expect((await call(ctx, "POST", "/payments/agentic/commercial/subscription/purchase", "u1", { planId: plan.id, tenantId: "t1", checkoutRequestId: "sub-x" }))?.status).toBe(503);
+    expect((await call(ctx, "POST", "/payments/agentic/commercial/subscription/purchase", "u1", { planId: plan.id, tenantId: "t1", checkoutRequestId: "sub-x", checkoutSessionId: "cs_test_1" }))?.status).toBe(503);
   });
 
-  it("unfulfilled checkout activates nothing (402), fulfilled activates (and replays 409)", async () => {
-    const { ctx } = await setup({ monetization: true, cfpayToken: true });
+  it("checkout returns a real checkoutUrl; unpaid activates nothing (402), paid activates and stores both Stripe ids (replay 409)", async () => {
+    const { ctx } = await setup({ monetization: true, stripe: true });
     const plan = await createPlan(ctx, { name: "Pro", priceUSD: 20, periodDays: 30, includedRuns: 10 });
-    stubCfpay({ status: "pending" });
+    const stripe = stubStripe({ status: "open", payment_status: "unpaid" });
     const checkout = await bodyOf(
       await call(ctx, "POST", "/payments/agentic/commercial/subscription/checkout", "u1", { planId: plan.id, tenantId: "t1", email: "u1@example.com" }),
     );
     expect(checkout.checkoutRequestId).toMatch(/^sub-/);
+    expect(checkout.checkoutUrl).toMatch(/^https:\/\/checkout\.stripe\.com\//);
+    expect(checkout.checkoutSessionId).toMatch(/^cs_test_/);
     expect(checkout.plan.priceUSD).toBe(20);
     const denied = await call(ctx, "POST", "/payments/agentic/commercial/subscription/purchase", "u1", {
-      planId: plan.id, tenantId: "t1", checkoutRequestId: checkout.checkoutRequestId,
+      planId: plan.id, tenantId: "t1", checkoutRequestId: checkout.checkoutRequestId, checkoutSessionId: checkout.checkoutSessionId,
     });
     expect(denied?.status).toBe(402);
     const empty = await bodyOf(await call(ctx, "GET", "/payments/agentic/commercial/subscription?userId=u1", "u1"));
     expect(empty.subscriptions).toEqual([]);
     expect(empty.effectiveTier).toBe("Free");
 
-    stubCfpay({ status: "fulfilled" });
+    stripe.setEvidence({ status: "complete", payment_status: "paid" });
     const bought = await bodyOf(
       await call(ctx, "POST", "/payments/agentic/commercial/subscription/purchase", "u1", {
-        planId: plan.id, tenantId: "t1", checkoutRequestId: checkout.checkoutRequestId,
+        planId: plan.id, tenantId: "t1", checkoutRequestId: checkout.checkoutRequestId, checkoutSessionId: checkout.checkoutSessionId,
       }),
     );
     expect(bought.subscription.status).toBe("active");
     expect(bought.subscription.planId).toBe(plan.id);
+    expect(bought.subscription.provider).toBe("stripe");
     expect(bought.subscription.providerPaymentRef).toBe(checkout.checkoutRequestId);
+    expect(bought.subscription.stripeSessionId).toBe(checkout.checkoutSessionId);
+    expect(bought.subscription.stripePaymentIntentId).toBe("pi_test_1");
     expect(bought.subscription.periodEndMs).toBeGreaterThan(bought.subscription.periodStartMs);
     expect(bought.account.tierSource).toBe("subscription");
     expect(bought.account.includedRuns).toBe(10);
@@ -229,35 +271,108 @@ describe("subscription checkout + purchase", () => {
     expect((ctx.audit as any).mock.calls.some(([t]: [string]) => t === "commercial.subscription.activated")).toBe(true);
 
     const replay = await call(ctx, "POST", "/payments/agentic/commercial/subscription/purchase", "u1", {
-      planId: plan.id, tenantId: "t1", checkoutRequestId: checkout.checkoutRequestId,
+      planId: plan.id, tenantId: "t1", checkoutRequestId: checkout.checkoutRequestId, checkoutSessionId: checkout.checkoutSessionId,
     });
     expect(replay?.status).toBe(409);
   });
 
-  it("rejects foreign checkout ids, inactive plans, and tenant mismatch", async () => {
-    const { ctx } = await setup({ monetization: true, cfpayToken: true });
-    stubCfpay({ status: "fulfilled" });
+  it("purchase posts Dr 1000 / Cr 2100 deferred revenue to the journal; a refused purchase posts nothing (#2155 follow-up)", async () => {
+    const { ctx, env } = await setup({ monetization: true, stripe: true });
+    const plan = await createPlan(ctx, { name: "Pro", priceUSD: 20, periodDays: 30, includedRuns: 10 });
+    const stripe = stubStripe({ status: "open", payment_status: "unpaid" });
+    const checkout = await bodyOf(
+      await call(ctx, "POST", "/payments/agentic/commercial/subscription/checkout", "u1", { planId: plan.id, tenantId: "t1", email: "u1@example.com" }),
+    );
+    const journal = new D1JournalAdapter(createD1JournalDb(env.AGENT_DB as unknown as D1Database));
+    await ensureJournalSchema(journal.db);
+    // Refused (unpaid) purchase: activation nothing, journal nothing.
+    expect((await call(ctx, "POST", "/payments/agentic/commercial/subscription/purchase", "u1", {
+      planId: plan.id, tenantId: "t1", checkoutRequestId: checkout.checkoutRequestId, checkoutSessionId: checkout.checkoutSessionId,
+    }))?.status).toBe(402);
+    expect(await journal.listEntries("t1")).toEqual([]);
+    // Paid purchase: activation succeeds AND the journal pair posts.
+    stripe.setEvidence({ status: "complete", payment_status: "paid" });
+    const bought = await bodyOf(
+      await call(ctx, "POST", "/payments/agentic/commercial/subscription/purchase", "u1", {
+        planId: plan.id, tenantId: "t1", checkoutRequestId: checkout.checkoutRequestId, checkoutSessionId: checkout.checkoutSessionId,
+      }),
+    );
+    expect(bought.subscription.status).toBe("active");
+    const entries = await journal.listEntries("t1");
+    expect(entries.map((e: any) => [e.accountCode, e.debitUSD, e.creditUSD])).toEqual([
+      ["1000", 20, 0],
+      ["2100", 0, 20],
+    ]);
+    for (const e of entries) {
+      expect(e.transactionRef).toBe(checkout.checkoutRequestId);
+      expect(e.runRequestId).toBe(bought.subscription.id);
+      expect(e.family).toBe("subscription");
+    }
+    expect(entries.every((e: any) => e.accountCode !== "4000")).toBe(true);
+  });
+
+  it("purchase refuses on amount mismatch (mandatory re-check) and activates nothing", async () => {
+    const { ctx } = await setup({ monetization: true, stripe: true });
+    const plan = await createPlan(ctx, { name: "Pro", priceUSD: 20, periodDays: 30, includedRuns: 10 });
+    stubStripe({ amount_total: 1999 });
+    const checkout = await bodyOf(
+      await call(ctx, "POST", "/payments/agentic/commercial/subscription/checkout", "u1", { planId: plan.id, tenantId: "t1", email: "u1@example.com" }),
+    );
+    const denied = await call(ctx, "POST", "/payments/agentic/commercial/subscription/purchase", "u1", {
+      planId: plan.id, tenantId: "t1", checkoutRequestId: checkout.checkoutRequestId, checkoutSessionId: checkout.checkoutSessionId,
+    });
+    expect(denied?.status).toBe(402);
+    const empty = await bodyOf(await call(ctx, "GET", "/payments/agentic/commercial/subscription?userId=u1", "u1"));
+    expect(empty.subscriptions).toEqual([]);
+  });
+
+  it("purchase refuses on reference mismatch and on a missing payment intent, without consuming the draft", async () => {
+    const { ctx } = await setup({ monetization: true, stripe: true });
     const plan = await createPlan(ctx, { name: "P", priceUSD: 5, periodDays: 30, includedRuns: 0 });
-    expect((await call(ctx, "POST", "/payments/agentic/commercial/subscription/purchase", "u1", { planId: plan.id, tenantId: "t1", checkoutRequestId: "run-123" }))?.status).toBe(400);
+    const stripe = stubStripe({ client_reference_id: "sub-someone-else" });
+    const checkout = await bodyOf(
+      await call(ctx, "POST", "/payments/agentic/commercial/subscription/checkout", "u1", { planId: plan.id, tenantId: "t1", email: "u1@example.com" }),
+    );
+    const purchaseBody = {
+      planId: plan.id, tenantId: "t1", checkoutRequestId: checkout.checkoutRequestId, checkoutSessionId: checkout.checkoutSessionId,
+    };
+    expect((await call(ctx, "POST", "/payments/agentic/commercial/subscription/purchase", "u1", purchaseBody))?.status).toBe(402);
+    stripe.setEvidence({ client_reference_id: checkout.checkoutRequestId, payment_intent: undefined });
+    expect((await call(ctx, "POST", "/payments/agentic/commercial/subscription/purchase", "u1", purchaseBody))?.status).toBe(402);
+    stripe.setEvidence({ payment_intent: "pi_test_9" });
+    const bought = await bodyOf(await call(ctx, "POST", "/payments/agentic/commercial/subscription/purchase", "u1", purchaseBody));
+    expect(bought.subscription.status).toBe("active");
+    expect(bought.subscription.stripePaymentIntentId).toBe("pi_test_9");
+  });
+
+  it("rejects foreign checkout ids, inactive plans, and tenant mismatch", async () => {
+    const { ctx } = await setup({ monetization: true, stripe: true });
+    stubStripe();
+    const plan = await createPlan(ctx, { name: "P", priceUSD: 5, periodDays: 30, includedRuns: 0 });
+    expect((await call(ctx, "POST", "/payments/agentic/commercial/subscription/purchase", "u1", { planId: plan.id, tenantId: "t1", checkoutRequestId: "run-123", checkoutSessionId: "cs_test_1" }))?.status).toBe(400);
     await call(ctx, "POST", "/payments/agentic/commercial/plans/deactivate", "op1", { planId: plan.id });
-    expect((await call(ctx, "POST", "/payments/agentic/commercial/subscription/purchase", "u1", { planId: plan.id, tenantId: "t1", checkoutRequestId: "sub-x" }))?.status).toBe(409);
+    expect((await call(ctx, "POST", "/payments/agentic/commercial/subscription/purchase", "u1", { planId: plan.id, tenantId: "t1", checkoutRequestId: "sub-x", checkoutSessionId: "cs_test_1" }))?.status).toBe(409);
     const live = await createPlan(ctx, { name: "L", priceUSD: 5, periodDays: 30, includedRuns: 0 });
     await call(ctx, "POST", "/payments/agentic/commercial/account", "op1", { userId: "u1", tenantId: "t1", tier: "Free" });
-    expect((await call(ctx, "POST", "/payments/agentic/commercial/subscription/purchase", "u1", { planId: live.id, tenantId: "t2", checkoutRequestId: "sub-y" }))?.status).toBe(403);
+    const checkout = await bodyOf(
+      await call(ctx, "POST", "/payments/agentic/commercial/subscription/checkout", "u1", { planId: live.id, tenantId: "t1", email: "u1@example.com" }),
+    );
+    expect((await call(ctx, "POST", "/payments/agentic/commercial/subscription/purchase", "u1", { planId: live.id, tenantId: "t2", checkoutRequestId: checkout.checkoutRequestId, checkoutSessionId: checkout.checkoutSessionId }))?.status).toBe(403);
   });
 });
 
 describe("subscription cancel + status", () => {
   it("cancel-at-period-end keeps access to periodEnd, then a second cancel is empty", async () => {
-    const { ctx } = await setup({ monetization: true, cfpayToken: true });
-    stubCfpay({ status: "fulfilled" });
+    const { ctx } = await setup({ monetization: true, stripe: true });
+    stubStripe();
     const plan = await createPlan(ctx, { name: "P", priceUSD: 5, periodDays: 30, includedRuns: 0 });
     const checkout = await bodyOf(
       await call(ctx, "POST", "/payments/agentic/commercial/subscription/checkout", "u1", { planId: plan.id, tenantId: "t1", email: "u1@example.com" }),
     );
-    await call(ctx, "POST", "/payments/agentic/commercial/subscription/purchase", "u1", {
-      planId: plan.id, tenantId: "t1", checkoutRequestId: checkout.checkoutRequestId,
-    });
+    const bought = await bodyOf(await call(ctx, "POST", "/payments/agentic/commercial/subscription/purchase", "u1", {
+      planId: plan.id, tenantId: "t1", checkoutRequestId: checkout.checkoutRequestId, checkoutSessionId: checkout.checkoutSessionId,
+    }));
+    expect(bought.subscription.status).toBe("active");
     expect((await call(ctx, "POST", "/payments/agentic/commercial/subscription/cancel", "u2", { userId: "u1" }))?.status).toBe(403);
     const canceled = await bodyOf(await call(ctx, "POST", "/payments/agentic/commercial/subscription/cancel", "u1", {}));
     expect(canceled.canceled).toHaveLength(1);

@@ -51,11 +51,18 @@ export interface JournalAccount {
  * RESERVED for the refunds design (#2147): seeded, with no
  * mapping writing to it yet. 5000 is contra-revenue; the
  * constrained type enum has no contra-income value, so it maps
- * to "expense" — the name carries the semantics.
+ * to "expense" — the name carries the semantics. Account 2100
+ * (Deferred revenue, liability) is written by the subscription
+ * purchase mapping (#2155 follow-up): a purchase is NOT
+ * immediate revenue. The RECOGNITION schedule (deferred →
+ * earned over the subscription period) is a FOLLOW-UP slice,
+ * deliberately not built here: no periodic recognition sweeper,
+ * no cron, no earned-revenue amortization logic in this slice.
  */
 export const MINIMAL_CHART: readonly JournalAccount[] = [
   { code: "1000", name: "Funds received", type: "asset" },
   { code: "2000", name: "Customer credits outstanding", type: "liability" },
+  { code: "2100", name: "Deferred revenue", type: "liability" },
   { code: "4000", name: "Revenue — screener runs", type: "income" },
   { code: "5000", name: "Refunds contra-revenue", type: "expense" },
 ];
@@ -257,6 +264,68 @@ export function mapFailureCreditToJournalEntries(input: JournalMappingInput): Jo
       tenantId: input.tenantId,
       runRequestId: input.runRequestId,
       family: input.family,
+    },
+  ];
+}
+
+/**
+ * Subscription purchase journal input. Distinct from
+ * JournalMappingInput on purpose: a subscription has no
+ * screener run and no screener family, so the caller supplies
+ * the subscription id and the mapping stamps it into the
+ * runRequestId column (the entry row's reference column, which
+ * is NOT NULL in the journal schema) with family
+ * "subscription". transactionRef is the purchase's
+ * idempotency key: the checkoutRequestId (the route-minted
+ * "sub-" draft id, also the activation replay-guard key), so
+ * a replayed purchase activation can never double-post — the
+ * adapter returns the existing entries for that ref.
+ */
+export interface SubscriptionPurchaseJournalInput {
+  /** Idempotency key: the purchase checkoutRequestId ("sub-" draft id). */
+  transactionRef: string;
+  tenantId: string;
+  /** The created subscription record id (carried in runRequestId). */
+  subscriptionId: string;
+  /** The plan price at purchase. */
+  amountUSD: number;
+  currency?: string;
+}
+
+/** subscription purchase → Dr 1000 / Cr 2100. NOT immediate revenue. */
+export function mapSubscriptionPurchaseToJournalEntries(
+  input: SubscriptionPurchaseJournalInput,
+): JournalEntryInput[] {
+  const amount = round2(input.amountUSD);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error("Journal mapping requires a positive finite amountUSD.");
+  }
+  if (!input.transactionRef || !input.tenantId || !input.subscriptionId) {
+    throw new Error(
+      "Journal mapping requires transactionRef, tenantId, and subscriptionId.",
+    );
+  }
+  const currency = input.currency ?? "USD";
+  return [
+    {
+      transactionRef: input.transactionRef,
+      accountCode: "1000",
+      debitUSD: amount,
+      creditUSD: 0,
+      currency,
+      tenantId: input.tenantId,
+      runRequestId: input.subscriptionId,
+      family: "subscription",
+    },
+    {
+      transactionRef: input.transactionRef,
+      accountCode: "2100",
+      debitUSD: 0,
+      creditUSD: amount,
+      currency,
+      tenantId: input.tenantId,
+      runRequestId: input.subscriptionId,
+      family: "subscription",
     },
   ];
 }

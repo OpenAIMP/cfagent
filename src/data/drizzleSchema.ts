@@ -358,6 +358,8 @@ export const agentSubscriptions = sqliteTable("agent_subscriptions", {
   planId: text("plan_id").notNull(),
   provider: text("provider").notNull(),
   providerPaymentRef: text("provider_payment_ref").notNull(),
+  stripeSessionId: text("stripe_session_id"),
+  stripePaymentIntentId: text("stripe_payment_intent_id"),
   status: text("status").notNull(),
   periodStartMs: integer("period_start_ms").notNull(),
   periodEndMs: integer("period_end_ms").notNull(),
@@ -393,6 +395,19 @@ export const agentJournalEntries = sqliteTable("agent_journal_entries", {
   runRequestId: text("run_request_id").notNull(),
   family: text("family").notNull(),
   createdAtMs: integer("created_at_ms").notNull(),
+});
+
+/**
+ * Per-run price catalogue (#2185, sub-issue of #2012) on D1.
+ * One row per family; operator data, never code. This schema MAPS
+ * the table; it does not create it — DDL authority lives in
+ * migration 0011 (src/data/migrationRunner.ts), and a test pins
+ * that this mapping and that DDL agree on columns.
+ */
+export const agentPriceCatalogue = sqliteTable("agent_price_catalogue", {
+  family: text("family").primaryKey(),
+  priceUSD: real("price_usd").notNull(),
+  updatedAtMs: integer("updated_at_ms").notNull(),
 });
 
 /**
