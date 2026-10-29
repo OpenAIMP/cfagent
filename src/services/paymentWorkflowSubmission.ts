@@ -154,11 +154,18 @@ export async function deliverPaymentApprovalViaHost(
   });
 }
 
-/** Deliver a verified-payment wake-up (not proof) to a running workflow. */
+/**
+ * Deliver a verified-payment wake-up (not proof) to a running workflow.
+ * The proof carries the provider join keys the flow forwards to the
+ * gate's confirmPaid (PaymentVerifiedEvent): the Stripe session id for
+ * card and the x402 payment proof (+ claimed payer) for crypto, in
+ * addition to the legacy cfpay claimTxHash/paymentIntentId. The wake-up
+ * itself proves nothing — confirmPaid re-reads provider state.
+ */
 export async function deliverPaymentVerifiedViaHost(
   host: PaymentWorkflowHost | undefined,
   workflowId: string,
-  proof: { claimTxHash?: string; paymentIntentId?: string },
+  proof: { claimTxHash?: string; paymentIntentId?: string; sessionId?: string; paymentProof?: string; payer?: string },
 ): Promise<void> {
   if (!host || typeof host.sendWorkflowEvent !== "function") {
     throw new Error("Payment workflow host does not support sendWorkflowEvent; verified-payment event cannot be delivered.");

@@ -65,6 +65,15 @@ export interface CardSessionEvidence {
   amountTotalCents: number;
   clientReferenceId: string;
   paymentIntentId?: string;
+  /**
+   * The session's hosted checkout URL, when Stripe still serves one
+   * (open sessions only; completed sessions report none). A redirect
+   * only — never proof of payment. Carried so the checkout UI's
+   * check-payment response can present the native checkoutUrl for
+   * card instead of inventing a link; absent for x402, which has no
+   * URL at all.
+   */
+  checkoutUrl?: string;
 }
 
 /** Verdict from a facilitator verification of an x402 payment proof. `verified` is true only when the facilitator answered isValid === true for a verify request that carried this run's amount + recipient as paymentRequirements; the gate still checks the payer and the challenge nonce itself. */
