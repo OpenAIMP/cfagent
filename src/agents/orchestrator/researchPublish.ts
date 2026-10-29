@@ -11,6 +11,7 @@ import type { AgentContext } from "agents";
 import type { DatabaseORM } from "../../orm";
 import type { Env } from "../../types";
 import { ETradeEmailTradingService } from "../../trading";
+import { codedMessage } from "../../errors/errorAspects";
 import { storeReportAtGeneration } from "../../services/scheduledReports";
 import {
   evaluateResearchOutcome,
@@ -86,11 +87,11 @@ export async function generateAndStoreResearchReport(
       artifacts.pdfKey = staged.pdfKey;
       artifacts.pdfStatus = "generated";
     } else {
-      artifacts.pdfError = staged.pdfError ?? "PDF generation failed.";
+      artifacts.pdfError = staged.pdfError ?? codedMessage("REPORT_001");
       console.warn("[OrchestratorAgent] Research PDF generation failed:", artifacts.pdfError);
     }
   } catch (err) {
-    artifacts.pdfError = err instanceof Error ? err.message : String(err);
+    artifacts.pdfError = codedMessage("REPORT_001", err instanceof Error ? err.message : String(err));
     console.warn("[OrchestratorAgent] Research PDF generation failed:", err);
   }
 
@@ -99,7 +100,7 @@ export async function generateAndStoreResearchReport(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     artifacts.xlsxStatus = "failed";
-    artifacts.xlsxError = message;
+    artifacts.xlsxError = codedMessage("REPORT_002", message);
     artifacts.csvStatus = "failed";
     artifacts.csvError = message;
     console.warn("[OrchestratorAgent] Research workbook generation failed:", message);
