@@ -815,6 +815,79 @@ CREATE TABLE IF NOT EXISTS agent_refunds (
 `,
 };
 
+/**
+ * Migration 0019 — the #1116 data-provider platform stores
+ * (issue #2303, step 1 of ADR 0022; D-0 + D-I step 1).
+ * Portable subset (same rules as migrations 0001-0018) with
+ * ONE stated deviation: created_at / updated_at / fetched_at
+ * are ISO-8601 TEXT, not epoch-ms integers — these tables
+ * mirror an existing record contract (the platform stores'
+ * ProviderConfigRecord / DataCaptureRecord carry ISO strings,
+ * and the port's conformance suite requires the D1 and DO
+ * adapters to return identical records), so the D1 columns
+ * store the same strings the DO tables store today.
+ *
+ *  - agent_data_providers + agent_data_provider_routes: the
+ *    provider-configuration family. ADR D-0 ruled it
+ *    D1-sufficient (fleet-global records, no DO property
+ *    consumed) — the programme's first D1 migration.
+ *  - agent_data_captures: the capture log. The step-1 audit
+ *    ruled D1 by read locality: the family's durable reader
+ *    is provider health (a cross-run aggregation) while its
+ *    writers are append-only single-row inserts that consume
+ *    no DO serialization. Indexes mirror the DO table's
+ *    (tenant_id, run_id) and (tenant_id, provider_id).
+ */
+export const MIGRATION_0019_DATA_PROVIDER_PLATFORM: DataMigration = {
+  version: 19,
+  name: "0019_data_provider_platform",
+  sql: `
+CREATE TABLE IF NOT EXISTS agent_data_providers (
+  id TEXT PRIMARY KEY,
+  adapter_kind TEXT NOT NULL,
+  lifecycle_state TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 0,
+  precedence INTEGER NOT NULL,
+  credential_ref TEXT,
+  config_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agent_data_providers_precedence_idx ON agent_data_providers (precedence);
+CREATE TABLE IF NOT EXISTS agent_data_provider_routes (
+  capability TEXT PRIMARY KEY,
+  primary_provider_id TEXT NOT NULL,
+  gap_fill_provider_id TEXT,
+  min_tier TEXT NOT NULL DEFAULT 'freemium',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS agent_data_captures (
+  id TEXT PRIMARY KEY,
+  provider_id TEXT NOT NULL,
+  capability TEXT NOT NULL,
+  request_params_json TEXT NOT NULL DEFAULT '{}',
+  run_id TEXT NOT NULL,
+  tenant_id TEXT NOT NULL,
+  user_login TEXT,
+  fetched_at TEXT NOT NULL,
+  status TEXT NOT NULL,
+  raw_kind TEXT,
+  raw_blob_ref TEXT,
+  raw_byte_size INTEGER,
+  raw_sha256 TEXT,
+  normalized_digest TEXT,
+  retention_class TEXT NOT NULL,
+  failure_error TEXT,
+  failure_kind TEXT,
+  failure_message TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agent_data_captures_run_idx ON agent_data_captures (tenant_id, run_id);
+CREATE INDEX IF NOT EXISTS agent_data_captures_provider_idx ON agent_data_captures (tenant_id, provider_id);
+`,
+};
+
 export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0001_AGENT_GOVERNANCE,
   MIGRATION_0002_AGENT_CHAINS_SCHEDULES,
@@ -833,6 +906,7 @@ export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0016_AUDIT_POLICY,
   MIGRATION_0017_INTELLIGENCE_SUBSTRATE,
   MIGRATION_0018_REFUNDS,
+  MIGRATION_0019_DATA_PROVIDER_PLATFORM,
 ];
 
 function splitStatements(sqlText: string): string[] {
