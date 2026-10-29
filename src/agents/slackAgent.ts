@@ -13,8 +13,10 @@
  * with no principal resolution or tier gates, and double-dispatched
  * transaction snaps after approvals). The worker routes in
  * src/server.ts are the production ingress; this onRequest path is
- * the Agents SDK fallback (the class has no wrangler DO binding, so
- * it is unreachable in production — see src/orm/schema.ts:37).
+ * the Agents SDK fallback. (The SLACK_AGENT DO binding exists since
+ * #2215; production ingress still runs through the server routes,
+ * and the class's first production instantiation is its A2A door —
+ * handleA2A below, #2223.)
  *
  * Issue #1960 (think-fleet): migrated from AIChatAgent to PortThink
  * (src/actors/thinkAdapter.ts). Chat-surface mapping, verified from
@@ -36,6 +38,11 @@
  */
 
 import { PortThink } from "../actors/thinkAdapter";
+import {
+  dispatchSlackA2A,
+  slackA2AOutcome,
+  type SlackA2AOutcome,
+} from "./slackA2aDispatch";
 import type {
   TransactionSnapData,
   PreTradeApprovalDraft,
@@ -108,6 +115,29 @@ export class SlackAgent extends PortThink {
       channel: options.channel,
       caption: options.caption,
     });
+  }
+
+  /**
+   * Issue #2223 (final slice): A2A door, cfpay signature — the edge
+   * dispatcher (src/a2a) resolves the "slack" name to this class
+   * and calls this with the parsed body + origin (a Request cannot
+   * cross the DO RPC boundary). Thin delegation to the dispatch
+   * module (./slackA2aDispatch), which serves ONLY the two domain
+   * helpers above — the Slack ingress in onRequest below is
+   * HTTP-form shaped, carries its own signature gate, and is not
+   * an A2A surface; the server-route ingress is unchanged. This
+   * door is the class's first production instantiation as a Durable
+   * Object. Returns the collected { text, data } outcome.
+   */
+  async handleA2A(body: unknown, origin: string): Promise<SlackA2AOutcome> {
+    void origin; // reserved for per-origin policy (cfpay parity); unused in v1
+    const data = await dispatchSlackA2A(this.env, body, {
+      executor: {
+        sendPreTradeApprovalTicket: (draft, options) => this.sendPreTradeApprovalTicket(draft, options),
+        dispatchTransactionSnap: (tx, options) => this.dispatchTransactionSnap(tx, options),
+      },
+    });
+    return slackA2AOutcome(data);
   }
 
   async onRequest(request: Request): Promise<Response> {
