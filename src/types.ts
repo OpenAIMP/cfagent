@@ -513,6 +513,8 @@ export interface Env {
   // Nightly mas_events retention window in days (issue #786). Default
   // 365. A value <= 0 disables only the mas_events prune.
   MAS_EVENTS_RETENTION_DAYS?: string;
+  /** #2294: age window for mas_job_outcomes (default 90 days; <= 0 disables). */
+  MAS_JOB_OUTCOMES_RETENTION_DAYS?: string;
   // Nightly mas_memory retention window in days, by updated_at (issue
   // #786). Default 365. A value <= 0 disables only the mas_memory prune.
   MAS_MEMORY_RETENTION_DAYS?: string;
