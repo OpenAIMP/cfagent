@@ -384,7 +384,7 @@ export async function handleSchedulesRoutes(
         }
         const payload =
           schedule.payload && typeof schedule.payload === "object"
-            ? { ...(schedule.payload as Record<string, unknown>), trigger: "manual" }
+            ? { ...(schedule.payload as Record<string, unknown>), trigger: "manual", scheduleId }
             : schedule.payload;
         await ctx.runScheduleCallback(schedule.callback, payload);
         ctx.audit("schedule.triggered", "orchestrator", { scheduleId, callback: schedule.callback });
