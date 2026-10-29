@@ -1366,8 +1366,7 @@ export function AutopilotControlCenter({
               )}
               <div className="form-group-grid">
                 <div className="form-field">
-                  <label htmlFor="maxPositionPct">Max position size (% of equity)</label>
-                  <TextInput
+                  <TextInput label="Max position size (% of equity)"
                     id="maxPositionPct"
                     type="number"
                     step="0.5"
@@ -1386,8 +1385,7 @@ export function AutopilotControlCenter({
                 </div>
 
                 <div className="form-field">
-                  <label htmlFor="cashReservePct">Minimum cash reserve (%)</label>
-                  <TextInput
+                  <TextInput label="Minimum cash reserve (%)"
                     id="cashReservePct"
                     type="number"
                     step="0.5"
@@ -1406,8 +1404,7 @@ export function AutopilotControlCenter({
                 </div>
 
                 <div className="form-field">
-                  <label htmlFor="ordersPerDay">Max autonomous orders / day</label>
-                  <TextInput
+                  <TextInput label="Max autonomous orders / day"
                     id="ordersPerDay"
                     type="number"
                     step="1"
@@ -1426,8 +1423,7 @@ export function AutopilotControlCenter({
                 </div>
 
                 <div className="form-field">
-                  <label htmlFor="drawdownAlertPct">Peak-to-trough drawdown alert (%)</label>
-                  <TextInput
+                  <TextInput label="Peak-to-trough drawdown alert (%)"
                     id="drawdownAlertPct"
                     type="number"
                     step="1"
@@ -1446,8 +1442,7 @@ export function AutopilotControlCenter({
                 </div>
 
                 <div className="form-field">
-                  <label htmlFor="universe">Trading Universe</label>
-                  <Select
+                  <Select label="Trading Universe"
                     id="universe"
                     value={editLimitsDraft.universe}
                     onChange={(e) =>
@@ -1466,8 +1461,7 @@ export function AutopilotControlCenter({
                 </div>
 
                 <div className="form-field">
-                  <label htmlFor="riskProfile">Risk Profile</label>
-                  <Select
+                  <Select label="Risk Profile"
                     id="riskProfile"
                     value={editLimitsDraft.riskProfile}
                     onChange={(e) =>

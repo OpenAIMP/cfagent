@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button, Table, TextInput, type TableColumn } from "../components/ui";
+import { Button, Table, TextInput, FieldShell, type TableColumn } from "../components/ui";
 import { apiFetch as fetch } from "../apiFetch";
 import {
   downloadRawOptionsIdeasXls,
@@ -159,28 +159,24 @@ export function LlmOptionsIdeasPanel({ activeEnv, userLogin }: LlmOptionsIdeasPa
   return (
     <section className="trading-section options-research-section llm-options-ideas-panel">
       <form className="options-request-form llm-options-ideas-form" onSubmit={(event) => void submit(event)}>
-        <label className="options-field">
-          <span>Underlying ticker</span>
-          <TextInput
-            required
-            maxLength={10}
-            value={symbol}
-            onChange={(event) => setSymbol(event.target.value)}
-            placeholder="e.g. NVDA"
-          />
-        </label>
-        <label className="options-field llm-options-question">
-          <span>Your question</span>
-          <TextInput
-            multiline
-            required
-            maxLength={4000}
-            rows={4}
-            value={question}
-            onChange={(event) => setQuestion(event.target.value)}
-            placeholder="For example: Find the strongest options strategies for bullish, bearish, neutral, and directional scenarios. Explain the structure, relevant contract data, and risks."
-          />
-        </label>
+        <TextInput label="Underlying ticker"
+          required
+          maxLength={10}
+          value={symbol}
+          onChange={(event) => setSymbol(event.target.value)}
+          placeholder="e.g. NVDA"
+        />
+        <FieldShell id="llm-options-question" className="llm-options-question" label="Your question">
+        <TextInput id="llm-options-question"
+          multiline
+          required
+          maxLength={4000}
+          rows={4}
+          value={question}
+          onChange={(event) => setQuestion(event.target.value)}
+          placeholder="For example: Find the strongest options strategies for bullish, bearish, neutral, and directional scenarios. Explain the structure, relevant contract data, and risks."
+        />
+        </FieldShell>
         <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "flex-end", flexWrap: "wrap" }}>
           <Button type="submit" disabled={loading || !symbol.trim() || !question.trim()}>
             {loading ? "Analyzing chains with Neural Engine…" : "Ask LLM"}
