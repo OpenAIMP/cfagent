@@ -135,7 +135,7 @@ export interface ToolPermissionPort {
  * fails loudly instead of executing unscoped.
  */
 export const MCP_TOOL_SCOPES: Record<string, McpScope> = {
-  // read (23)
+  // read (33)
   knowledge_search: "mcp:read",
   query_platform_knowledge: "mcp:read",
   get_async_job: "mcp:read",
@@ -171,13 +171,18 @@ export const MCP_TOOL_SCOPES: Record<string, McpScope> = {
   "agentdb.jobs.history": "mcp:read",
   "agentdb.audit.history": "mcp:read",
   "agentdb.reports.list": "mcp:read",
-  // write (6)
+  // #2341 (mesh S5): the ScheduledAgent door's read — a pure list/inspect.
+  list_scheduled_goals: "mcp:read",
+  // write (7)
   manage_categories: "mcp:write",
   manage_referrals: "mcp:write",
   manage_external_ads: "mcp:write",
   manage_session_memory: "mcp:write",
   "goal.compile": "mcp:write",
   "goal.schedule": "mcp:write",
+  // #2341 (mesh S5): firing a goal changes state (and is budget-gated
+  // inside ScheduledAgent/PaymentsAgent); the trigger itself moves no money.
+  trigger_scheduled_goal: "mcp:write",
   // execute (7)
   execute_nlq: "mcp:execute",
   "chain.run": "mcp:execute",
@@ -186,7 +191,7 @@ export const MCP_TOOL_SCOPES: Record<string, McpScope> = {
   dispatch_trading_webhook: "mcp:execute",
   think_trade_validation: "mcp:execute",
   browser_screenshot: "mcp:execute",
-  // payments (7)
+  // payments (9)
   draft_payment: "mcp:payments",
   confirm_payment_draft: "mcp:payments",
   get_transactions: "mcp:payments",
@@ -194,7 +199,12 @@ export const MCP_TOOL_SCOPES: Record<string, McpScope> = {
   paid_options_screener: "mcp:payments",
   paid_market_research: "mcp:payments",
   agentic_wallet_status: "mcp:payments",
-  // trade (4)
+  // #2341 (mesh S5): the PaymentsAgent door — payment-domain verdicts
+  // and payment-domain data (a check records nothing; the overview is
+  // ledger data, so both sit in the payments scope, not read).
+  check_payment_budget: "mcp:payments",
+  get_payments_overview: "mcp:payments",
+  // trade (5)
   etrade_preview_order: "mcp:trade",
   etrade_execute_order: "mcp:trade",
   alpaca_place_order: "mcp:trade",

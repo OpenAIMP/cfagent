@@ -238,7 +238,7 @@ const MATRIX: MatrixRow[] = [
         "None by design: portHooks deliberately unset (class header), no transcript exists.",
       ),
       routing: IMPL(
-        "Binding PAYMENTS_AGENT; production stub callers are ScheduledAgent and the orchestrator budget paths; A2A surface payments (registry).",
+        "Binding PAYMENTS_AGENT; production stub callers are ScheduledAgent, the orchestrator budget paths, and the G1 chat door (#2341: budgetCheck + the read side via src/agents/orchestrator/meshDoors.ts); A2A surface payments (registry).",
       ),
       websockets: NA("No WebSocket surface of its own: it defines no onConnect/onMessage and no socket client connects to it (fleet pin below: onConnect exists only in TickerAgent)."),
       "sdk-scheduling": NA("No SDK scheduler use: the file contains no this.schedule/this.scheduleEvery call (fleet pin below: such calls exist only in OrchestratorAgent and TickerAgent)."),
@@ -284,7 +284,7 @@ const MATRIX: MatrixRow[] = [
         "All instance-local ctx.storage: the goals key (seeded with DEFAULT_SCHEDULES on first read, :224-225), tick history, and synthesized schedules.",
       ),
       connections: NA(
-        "No turn path and no port hooks by design (class header); reachable only via stub RPC from server.ts.",
+        "No turn path and no port hooks by design (class header); reachable via stub RPC from server.ts and, since #2341, from the orchestrator's chat turn through the G1 door (src/agents/orchestrator/meshDoors.ts).",
       ),
       scheduling: IMPL(
         "It IS the user-visible goal catalogue (survey §4 ruling): the worker cron calls server.ts scheduled(), which invokes onCron() on the singleton; each due goal is budget-gated through PaymentsAgent before firing. The mechanism is the worker cron, deliberately not the SDK scheduler.",
@@ -295,7 +295,7 @@ const MATRIX: MatrixRow[] = [
       "sdk-state": SDK_STATE_DIVERGENT,
       sessions: NA("None by design; it holds goal state, not conversations."),
       routing: IMPL(
-        "Binding SCHEDULED_AGENT; singleton addressing from server.ts only; A2A surface scheduled (registry), whose resolution pins the 'default' instance — dispatch to any other instance name would seed pristine default goals.",
+        "Binding SCHEDULED_AGENT; singleton ('default') addressing from server.ts and the orchestrator's G1 chat door (#2341); A2A surface scheduled (registry), whose resolution pins the 'default' instance — dispatch to any other instance name would seed pristine default goals.",
       ),
       websockets: NA("No WebSocket surface of its own: it defines no onConnect/onMessage and no socket client connects to it (fleet pin below: onConnect exists only in TickerAgent)."),
       "sdk-scheduling": NA(

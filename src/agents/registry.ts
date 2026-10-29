@@ -147,6 +147,8 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     bindings: ["PAYMENTS_AGENT"],
     sourceFile: "src/agents/payments-agent.ts",
     role: "Payments agent: DID-attested drafts and x402/MPP premium legs over the payments ledger.",
+    notes:
+      "Chat reaches budgetCheck + the read side (todaySpent/listPayments) through the G1 door (#2341, src/agents/orchestrator/meshDoors.ts), checks attributed to AGENTIC_SPEND_AGENT_ID; processPaidRequest has no chat caller by design — the chat paid-request flow is S10/G5 (PaymentWorkflow).",
   },
   {
     className: "ScreenerAgent",
@@ -163,6 +165,8 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     bindings: ["SCHEDULED_AGENT"],
     sourceFile: "src/agents/scheduled-agent.ts",
     role: "Schedule catalogue and synthesized schedules/goals; singleton instance \"default\"; fires screens, research, and QA runs.",
+    notes:
+      "Chat reaches the goal catalogue through the G1 door (#2341, src/agents/orchestrator/meshDoors.ts): list/inspect + trigger, acting identity required. Add/remove/enable stay on the session-gated /api/schedule/* routes.",
   },
   {
     className: "ReportAssetAgent",
@@ -309,8 +313,9 @@ export const MESH_CHANNELS: MeshChannelEntry[] = [
 // ---------------------------------------------------------------------------
 // Tool families — survey §8's fifteen, plus the three families the
 // #2225 reference-set update added (web_search, web_fetch, AI Search
-// platform). The seven McpToolFactory module families carry the
-// catalog's command names; the rest describe their surface in notes.
+// platform), plus the mesh-door family the G1 slices add (#2341).
+// The McpToolFactory module families carry the catalog's command
+// names; the rest describe their surface in notes.
 // ---------------------------------------------------------------------------
 
 export const MESH_TOOL_FAMILIES: MeshToolFamilyEntry[] = [
@@ -435,6 +440,21 @@ export const MESH_TOOL_FAMILIES: MeshToolFamilyEntry[] = [
       "agentdb.reports.list",
     ],
     commandSources: [{ file: "src/mcp/agentDbReadCommands.ts", kind: "readonly-name" }],
+  },
+  {
+    id: "mesh-door-mcp-commands",
+    name: "Mesh door MCP commands (G1)",
+    source: "src/mcp/meshDoorCommands.ts",
+    status: "live",
+    commands: [
+      "list_scheduled_goals",
+      "trigger_scheduled_goal",
+      "check_payment_budget",
+      "get_payments_overview",
+    ],
+    commandSources: [{ file: "src/mcp/meshDoorCommands.ts", kind: "readonly-name" }],
+    notes:
+      "G1 outbound doors, batch A (#2341): the chat turn reaches ScheduledAgent and PaymentsAgent through the typed doors in src/agents/orchestrator/meshDoors.ts. The commands require the turn's acting identity (the context actingLogin carrier) and fail closed without one, so they serve the chat door; external MCP callers use the A2A doors for these agents. Later G1 batches extend this family.",
   },
   {
     id: "mas-tools",

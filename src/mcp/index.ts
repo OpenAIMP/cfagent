@@ -240,6 +240,8 @@ export async function executeMCPTool(
     sessionId: string;
     /** #1744: calling principal + gate port; unset → factory defaults (system, production port). */
     principal?: McpPrincipal;
+    /** #2341: acting-identity resolver, spread through to the tool context like the scoped carriers (see McpToolContext.actingLogin). */
+    actingLogin?: () => string | undefined;
     permissionPort?: ToolPermissionPort;
     permissionDecisionSink?: ObservabilitySink;
     /** #1722: NLQ_MODE session/user carriers, spread through to the tool context. */
