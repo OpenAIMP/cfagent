@@ -171,3 +171,114 @@ export function formatRunTimestamp(value: string): string {
     minute: "2-digit",
   });
 }
+
+/**
+ * Sortable columns of the document index. Every column the table shows is
+ * sortable — including the three artifact columns, where "present" is the
+ * sortable fact (a run either recorded that artifact or did not).
+ */
+export type DocumentSortKey =
+  | "createdAt"
+  | "runType"
+  | "runSource"
+  | "pdf"
+  | "xlsx"
+  | "csv"
+  | "runId";
+
+export type DocumentSortDirection = "asc" | "desc";
+
+export interface DocumentSort {
+  key: DocumentSortKey;
+  dir: DocumentSortDirection;
+}
+
+/** The page's default: newest run first, exactly as the API returns it. */
+export const DOCUMENT_SORT_DEFAULT: DocumentSort = { key: "createdAt", dir: "desc" };
+
+/**
+ * The direction a column starts in when it becomes the active sort.
+ * Dates and artifact presence read best newest/present-first; labels and
+ * ids read best A→Z.
+ */
+const SORT_DEFAULT_DIRECTION: Record<DocumentSortKey, DocumentSortDirection> = {
+  createdAt: "desc",
+  runType: "asc",
+  runSource: "asc",
+  pdf: "desc",
+  xlsx: "desc",
+  csv: "desc",
+  runId: "asc",
+};
+
+/** Next sort state for a header click: same column reverses, a new one starts fresh. */
+export function nextDocumentSort(current: DocumentSort, key: DocumentSortKey): DocumentSort {
+  if (current.key === key) {
+    return { key, dir: current.dir === "asc" ? "desc" : "asc" };
+  }
+  return { key, dir: SORT_DEFAULT_DIRECTION[key] };
+}
+
+type SortValue = string | number | null;
+
+function documentSortValue(row: DocumentRow, key: DocumentSortKey): SortValue {
+  switch (key) {
+    case "createdAt": {
+      const time = Date.parse(row.createdAt);
+      return Number.isNaN(time) ? null : time;
+    }
+    case "runType":
+      // Recorded triggers only; an unrecorded trigger stays null (last).
+      return row.runType === "manual" ? 0 : row.runType === "scheduled" ? 1 : null;
+    case "runSource":
+      return DOCUMENT_SOURCE_LABELS[row.runSource] ?? null;
+    case "pdf":
+      return row.pdfUrl ? 1 : 0;
+    case "xlsx":
+      return row.xlsxUrl ? 1 : 0;
+    case "csv":
+      return row.csvUrl ? 1 : 0;
+    case "runId":
+      return row.runId || null;
+    default:
+      return null;
+  }
+}
+
+function compareSortValues(a: SortValue, b: SortValue): number {
+  if (typeof a === "number" && typeof b === "number") return a - b;
+  return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" });
+}
+
+/**
+ * Stable fallback order: newest first, then row id descending. It keeps
+ * equal primary keys from reshuffling between renders.
+ */
+function compareDocumentFallback(a: DocumentRow, b: DocumentRow): number {
+  const aTime = Date.parse(a.createdAt);
+  const bTime = Date.parse(b.createdAt);
+  if (!Number.isNaN(aTime) && !Number.isNaN(bTime) && aTime !== bTime) return bTime - aTime;
+  return b.id < a.id ? 1 : a.id > b.id ? -1 : 0;
+}
+
+/**
+ * Sorts the document rows for the active column. Absent values (`null`
+ * run type, no recorded artifact) sort last in BOTH directions: "not
+ * recorded" is not a small value, it is the absence of one, and burying
+ * it keeps the recorded rows comparable. The input array is untouched.
+ */
+export function sortDocumentRows(rows: readonly DocumentRow[], sort: DocumentSort): DocumentRow[] {
+  const sign = sort.dir === "asc" ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    const aValue = documentSortValue(a, sort.key);
+    const bValue = documentSortValue(b, sort.key);
+
+    if (aValue === null || bValue === null) {
+      if (aValue === null && bValue === null) return compareDocumentFallback(a, b);
+      return aValue === null ? 1 : -1;
+    }
+
+    const primary = compareSortValues(aValue, bValue) * sign;
+    return primary !== 0 ? primary : compareDocumentFallback(a, b);
+  });
+}

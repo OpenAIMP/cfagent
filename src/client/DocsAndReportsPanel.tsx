@@ -11,9 +11,13 @@
  * The page reads, it never generates: a link is only shown when the run
  * recorded that artifact's key, so a missing file is an honest "—" and
  * not a 404 in disguise.
+ *
+ * Every column is sortable (header buttons + `aria-sort`), and the table
+ * scrolls inside a constrained page frame: a long run ledger is reachable
+ * without the shell clipping it.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch as fetch } from "./apiFetch";
 import {
   Badge,
@@ -25,17 +29,32 @@ import {
   type TableColumn,
 } from "./components/ui";
 import {
+  DOCUMENT_SORT_DEFAULT,
   DOCUMENT_SOURCE_LABELS,
   formatRunTimestamp,
+  nextDocumentSort,
+  sortDocumentRows,
   toDocumentRows,
   type DocumentRow,
   type DocumentRunType,
+  type DocumentSort,
+  type DocumentSortKey,
 } from "./docsAndReports";
 import "./docsAndReports.css";
 
 const RUN_TYPE_LABELS: Record<DocumentRunType, string> = {
   manual: "Manual",
   scheduled: "Scheduled",
+};
+
+const SORT_LABELS: Record<DocumentSortKey, string> = {
+  createdAt: "Date-Time",
+  runType: "Run Type",
+  runSource: "Run Source",
+  pdf: "PDF",
+  xlsx: "XLSX",
+  csv: "CSV",
+  runId: "Run ID",
 };
 
 function RunTypeCell({ row }: { row: DocumentRow }) {
@@ -98,55 +117,40 @@ function ArtifactLink({
   );
 }
 
-const COLUMNS: TableColumn<DocumentRow>[] = [
-  {
-    key: "createdAt",
-    header: "Date-Time",
-    render: (row) => (
-      <time className="docs-time" dateTime={row.createdAt} title={row.createdAt}>
-        {formatRunTimestamp(row.createdAt)}
-      </time>
-    ),
-  },
-  {
-    key: "runType",
-    header: "Run Type",
-    render: (row) => <RunTypeCell row={row} />,
-  },
-  {
-    key: "runSource",
-    header: "Run Source",
-    render: (row) => (
-      <span className={`docs-source ${row.runSource}`}>
-        {DOCUMENT_SOURCE_LABELS[row.runSource]}
+/**
+ * A sortable column header. The `th` carries `aria-sort` (from the column
+ * config); this button is the control. The indicator is decorative — the
+ * button's accessible name states the current direction.
+ */
+function SortHeader({
+  label,
+  sortKey,
+  sort,
+  onSort,
+}: {
+  label: string;
+  sortKey: DocumentSortKey;
+  sort: DocumentSort;
+  onSort: (key: DocumentSortKey) => void;
+}) {
+  const active = sort.key === sortKey;
+  const direction = sort.dir === "asc" ? "ascending" : "descending";
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className={`docs-sort-btn${active ? " active" : ""}`}
+      onClick={() => onSort(sortKey)}
+      title={active ? `Sorted ${direction} — click to reverse` : `Sort by ${label}`}
+      aria-label={active ? `${label}, sorted ${direction}. Reverse order` : `Sort by ${label}`}
+    >
+      <span className="docs-sort-label">{label}</span>
+      <span className="docs-sort-indicator" aria-hidden="true">
+        {active ? (sort.dir === "asc" ? "▲" : "▼") : "↕"}
       </span>
-    ),
-  },
-  {
-    key: "pdf",
-    header: "PDF",
-    render: (row) => <ArtifactLink url={row.pdfUrl} kind="PDF" runId={row.runId} status={row.pdfStatus} error={row.pdfError} />,
-  },
-  {
-    key: "xlsx",
-    header: "XLSX",
-    render: (row) => <ArtifactLink url={row.xlsxUrl} kind="XLSX" runId={row.runId} status={row.xlsxStatus} error={row.xlsxError} />,
-  },
-  {
-    key: "csv",
-    header: "CSV",
-    render: (row) => <ArtifactLink url={row.csvUrl} kind="CSV" runId={row.runId} status={row.csvStatus} error={row.csvError} />,
-  },
-  {
-    key: "runId",
-    header: "Run ID",
-    render: (row) => (
-      <code className="docs-run-id" title={row.runId}>
-        {row.runId}
-      </code>
-    ),
-  },
-];
+    </Button>
+  );
+}
 
 export function DocsAndReportsPanel() {
   const [rows, setRows] = useState<DocumentRow[]>([]);
@@ -154,6 +158,7 @@ export function DocsAndReportsPanel() {
   const [error, setError] = useState<string | null>(null);
   const [storeErrors, setStoreErrors] = useState<Record<string, string>>({});
   const [loadedAt, setLoadedAt] = useState<string | null>(null);
+  const [sort, setSort] = useState<DocumentSort>(DOCUMENT_SORT_DEFAULT);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -179,6 +184,102 @@ export function DocsAndReportsPanel() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const handleSort = useCallback((key: DocumentSortKey) => {
+    setSort((current) => nextDocumentSort(current, key));
+  }, []);
+
+  const sortedRows = useMemo(() => sortDocumentRows(rows, sort), [rows, sort]);
+
+  const columns = useMemo<TableColumn<DocumentRow>[]>(() => {
+    const ariaSort = (key: DocumentSortKey) =>
+      sort.key === key ? (sort.dir === "asc" ? "ascending" : "descending") : undefined;
+
+    return [
+      {
+        key: "createdAt",
+        header: (
+          <SortHeader label={SORT_LABELS.createdAt} sortKey="createdAt" sort={sort} onSort={handleSort} />
+        ),
+        ariaSort: ariaSort("createdAt"),
+        render: (row) => (
+          <time className="docs-time" dateTime={row.createdAt} title={row.createdAt}>
+            {formatRunTimestamp(row.createdAt)}
+          </time>
+        ),
+      },
+      {
+        key: "runType",
+        header: <SortHeader label={SORT_LABELS.runType} sortKey="runType" sort={sort} onSort={handleSort} />,
+        ariaSort: ariaSort("runType"),
+        render: (row) => <RunTypeCell row={row} />,
+      },
+      {
+        key: "runSource",
+        header: (
+          <SortHeader label={SORT_LABELS.runSource} sortKey="runSource" sort={sort} onSort={handleSort} />
+        ),
+        ariaSort: ariaSort("runSource"),
+        render: (row) => (
+          <span className={`docs-source ${row.runSource}`}>
+            {DOCUMENT_SOURCE_LABELS[row.runSource]}
+          </span>
+        ),
+      },
+      {
+        key: "pdf",
+        header: <SortHeader label={SORT_LABELS.pdf} sortKey="pdf" sort={sort} onSort={handleSort} />,
+        ariaSort: ariaSort("pdf"),
+        render: (row) => (
+          <ArtifactLink
+            url={row.pdfUrl}
+            kind="PDF"
+            runId={row.runId}
+            status={row.pdfStatus}
+            error={row.pdfError}
+          />
+        ),
+      },
+      {
+        key: "xlsx",
+        header: <SortHeader label={SORT_LABELS.xlsx} sortKey="xlsx" sort={sort} onSort={handleSort} />,
+        ariaSort: ariaSort("xlsx"),
+        render: (row) => (
+          <ArtifactLink
+            url={row.xlsxUrl}
+            kind="XLSX"
+            runId={row.runId}
+            status={row.xlsxStatus}
+            error={row.xlsxError}
+          />
+        ),
+      },
+      {
+        key: "csv",
+        header: <SortHeader label={SORT_LABELS.csv} sortKey="csv" sort={sort} onSort={handleSort} />,
+        ariaSort: ariaSort("csv"),
+        render: (row) => (
+          <ArtifactLink
+            url={row.csvUrl}
+            kind="CSV"
+            runId={row.runId}
+            status={row.csvStatus}
+            error={row.csvError}
+          />
+        ),
+      },
+      {
+        key: "runId",
+        header: <SortHeader label={SORT_LABELS.runId} sortKey="runId" sort={sort} onSort={handleSort} />,
+        ariaSort: ariaSort("runId"),
+        render: (row) => (
+          <code className="docs-run-id" title={row.runId}>
+            {row.runId}
+          </code>
+        ),
+      },
+    ];
+  }, [handleSort, sort]);
 
   const storeErrorNames = Object.keys(storeErrors);
 
@@ -224,12 +325,13 @@ export function DocsAndReportsPanel() {
       ) : (
         <>
           <div className="docs-count" aria-live="polite">
-            {rows.length} {rows.length === 1 ? "run" : "runs"}
+            {sortedRows.length} {sortedRows.length === 1 ? "run" : "runs"} · sorted by{" "}
+            {SORT_LABELS[sort.key]}, {sort.dir === "asc" ? "ascending" : "descending"}
           </div>
           <Table
             caption="Documents generated by screener-workflow runs, newest first"
-            columns={COLUMNS}
-            rows={rows}
+            columns={columns}
+            rows={sortedRows}
             rowKey={(row) => `${row.runSource}:${row.id}`}
             containerClassName="docs-table-container"
             empty={

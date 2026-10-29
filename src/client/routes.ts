@@ -5,11 +5,11 @@
  * from this table (see NavigationMenu.tsx and Chat.tsx).
  *
  * Shape of an entry:
- * - `id` is the tab id carried in the URL (`?tab=<id>`). All 28 ids Chat
+ * - `id` is the tab id carried in the URL (`?tab=<id>`). All 31 ids Chat
  *   has ever used are entries, including the six legacy/alias ids
  *   (trading, orders, scanner, reports, schedules, options) that never
  *   render as nav items but still land on a page.
- * - `navEntry` is present only for the 22 entries that render in the nav.
+ * - `navEntry` is present only for the 25 entries that render in the nav.
  *   Its `navOrder` reproduces the historical sidebar/top-strip order, so
  *   deriving NAVIGATION_ITEMS from this table changes nothing visible.
  * - `navGroup` is the nav entry highlighted when this tab is active. It
@@ -32,7 +32,7 @@
  */
 export type RouteCategory = "Execution" | "Intelligence" | "Playbooks" | "Platform";
 
-export type RouteBadgeType = "pro" | "live" | "ai" | "mcp" | "new";
+export type RouteBadgeType = "pro" | "live" | "ai" | "mcp" | "new" | "neutral";
 
 export interface NavEntryMeta {
   label: string;
@@ -84,17 +84,31 @@ export const ROUTES = [
     category: "Platform",
     icon: "Ads",
     description: "Curated partner marketplace, developer sponsorships, and deal feed",
-    navEntry: { label: "Sponsored Marketplace", shortLabel: "Deals", navOrder: 18, defaultVisible: true },
+    navEntry: {
+      label: "Sponsored Marketplace",
+      shortLabel: "Deals",
+      navOrder: 18,
+      defaultVisible: true,
+      badge: "Partners",
+      badgeType: "neutral",
+    },
   },
   {
     id: "approvals",
     navGroup: "approvals",
     crumb: "Approvals",
     category: "Execution",
-    icon: "Ledger",
+    icon: "Approvals",
     description:
       "Every consequential action awaiting your decision — trade drafts and held deliveries, composed in one place",
-    navEntry: { label: "Approvals", shortLabel: "Approvals", navOrder: 4, defaultVisible: true },
+    navEntry: {
+      label: "Approvals",
+      shortLabel: "Approvals",
+      navOrder: 4,
+      defaultVisible: true,
+      badge: "Queue",
+      badgeType: "neutral",
+    },
   },
   {
     id: "audit",
@@ -103,7 +117,14 @@ export const ROUTES = [
     category: "Platform",
     icon: "Audit",
     description: "W3C Agent DID verification, memory vault, and immutable audit logs",
-    navEntry: { label: "AI Transparency", shortLabel: "Audit Log", navOrder: 15, defaultVisible: true },
+    navEntry: {
+      label: "AI Transparency",
+      shortLabel: "Audit Log",
+      navOrder: 15,
+      defaultVisible: true,
+      badge: "DID",
+      badgeType: "pro",
+    },
   },
   {
     id: "autopilot",
@@ -118,7 +139,7 @@ export const ROUTES = [
       shortLabel: "Autopilot",
       navOrder: 0,
       defaultVisible: true,
-      badge: "Live",
+      badge: "LIVE",
       badgeType: "live",
     },
   },
@@ -143,7 +164,7 @@ export const ROUTES = [
     navGroup: "payments",
     crumb: "Checkout",
     category: "Platform",
-    icon: "Payments",
+    icon: "Checkout",
     description:
       "Pay for a screener run or manage a subscription: per-run checkout with the failure policy disclosed before payment, and plan purchase, status, and cancel-at-period-end",
     navEntry: {
@@ -152,6 +173,7 @@ export const ROUTES = [
       navOrder: 24,
       defaultVisible: true,
       badge: "Testnet",
+      badgeType: "pro",
     },
   },
   {
@@ -159,7 +181,7 @@ export const ROUTES = [
     navGroup: "docs",
     crumb: "Docs & Reports",
     category: "Intelligence",
-    icon: "Ledger",
+    icon: "Docs",
     description:
       "Every document set a screener-workflow run produced — stock, options, goal and strategy — with its PDF, XLSX and CSV downloads and run id",
     navEntry: {
@@ -167,6 +189,8 @@ export const ROUTES = [
       shortLabel: "Docs",
       navOrder: 22,
       defaultVisible: true,
+      badge: "PDF",
+      badgeType: "neutral",
     },
   },
   {
@@ -198,7 +222,7 @@ export const ROUTES = [
       shortLabel: "Ledger",
       navOrder: 3,
       defaultVisible: true,
-      badge: "Audit",
+      badge: "AUDIT",
       badgeType: "pro",
     },
   },
@@ -214,7 +238,8 @@ export const ROUTES = [
       shortLabel: "Records",
       navOrder: 14,
       defaultVisible: true,
-      badge: "Ledger",
+      badge: "NLQ",
+      badgeType: "neutral",
     },
   },
   {
@@ -290,7 +315,7 @@ export const ROUTES = [
     navGroup: "payment-assurance",
     crumb: "Payment Assurance",
     category: "Platform",
-    icon: "Audit",
+    icon: "Assurance",
     description: "Test-only assurance harness for PaymentWorkflow: the real flow and gate behind fake cfpay/screener seams, no charge, no real run",
     navEntry: {
       label: "Payment Assurance",
@@ -298,6 +323,7 @@ export const ROUTES = [
       navOrder: 21,
       defaultVisible: true,
       badge: "Test",
+      badgeType: "neutral",
     },
   },
   {
@@ -314,6 +340,7 @@ export const ROUTES = [
       navOrder: 16,
       defaultVisible: true,
       badge: "x402",
+      badgeType: "neutral",
     },
   },
   {
@@ -329,7 +356,7 @@ export const ROUTES = [
       shortLabel: "Portfolio",
       navOrder: 2,
       defaultVisible: true,
-      badge: "Live",
+      badge: "Broker",
       badgeType: "live",
     },
   },
@@ -341,7 +368,14 @@ export const ROUTES = [
     category: "Platform",
     icon: "Referrals",
     description: "Community referral engine, reward tracking, and social share links",
-    navEntry: { label: "Referrals & Earn", shortLabel: "Referrals", navOrder: 17, defaultVisible: true },
+    navEntry: {
+      label: "Referrals & Earn",
+      shortLabel: "Referrals",
+      navOrder: 17,
+      defaultVisible: true,
+      badge: "Earn",
+      badgeType: "new",
+    },
   },
   {
     id: "reports",
@@ -364,7 +398,8 @@ export const ROUTES = [
       shortLabel: "Research",
       navOrder: 7,
       defaultVisible: true,
-      badge: "Market Data",
+      badge: "Feed",
+      badgeType: "new",
     },
   },
   {
@@ -375,7 +410,14 @@ export const ROUTES = [
     category: "Platform",
     icon: "Revenue",
     description: "Platform monetization engine, ad network yield, CPM/CPC metrics, and ledger",
-    navEntry: { label: "Revenue Analytics", shortLabel: "Revenue", navOrder: 19, defaultVisible: true },
+    navEntry: {
+      label: "Revenue Analytics",
+      shortLabel: "Revenue",
+      navOrder: 19,
+      defaultVisible: true,
+      badge: "Yield",
+      badgeType: "new",
+    },
   },
   {
     id: "scanner",
@@ -417,7 +459,7 @@ export const ROUTES = [
     navGroup: "search",
     crumb: "Search",
     category: "Intelligence",
-    icon: "Research",
+    icon: "Search",
     description:
       "One search hub: NLQ records, AI search agent, semantic report search, agent memory, platform knowledge, and tool catalog",
     navEntry: {
@@ -425,6 +467,8 @@ export const ROUTES = [
       shortLabel: "Search",
       navOrder: 23,
       defaultVisible: true,
+      badge: "Hub",
+      badgeType: "mcp",
     },
   },
   {
@@ -440,7 +484,7 @@ export const ROUTES = [
       shortLabel: "Social",
       navOrder: 20,
       defaultVisible: true,
-      badge: "New",
+      badge: "Daily",
       badgeType: "new",
     },
   },
@@ -475,7 +519,7 @@ export const ROUTES = [
     navGroup: "workflow-runs",
     crumb: "Workflow Runs",
     category: "Playbooks",
-    icon: "Workflows",
+    icon: "Runs",
     description:
       "Every recorded workflow run with its stages, inputs, outputs, failures, artifacts, and how it was triggered",
     navEntry: {
@@ -483,7 +527,8 @@ export const ROUTES = [
       shortLabel: "Runs",
       navOrder: 12,
       defaultVisible: true,
-      badge: "Ledger",
+      badge: "Trace",
+      badgeType: "neutral",
     },
   },
   {
@@ -491,7 +536,7 @@ export const ROUTES = [
     navGroup: "workflows",
     crumb: "Workflows",
     category: "Playbooks",
-    icon: "Workflows",
+    icon: "Guides",
     description: "Platform architecture guides, strategy playbooks, order mechanics & FAQ",
     navEntry: {
       label: "Workflows & FAQ",
@@ -499,6 +544,7 @@ export const ROUTES = [
       navOrder: 11,
       defaultVisible: true,
       badge: "14 Guides",
+      badgeType: "neutral",
     },
   },
 ] as const satisfies readonly RouteDef[];
