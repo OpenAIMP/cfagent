@@ -28,6 +28,42 @@ import * as path from "node:path";
 const ROOT = path.resolve(__dirname, "..");
 const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), "utf8");
 
+// String-aware JSONC comment stripper (the #1387 idiom, also used
+// by the A2A foundation suite): wrangler.jsonc carries // comments
+// that may contain quotes, so a naive regex strip corrupts strings.
+function stripJsonc(src: string): string {
+  let out = "";
+  let inStr = false;
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    if (inStr) {
+      out += c;
+      if (c === "\\") out += src[++i] ?? "";
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') {
+      inStr = true;
+      out += c;
+      continue;
+    }
+    if (c === "/" && src[i + 1] === "/") {
+      while (i < src.length && src[i] !== "\n") i++;
+      out += "\n";
+      continue;
+    }
+    out += c;
+  }
+  return out;
+}
+
+function parseWrangler(): {
+  durable_objects: { bindings: Array<{ name: string; class_name: string }> };
+  browser?: { binding?: string };
+} {
+  return JSON.parse(stripJsonc(read("wrangler.jsonc")));
+}
+
 const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 
 function listTsFiles(dir: string): string[] {
@@ -244,6 +280,111 @@ describe("Agent conformance (issue #1738)", () => {
     // wrangler.jsonc / src/types.ts don't trip it.
     const configOnly = wrangler.replace(/\/\/[^\n]*/g, "");
     expect(configOnly).not.toContain('"ai_search_namespaces"');
+  });
+
+  it("SandboxAgent extends PortThink with deliberately unset port hooks (issue #2253)", () => {
+    const src = read("src/agents/sandbox-agent.ts");
+    // Think behind the actor port (tracker #1951, shape (a)): the
+    // class reaches Think only through PortThink, never raw Think
+    // and never the Agents SDK base.
+    expect(src).toMatch(/import\s*\{\s*PortThink\s*\}\s*from\s*"\.\.\/actors\/thinkAdapter"/);
+    expect(src).toMatch(/export\s+class\s+SandboxAgent\s+extends\s+PortThink\b/);
+    expect(src).not.toMatch(/from\s*"agents"/);
+    // No turn path: like Browser/Slack/Scheduled, the class sets no
+    // port hooks and defines no model/prompt/tool surface — its
+    // doors are domain methods (status + a run door), not a chat
+    // turn. Giving it a model would be new behavior, not wiring.
+    expect(src).not.toMatch(/this\.portHooks\s*=/);
+    expect(src).not.toMatch(/getModel\(\)|getSystemPrompt\(\)|getTools\(\)/);
+    // The agent adds NO sandbox logic of its own: it delegates to
+    // the one service, constructed exactly as the MCP facade
+    // constructs it today (RunSandboxCommand) — with no container.
+    expect(src).toContain("ETradeSandboxService");
+    expect(src).toContain("new ETradeSandboxService(undefined, this.env)");
+    // The header states the degraded posture in plain terms, so no
+    // reader mistakes registration for a working sandbox.
+    expect(src).toContain("no container backend is bound");
+  });
+
+  it("the Worker exports SandboxAgent as a Durable Object class (issue #2253)", () => {
+    const server = read("src/server.ts");
+    expect(server).toMatch(
+      /export\s*\{\s*SandboxAgent\s*\}\s*from\s*"\.\/agents\/sandbox-agent"/
+    );
+  });
+
+  it("wrangler binds SANDBOX_AGENT to SandboxAgent with migration v13 (issue #2253)", () => {
+    const wrangler = read("wrangler.jsonc");
+    expect(wrangler).toMatch(
+      /"name":\s*"SANDBOX_AGENT",\s*"class_name":\s*"SandboxAgent"/
+    );
+    expect(wrangler).toMatch(
+      /"tag":\s*"v13",\s*"new_sqlite_classes":\s*\[[^\]]*"SandboxAgent"/
+    );
+  });
+
+  it("types.ts declares the SANDBOX_AGENT Env entry (issue #2253)", () => {
+    const types = read("src/types.ts");
+    expect(types).toMatch(/SANDBOX_AGENT\?:\s*DurableObjectNamespace;/);
+  });
+
+  it("wrangler declares the BROWSER Browser Rendering binding the code reads (issue #2253)", () => {
+    // src/services/browserAgent.ts reads env.BROWSER (types.ts
+    // declares BROWSER?: Fetcher); until this slice wrangler
+    // declared no browser binding, so the deployed config could
+    // never serve the real capture path and captures fell back to
+    // the labelled placeholder (mesh survey G11 finding).
+    const config = parseWrangler();
+    expect(config.browser?.binding).toBe("BROWSER");
+  });
+
+  it("fleet completeness: every agent class in src is bound, and every bound DO class resolves (issue #2253)", () => {
+    const config = parseWrangler();
+    const boundClasses = new Set(
+      config.durable_objects.bindings.map((b) => b.class_name)
+    );
+    // Source-derived enumeration — NOT a hardcoded list, so the
+    // NEXT agent is caught too: every exported class under src/
+    // whose base is PortThink (the fleet's agent base), McpAgent
+    // (the MCP server), or DurableObject (SessionStore's plain
+    // DO base).
+    const agentClasses = new Set<string>();
+    for (const file of listTsFiles(path.join(ROOT, "src"))) {
+      const text = read(path.relative(ROOT, file));
+      for (const m of text.matchAll(
+        /export\s+class\s+([A-Za-z_$][\w$]*)\s+extends\s+(?:PortThink|McpAgent|DurableObject)\b/g
+      )) {
+        agentClasses.add(m[1]);
+      }
+    }
+    // Tripwire: a silently-empty enumeration must fail here rather
+    // than vacuously pass both directions below.
+    expect(agentClasses.size).toBeGreaterThanOrEqual(12);
+    // class → binding: an unbound agent class is named in the failure.
+    const unbound = [...agentClasses].filter((c) => !boundClasses.has(c)).sort();
+    expect(
+      unbound,
+      `agent classes with no wrangler DO binding: ${unbound.join(", ")}`
+    ).toEqual([]);
+    // binding → class: every bound class_name must resolve to a
+    // class defined in src/ OR a name the worker entrypoint exports
+    // (the SearchAgent alias for OrchestratorAgent resolves here).
+    const exportedNames = new Set<string>();
+    const server = read("src/server.ts");
+    for (const m of server.matchAll(/export\s*\{([^}]+)\}/g)) {
+      for (const entry of m[1].split(",")) {
+        const parts = entry.trim().split(/\s+as\s+/);
+        const name = (parts[1] ?? parts[0]).trim();
+        if (name) exportedNames.add(name);
+      }
+    }
+    const unresolvable = [...boundClasses]
+      .filter((c) => !agentClasses.has(c) && !exportedNames.has(c))
+      .sort();
+    expect(
+      unresolvable,
+      `wrangler DO classes resolving to nothing in src/: ${unresolvable.join(", ")}`
+    ).toEqual([]);
   });
 
   it("the orchestrator dispatches research through the Agent actor", () => {
