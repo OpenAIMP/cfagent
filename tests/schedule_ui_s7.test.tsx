@@ -41,6 +41,7 @@ import {
 } from "../src/client/ScheduledOptionsManager";
 import type { ScheduleFormState } from "../src/client/scheduledOptionsManager/types";
 import { SchedulesPanel } from "../src/client/SchedulesPanel";
+import { ToastProvider } from "../src/client/components/ui/Toast";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -453,7 +454,7 @@ async function renderPanel() {
   document.body.appendChild(container);
   root = createRoot(container);
   await act(async () => {
-    root.render(<SchedulesPanel activeEnv="TEST" userLogin="venus" />);
+    root.render(<ToastProvider><SchedulesPanel activeEnv="TEST" userLogin="venus" /></ToastProvider>);
   });
   await flush(60);
   await waitForText("Strategy Discovery · No-view");

@@ -46,6 +46,7 @@ import {
 import { buildStrategyRequest } from "../src/client/options/serverDiscovery";
 import { SCREENING_ASSET_CLASSES } from "../src/client/screeningAdapters";
 import { ScreenersHub } from "../src/client/ScreenersHub";
+import { ToastProvider } from "../src/client/components/ui/Toast";
 import { ETradeTradingHub } from "../src/client/ETradeTradingHub";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -275,7 +276,7 @@ describe("S8 render pins", () => {
 
   it("the hub renders the options research surface under its options tab", async () => {
     await act(async () => {
-      root.render(<ScreenersHub activeEnv="PROD" userLogin="tester" initialTab="options" />);
+      root.render(<ToastProvider><ScreenersHub activeEnv="PROD" userLogin="tester" initialTab="options" /></ToastProvider>);
     });
     expect(container.textContent).toContain("Strategy Discovery & Payoff Analyzer");
     expect(container.textContent).toContain("AI Strategy Ideas & Exporter");
@@ -283,7 +284,7 @@ describe("S8 render pins", () => {
 
   it("the hub renders IV history under its iv-history tab", async () => {
     await act(async () => {
-      root.render(<ScreenersHub activeEnv="PROD" userLogin="tester" initialTab="iv-history" />);
+      root.render(<ToastProvider><ScreenersHub activeEnv="PROD" userLogin="tester" initialTab="iv-history" /></ToastProvider>);
     });
     expect(container.textContent).toContain("IV History");
   });
@@ -292,7 +293,7 @@ describe("S8 render pins", () => {
   // redirect render pins are superseded by these.
   it("the Trading Hub renders the hub itself for the folded options subtab", async () => {
     await act(async () => {
-      root.render(<ETradeTradingHub activeSubTab="options" user={{ login: "tester" }} />);
+      root.render(<ToastProvider><ETradeTradingHub activeSubTab="options" user={{ login: "tester" }} /></ToastProvider>);
     });
     expect(container.textContent).not.toContain("Screening Moved to the Screeners Hub");
     expect(container.textContent).toContain("Strategy Discovery & Payoff Analyzer");
@@ -300,7 +301,7 @@ describe("S8 render pins", () => {
 
   it("the Trading Hub renders the hub itself for the folded scanner subtab", async () => {
     await act(async () => {
-      root.render(<ETradeTradingHub activeSubTab="scanner" user={{ login: "tester" }} />);
+      root.render(<ToastProvider><ETradeTradingHub activeSubTab="scanner" user={{ login: "tester" }} /></ToastProvider>);
     });
     expect(container.textContent).not.toContain("Screening Moved to the Screeners Hub");
     expect(container.textContent).toContain("Strategy/Symbol Scanner");

@@ -795,3 +795,73 @@ div.ui-modal-title { font-size: inherit; font-weight: inherit; }
   grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
   gap: var(--space-2);
 }
+
+/* ---------- Toast (#2283) ---------- */
+/* The one familiar place for transient feedback. Fixed viewport, above
+   the modal backdrop (z-index 9999), pointer-transparent except on the
+   toasts themselves so the region never blocks clicks elsewhere. */
+.ui-toast-viewport {
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: min(22.5rem, calc(100vw - 2rem));
+  pointer-events: none;
+}
+
+.ui-toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  font-size: var(--font-size-body-sm);
+  line-height: 1.45;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 0.7rem 0.9rem;
+  box-shadow: var(--shadow-e2);
+  pointer-events: auto;
+  animation: ui-toast-in 0.18s ease-out;
+}
+
+@keyframes ui-toast-in {
+  from { opacity: 0; transform: translateY(0.5rem); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-toast { animation: none; }
+}
+
+@media (max-width: 37.5rem) {
+  .ui-toast-viewport {
+    left: var(--space-2);
+    right: var(--space-2);
+    bottom: var(--space-2);
+    width: auto;
+  }
+}
+
+.ui-toast-icon { flex: none; }
+.ui-toast-body { flex: 1; }
+.ui-toast-title { margin-right: 0.35rem; }
+
+.ui-toast-dismiss {
+  flex: none;
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: var(--font-size-body-sm);
+  line-height: 1;
+  padding: 0.15rem 0.25rem;
+  border-radius: 4px;
+}
+.ui-toast-dismiss:focus-visible { outline: none; box-shadow: var(--shadow-focus-ring); }
+
+.ui-toast.tone-success { background: var(--color-success-subtle); color: var(--color-success-text); border-color: var(--color-success-border); }
+.ui-toast.tone-info { background: var(--color-info-subtle); color: var(--color-info-text); border-color: var(--color-accent-border); }
+.ui-toast.tone-warning { background: var(--color-warning-subtle); color: var(--color-warning-text); border-color: var(--color-warning-border); }
+.ui-toast.tone-danger { background: var(--color-danger-subtle); color: var(--color-danger-text); border-color: var(--color-danger-border); }

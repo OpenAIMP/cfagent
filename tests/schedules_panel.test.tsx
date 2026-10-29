@@ -19,6 +19,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createRoot } from "react-dom/client";
 import { act } from "react";
 import { SchedulesPanel } from "../src/client/SchedulesPanel";
+import { ToastProvider } from "../src/client/components/ui/Toast";
 import { JOB_CALLBACKS, type CreatableJob } from "../src/client/ScheduledOptionsManager";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -51,7 +52,7 @@ let root: ReturnType<typeof createRoot>;
 
 async function render() {
   await act(async () => {
-    root.render(<SchedulesPanel userLogin="venus" activeEnv="PROD" />);
+    root.render(<ToastProvider><SchedulesPanel userLogin="venus" activeEnv="PROD" /></ToastProvider>);
   });
   await act(async () => {});
 }

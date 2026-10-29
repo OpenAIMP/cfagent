@@ -4,6 +4,7 @@ import React from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { act } from "react";
 import { AutopilotControlCenter } from "../src/client/components/AutopilotControlCenter";
+import { ToastProvider } from "../src/client/components/ui/Toast";
 
 const verdictsPayload = {
   running: false,
@@ -73,7 +74,11 @@ async function renderCenter() {
   document.body.appendChild(container);
   root = createRoot(container);
   await act(async () => {
-    root!.render(<AutopilotControlCenter />);
+    root!.render(
+      <ToastProvider>
+        <AutopilotControlCenter />
+      </ToastProvider>,
+    );
   });
   // Flush the mount effects' fetch promises.
   await act(async () => {});

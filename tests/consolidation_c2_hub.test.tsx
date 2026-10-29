@@ -31,6 +31,7 @@ import * as path from "node:path";
 import { NAVIGATION_ITEMS, isTabActive } from "../src/client/components/NavigationMenu";
 import { ScreenersHub } from "../src/client/ScreenersHub";
 import { ETradeTradingHub } from "../src/client/ETradeTradingHub";
+import { ToastProvider } from "../src/client/components/ui/Toast";
 import { ScreeningReviewPanel } from "../src/client/ScreeningReviewPanel";
 import { ScreeningOutcomesPanel } from "../src/client/ScreeningOutcomesPanel";
 
@@ -414,7 +415,7 @@ describe("C2 hub + panels (render)", () => {
 
   it("the Trading Hub renders the hub itself for the folded options subtab — no notice", async () => {
     await act(async () => {
-      root.render(<ETradeTradingHub activeSubTab="options" user={{ login: "alice" }} />);
+      root.render(<ToastProvider><ETradeTradingHub activeSubTab="options" user={{ login: "alice" }} /></ToastProvider>);
     });
     await flush();
     expect(container.textContent).not.toContain("Screening Moved to the Screeners Hub");

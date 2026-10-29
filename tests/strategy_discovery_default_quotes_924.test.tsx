@@ -23,6 +23,7 @@ import { readFileSync } from "node:fs";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { StrategyDiscoveryPanel } from "../src/client/options/StrategyDiscoveryPanel";
+import { ToastProvider } from "../src/client/components/ui/Toast";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -48,7 +49,7 @@ const renderPanel = async (initialSymbol: string) => {
   document.body.appendChild(container);
   const root: Root = createRoot(container);
   await act(async () => {
-    root.render(<StrategyDiscoveryPanel initialSymbol={initialSymbol} />);
+    root.render(<ToastProvider><StrategyDiscoveryPanel initialSymbol={initialSymbol} /></ToastProvider>);
   });
   // Effects fire the quote fetch; let every fetch + state update settle.
   await flush();

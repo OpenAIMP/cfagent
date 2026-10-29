@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { apiFetch as fetch } from "./apiFetch";
 import { getDisplayUserDid } from "../agents/did";
-import { Card, Badge, TextInput, Button, EmptyState, Select, Table, Modal, PageShell, FieldShell } from "./components/ui";
+import { Card, Badge, TextInput, Button, EmptyState, Select, Table, Modal, PageShell, FieldShell, useToast } from "./components/ui";
 import { getRoute } from "./routes";
 import {
   ETradeQuote,
@@ -85,6 +85,7 @@ export function ETradeTradingHub({
   onSelectSubTab,
   onBrokerPropsChange, onUnreadAlertsChange,
 }: ETradeTradingHubProps) {
+  const toast = useToast();
   // Navigation subtabs: synchronized directly with activeSubTab prop from Chat navigation
   const [subTab, setSubTab] = useState<TradingSubTab>(activeSubTab || "autopilot");
   const effectiveSubTab: TradingSubTab = activeSubTab || subTab || "autopilot";
@@ -502,7 +503,7 @@ export function ETradeTradingHub({
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      alert("Web Speech API is not supported in this browser. You can type in the prompt box or use the quick chips.");
+      toast.warning("Web Speech API is not supported in this browser. You can type in the prompt box or use the quick chips.");
       return;
     }
 

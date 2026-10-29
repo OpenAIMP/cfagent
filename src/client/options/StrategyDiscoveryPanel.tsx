@@ -48,7 +48,7 @@ import { OptionsDataDownloadDropdown } from "./OptionsDataDownloadDropdown";
 import type { TradeOrderContext } from "../trading/tradeOrderContext";
 import "./strategyDiscovery.css";
 import { StrategyLibraryModal, type StrategyInfo } from "./StrategyLibraryModal";
-import { Button, FieldShell, PillGroup, SegmentedControl, Select, Table, TextInput, Modal } from "../components/ui";
+import { Button, FieldShell, PillGroup, SegmentedControl, Select, Table, TextInput, Modal, useToast } from "../components/ui";
 
 const SENTIMENT_ITEMS: Array<{
   id: SentimentType;
@@ -448,7 +448,7 @@ export function StrategyDiscoveryPanel({
       return [];
     }
   });
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const toast = useToast();
 
   // Capability 12: Previous Trade Comparison
   const [previousStrategyLegs, setPreviousStrategyLegs] = useState<StrategyLegItem[] | null>(null);
@@ -492,11 +492,6 @@ export function StrategyDiscoveryPanel({
   const [showPositionsDrawer, setShowPositionsDrawer] = useState<boolean>(false);
   const [graphHoverPrice, setGraphHoverPrice] = useState<number | null>(null);
 
-  // Toast feedback helper
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3200);
-  };
 
   // Check URL hash for shared trades on mount (Capability 10)
   useEffect(() => {
@@ -511,7 +506,7 @@ export function StrategyDiscoveryPanel({
         setBuilderLegs(decoded.legs);
         if (decoded.iv) setBuilderIv(decoded.iv);
         setActiveView("builder");
-        showToast(`Loaded shared trade: ${decoded.strategyName} (${decoded.symbol})`);
+        toast.info(`Loaded shared trade: ${decoded.strategyName} (${decoded.symbol})`);
       }
     }
   }, [expirations]);
@@ -562,7 +557,7 @@ export function StrategyDiscoveryPanel({
           const timeStr = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
           setLastRefreshedAt(timeStr);
           if (showNotification) {
-            showToast(`Refreshed ${sym} market data: $${freshPrice.toFixed(2)}`);
+            toast.info(`Refreshed ${sym} market data: $${freshPrice.toFixed(2)}`);
           }
           return;
         }
@@ -757,7 +752,7 @@ export function StrategyDiscoveryPanel({
     // Issue #924: never snapshot a discovery view with no live quote —
     // its currentPrice would be the 0 placeholder, not a market price.
     if (!quote) {
-      showToast("Quote unavailable — load a live quote before scheduling this discovery.");
+      toast.warning("Quote unavailable — load a live quote before scheduling this discovery.");
       return;
     }
     setCapturedRequest(buildStrategyRequest(currentDiscoveryInputs()));
@@ -801,7 +796,7 @@ export function StrategyDiscoveryPanel({
       const data = (await res.json().catch(() => ({}))) as any;
       if (res.ok && data.success) {
         setScheduleCaptureOpen(false);
-        showToast(
+        toast.success(
           `🗓 Scheduled this discovery view (${capturedRequest.symbol} · ${capturedRequest.thesis} · target $${capturedRequest.targetPrice}) — manage it under Schedules.`
         );
       } else {
@@ -886,7 +881,7 @@ export function StrategyDiscoveryPanel({
   const handleSelectPreMadeStrategy = (stratDef: StrategyDefinition) => {
     // Issue #924: legs are built from spot — no live quote, no strategy.
     if (!quote) {
-      showToast("Quote unavailable — load a live quote before choosing a strategy.");
+      toast.warning("Quote unavailable — load a live quote before choosing a strategy.");
       return;
     }
     if (builderLegs.length > 0) {
@@ -918,7 +913,7 @@ export function StrategyDiscoveryPanel({
     setBuilderLegs(newLegs);
     setShowStrategyModal(false);
     setActiveView("builder");
-    showToast(`Loaded ${stratDef.name} (${stratDef.category})`);
+    toast.info(`Loaded ${stratDef.name} (${stratDef.category})`);
   };
 
   // Target price percentage change from spot
@@ -1314,7 +1309,7 @@ export function StrategyDiscoveryPanel({
     });
     setBuilderLegs(updated);
     reanalyze(updated);
-    showToast(`Closed ${leg.side} ${leg.strike}${leg.optionType[0]} @ $${exitPrice.toFixed(2)} ✓`);
+    toast.success(`Closed ${leg.side} ${leg.strike}${leg.optionType[0]} @ $${exitPrice.toFixed(2)} ✓`);
   };
 
   // Capability 8: Add New Option Leg
@@ -1351,7 +1346,7 @@ export function StrategyDiscoveryPanel({
     const updated = [...builderLegs, newLeg];
     setBuilderLegs(updated);
     reanalyze(updated);
-    showToast(`Added Long ${defaultStrike}${optionType[0]} Leg`);
+    toast.success(`Added Long ${defaultStrike}${optionType[0]} Leg`);
   };
 
   // Remove specific option leg by ID
@@ -1361,7 +1356,7 @@ export function StrategyDiscoveryPanel({
     const updated = builderLegs.filter((l) => l.id !== legId);
     setBuilderLegs(updated);
     reanalyze(updated);
-    showToast(`Removed ${targetLeg.side} ${targetLeg.strike ? `$${targetLeg.strike.toFixed(2)} ` : ""}${targetLeg.optionType} leg`);
+    toast.success(`Removed ${targetLeg.side} ${targetLeg.strike ? `$${targetLeg.strike.toFixed(2)} ` : ""}${targetLeg.optionType} leg`);
   };
 
   // Remove the most recently added option leg of given type
@@ -1405,7 +1400,7 @@ export function StrategyDiscoveryPanel({
     setBuilderLegs(updated);
     reanalyze(updated);
     setRollingLeg(null);
-    showToast(`Rolled ${rollingLeg.strike}${rollingLeg.optionType[0]} to ${newExpDate} $${newStrike} ✓`);
+    toast.success(`Rolled ${rollingLeg.strike}${rollingLeg.optionType[0]} to ${newExpDate} $${newStrike} ✓`);
   };
 
   // Capability 10: Save Trade to LocalStorage
@@ -1432,7 +1427,7 @@ export function StrategyDiscoveryPanel({
       // ignore
     }
     setShowSaveModal(false);
-    showToast(`Trade "${name}" saved! 💾`);
+    toast.success(`Trade "${name}" saved! 💾`);
   };
 
   // Capability 10: Share Trade Link
@@ -1448,12 +1443,12 @@ export function StrategyDiscoveryPanel({
     const url = `${window.location.origin}${window.location.pathname}#trade=${hash}`;
     if (navigator?.clipboard?.writeText) {
       navigator.clipboard.writeText(url).then(
-        () => showToast("Shareable link copied to clipboard! 📋"),
-        () => showToast("Link generated in address bar")
+        () => toast.success("Shareable link copied to clipboard! 📋"),
+        () => toast.success("Link generated in address bar")
       );
     } else {
       window.location.hash = `trade=${hash}`;
-      showToast("Link set in address bar!");
+      toast.success("Link set in address bar!");
     }
   };
 
@@ -1466,7 +1461,7 @@ export function StrategyDiscoveryPanel({
     setBuilderLegs(trade.legs);
     setBuilderIv(trade.ivAtSave || 44.2);
     setShowSavedTradesModal(false);
-    showToast(`Loaded saved trade: ${trade.name}`);
+    toast.info(`Loaded saved trade: ${trade.name}`);
   };
 
   const handleDeleteSavedTrade = (tradeId: string) => {
@@ -1477,7 +1472,7 @@ export function StrategyDiscoveryPanel({
     } catch {
       // ignore
     }
-    showToast("Saved trade deleted.");
+    toast.success("Saved trade deleted.");
   };
 
   // Capability 12: Revert to Previous Trade
@@ -1486,7 +1481,7 @@ export function StrategyDiscoveryPanel({
       setBuilderLegs([...previousStrategyLegs]);
       reanalyze(previousStrategyLegs);
       setIsComparingPrevious(false);
-      showToast("Reverted to previous strategy configuration.");
+      toast.success("Reverted to previous strategy configuration.");
     }
   };
 
@@ -1579,13 +1574,6 @@ export function StrategyDiscoveryPanel({
 
   return (
     <div className="strat-discovery-container">
-      {/* Toast Alert Notification */}
-      {toastMessage && (
-        <div className="strat-toast-notification">
-          <span>{toastMessage}</span>
-        </div>
-      )}
-
       {/* Top View Mode Switcher */}
       <div className="strat-view-tabs">
         <div className="strat-view-tab-buttons">

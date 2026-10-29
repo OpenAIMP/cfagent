@@ -16,6 +16,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { AutopilotControlCenter } from "../src/client/components/AutopilotControlCenter";
+import { ToastProvider } from "../src/client/components/ui/Toast";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -33,7 +34,7 @@ async function render(node: React.ReactNode) {
   document.body.appendChild(container);
   root = createRoot(container);
   await act(async () => {
-    root.render(node);
+    root.render(<ToastProvider>{node}</ToastProvider>);
   });
   await flush();
 }

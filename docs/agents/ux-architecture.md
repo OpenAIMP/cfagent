@@ -250,6 +250,28 @@ Creation pattern (uniform across the platform):
 Rationale: one system gives consistent behavior, consistent structure, and
 consistent creation, fully controlled by this architecture — no one-offs.
 
+### Toasts: one place for transient feedback
+
+Transient success/failure feedback — anything the user did that succeeded
+or failed and does not need to stay on screen — goes through the global
+Toast primitive (`ToastProvider` + `useToast()` in
+`src/client/components/ui/`, viewport mounted once at the app root).
+The user never hunts for a message: every confirmation lands in the same
+familiar bottom-right place, in the same shape, whatever panel acted.
+
+- Tones: success/info auto-dismiss (5s), warning 8s, danger persists
+  until dismissed — an error the user must see is never timed out from
+  under them. Every toast has a dismiss button; hover/focus pauses the
+  timer; Escape dismisses the newest toast while focus is in the
+  viewport; toasts never steal focus on arrival.
+- Announced: danger/warning via `role="alert"`, success/info via
+  `role="status"`. Identical visible toasts dedupe instead of stacking;
+  at most 4 are visible, newest on top.
+- No native `alert()`/`confirm()` dialogs, no per-panel toast one-offs.
+  Persistent state that must remain visible (warnings, guarantees,
+  page-level error/empty states) still belongs to the inline Notice —
+  Toast is for transient feedback, Notice is for state that stays.
+
 ## 7. Goal capture and delegation
 
 The creation flow must collect:
