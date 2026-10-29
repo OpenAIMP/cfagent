@@ -59,17 +59,62 @@ const servingSql = () =>
     return [];
   });
 
-const makeOrm = (overrides: Record<string, any> = {}) => ({
-  externalAds: {
+// #2345 adaptation: the handlers serve the marketplace tables
+// through the ports (orm.marketplacePorts); the stub
+// repositories double as the ports (sync vi.fn's are
+// await-compatible) and the /ads serving rows come from the
+// ads port stub instead of the retired SQL serving fake.
+const seedAdRecord = {
+  id: "ad_workers_ai",
+  title: "Cloudflare Workers AI",
+  tagline: "Run models on serverless GPUs.",
+  sponsor: "Cloudflare",
+  badge: "FLAGSHIP PARTNER",
+  url: "https://developers.cloudflare.com/workers-ai/",
+  ctaText: "Deploy in 60s →",
+  accentColor: "#f38020",
+  impressions: 5,
+  clicks: 2,
+  createdAt: "2026-10-28T00:00:00Z",
+};
+
+const makeOrm = (overrides: Record<string, any> = {}) => {
+  const externalAds = {
     findMany: vi.fn(() => [{ id: "e1", title: "Ext", impressions: 3, clicks: 1 }]),
     findById: vi.fn(() => ({ id: "e1", impressions: 3, clicks: 1, earnings: 0, cpmRate: 1, cpcRate: 1 })),
     update: vi.fn((id: string, patch: any) => ({ id, ...patch })),
     create: vi.fn((rec: any) => rec),
     ...overrides.externalAds,
-  },
-  getRevenueSummary: vi.fn(() => ({ total: 0, currency: "USD" })),
-  ...overrides.rest,
-});
+  };
+  const ads = {
+    findMany: vi.fn(async () => [seedAdRecord]),
+    findById: vi.fn(async () => seedAdRecord),
+    update: vi.fn(async (id: string, patch: any) => ({ id, ...patch })),
+    create: vi.fn(async (rec: any) => rec),
+    delete: vi.fn(async () => true),
+    count: vi.fn(async () => 1),
+    incrementCounter: vi.fn(async () => null),
+    incrementAllImpressions: vi.fn(async () => undefined),
+    ...overrides.ads,
+  };
+  const referrals = {
+    findMany: vi.fn(async () => []),
+    findById: vi.fn(async () => null),
+    create: vi.fn(async (rec: any) => rec),
+    delete: vi.fn(async () => true),
+    count: vi.fn(async () => 0),
+    incrementCounter: vi.fn(async () => null),
+  };
+  const categories = { findMany: vi.fn(() => []) };
+  return {
+    externalAds,
+    ads,
+    referrals,
+    getRevenueSummary: vi.fn(() => ({ total: 0, currency: "USD" })),
+    marketplacePorts: vi.fn(async () => ({ categories, externalAds, ads, referrals })),
+    ...overrides.rest,
+  };
+};
 
 const baseCtx = (
   overrides: Partial<AdsRevenueReferralsRouteContext> = {},
@@ -174,31 +219,32 @@ describe("applyServerAdsConfig (#2022)", () => {
 
 describe("ad serving suppression (#2022)", () => {
   it("Subscribed GET /ads returns empty with no impression write", async () => {
-    const sql = servingSql();
+    const orm = makeOrm();
     const { res } = await callB(
       "GET",
       "/ads",
       undefined,
-      baseCtx({ viewerTier: "Subscribed", ensureTables: () => sql }),
+      baseCtx({ viewerTier: "Subscribed", getOrm: () => orm as any }),
     );
     expect(res?.status).toBe(200);
     expect(await res?.json()).toEqual({ count: 0, ads: [] });
-    expect(sql.exec).not.toHaveBeenCalled();
+    expect(orm.ads.incrementAllImpressions).not.toHaveBeenCalled();
+    expect(orm.ads.findMany).not.toHaveBeenCalled();
   });
 
   it("Free and PayPerUse GET /ads still serve with the impression increment", async () => {
     for (const tier of [undefined, "PayPerUse"]) {
-      const sql = servingSql();
+      const orm = makeOrm();
       const { res } = await callB(
         "GET",
         "/ads",
         undefined,
-        baseCtx({ viewerTier: tier, ensureTables: () => sql }),
+        baseCtx({ viewerTier: tier, getOrm: () => orm as any }),
       );
       const body = (await res?.json()) as { count: number; ads: Array<{ id: string }> };
       expect(body.count).toBe(1);
       expect(body.ads[0].id).toBe("ad_workers_ai");
-      expect(sql.exec.mock.calls.some(([q]: [string]) => q.startsWith("UPDATE mas_ads SET impressions"))).toBe(true);
+      expect(orm.ads.incrementAllImpressions).toHaveBeenCalledWith(1);
     }
   });
 
@@ -221,16 +267,15 @@ describe("ad serving suppression (#2022)", () => {
     expect(await imp.res?.json()).toEqual({ success: false });
     const click = await callA("POST", "/external-ads/click", { id: "e1" }, ctx);
     expect(await click.res?.json()).toEqual({ success: false });
-    const sql = servingSql();
     const adClick = await callB(
       "POST",
       "/ads/click",
       { id: "ad_workers_ai" },
-      baseCtx({ viewerTier: "Subscribed", ensureTables: () => sql }),
+      baseCtx({ viewerTier: "Subscribed", getOrm: () => orm as any }),
     );
     expect(await adClick.res?.json()).toEqual({ success: false });
     expect(orm.externalAds.update).not.toHaveBeenCalled();
-    expect(sql.exec).not.toHaveBeenCalled();
+    expect(orm.ads.incrementCounter).not.toHaveBeenCalled();
   });
 
   it("banner-config endpoint resolves Free and Subscribed", async () => {
