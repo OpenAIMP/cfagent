@@ -121,11 +121,7 @@ export function ScheduleFormModal(props: ScheduleFormModalProps) {
               {/* Job Picker */}
               {!editingScheduleId && (
                 <div className="sched-form-group">
-                  <label htmlFor="sched-job-type" className="sched-form-label">
-                    Job
-                    <span className="hint">What runs when this schedule fires</span>
-                  </label>
-                  <Select id="sched-job-type"
+                  <Select label="Job" hint={`What runs when this schedule fires`} id="sched-job-type"
                     value={jobType}
                     onChange={(e) => {
                       const nextJobType = e.target.value as CreatableJob;
@@ -143,11 +139,7 @@ export function ScheduleFormModal(props: ScheduleFormModalProps) {
               {/* Target Universe or Symbols */}
               {jobType !== "strategyDiscovery" && (editingScheduleId || jobType === "optionsAnalysis" || jobType === "marketScreen") && (
                 <div className="sched-form-group">
-                  <label htmlFor="sched-target-universe" className="sched-form-label">
-                    Target Universe
-                    <span className="hint">Screens all symbols in the universe</span>
-                  </label>
-                  <Select id="sched-target-universe"
+                  <Select label="Target Universe" hint={`Screens all symbols in the universe`} id="sched-target-universe"
                     value={targetUniverse}
                     onChange={(e) => setTargetUniverse(e.target.value)}
                   >
@@ -162,11 +154,7 @@ export function ScheduleFormModal(props: ScheduleFormModalProps) {
                   </Select>
                   {!targetUniverse && jobType === "optionsAnalysis" && (
                     <>
-                      <label htmlFor="sched-target-symbols" className="sched-form-label" style={{ marginTop: "0.5rem" }}>
-                        Target Equity Symbols
-                        <span className="hint">Comma-separated tickers</span>
-                      </label>
-                      <TextInput id="sched-target-symbols"
+                      <TextInput label="Target Equity Symbols" hint={`Comma-separated tickers`} id="sched-target-symbols"
                         type="text"
                         value={targetSymbols}
                         onChange={(e) => setTargetSymbols(e.target.value)}
@@ -180,11 +168,7 @@ export function ScheduleFormModal(props: ScheduleFormModalProps) {
 
               {jobType !== "strategyDiscovery" && (
                 <div className="sched-form-group">
-                  <label htmlFor="sched-max-items" className="sched-form-label">
-                    Max items
-                    <span className="hint">Maximum live symbols scanned per run; 0 means all selected symbols.</span>
-                  </label>
-                  <TextInput id="sched-max-items"
+                  <TextInput label="Max items" hint={`Maximum live symbols scanned per run; 0 means all selected symbols.`} id="sched-max-items"
                     type="number"
                     min={0}
                     step={1}
@@ -198,11 +182,7 @@ export function ScheduleFormModal(props: ScheduleFormModalProps) {
               {/* Sector Selection (Market Screen) */}
               {jobType === "marketScreen" && (
                 <div className="sched-form-group">
-                  <label htmlFor="sched-sector" className="sched-form-label">
-                    Sector
-                    <span className="hint">Filter stocks by sector or screen all sectors</span>
-                  </label>
-                  <Select id="sched-sector"
+                  <Select label="Sector" hint={`Filter stocks by sector or screen all sectors`} id="sched-sector"
                     value={sector}
                     onChange={(e) => setSector(e.target.value)}
                   >
@@ -224,11 +204,7 @@ export function ScheduleFormModal(props: ScheduleFormModalProps) {
               {/* Saved preset (Market Screen, #1499) */}
               {jobType === "marketScreen" && (
                 <div className="sched-form-group">
-                  <label htmlFor="sched-preset" className="sched-form-label">
-                    Saved criteria preset
-                    <span className="hint">A preset replaces the custom thresholds below; its current criteria resolve at run time, so preset edits apply to future runs. A deleted preset fails the run loudly instead of running unfiltered.</span>
-                  </label>
-                  <Select id="sched-preset"
+                  <Select label="Saved criteria preset" hint={`A preset replaces the custom thresholds below; its current criteria resolve at run time, so preset edits apply to future runs. A deleted preset fails the run loudly instead of running unfiltered.`} id="sched-preset"
                     value={presetId}
                     onChange={(e) => setPresetId(e.target.value)}
                   >
@@ -256,8 +232,7 @@ export function ScheduleFormModal(props: ScheduleFormModalProps) {
                   </summary>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-3)", marginTop: "0.6rem" }}>
                     <div className="sched-form-group">
-                      <label htmlFor="sched-filter-min-price" className="sched-form-label">Min Price ($)</label>
-                      <TextInput id="sched-filter-min-price"
+                      <TextInput label="Min Price ($)" id="sched-filter-min-price"
                         type="number"
                         min={0}
                         step="0.5"
@@ -267,8 +242,7 @@ export function ScheduleFormModal(props: ScheduleFormModalProps) {
                       />
                     </div>
                     <div className="sched-form-group">
-                      <label htmlFor="sched-filter-max-price" className="sched-form-label">Max Price ($)</label>
-                      <TextInput id="sched-filter-max-price"
+                      <TextInput label="Max Price ($)" id="sched-filter-max-price"
                         type="number"
                         min={0}
                         step="0.5"
@@ -278,8 +252,7 @@ export function ScheduleFormModal(props: ScheduleFormModalProps) {
                       />
                     </div>
                     <div className="sched-form-group">
-                      <label htmlFor="sched-filter-min-cap" className="sched-form-label">Min Mkt Cap ($B)</label>
-                      <TextInput id="sched-filter-min-cap"
+                      <TextInput label="Min Mkt Cap ($B)" id="sched-filter-min-cap"
                         type="number"
                         min={0}
                         step="1"
@@ -289,8 +262,7 @@ export function ScheduleFormModal(props: ScheduleFormModalProps) {
                       />
                     </div>
                     <div className="sched-form-group">
-                      <label htmlFor="sched-filter-max-pe" className="sched-form-label">Max P/E Ratio</label>
-                      <TextInput id="sched-filter-max-pe"
+                      <TextInput label="Max P/E Ratio" id="sched-filter-max-pe"
                         type="number"
                         min={0}
                         step="1"
@@ -301,8 +273,7 @@ export function ScheduleFormModal(props: ScheduleFormModalProps) {
                     </div>
                   </div>
                   <div className="sched-form-group" style={{ marginTop: "0.5rem" }}>
-                    <label htmlFor="sched-filter-trend" className="sched-form-label">Price Trend / Momentum</label>
-                    <Select id="sched-filter-trend"
+                    <Select label="Price Trend / Momentum" id="sched-filter-trend"
                       value={trendFilter}
                       onChange={(e) => setTrendFilter(e.target.value)}
                     >
