@@ -171,6 +171,9 @@ all, and no query in the repo is checked with `EXPLAIN QUERY PLAN`.
 1. Indexes, created idempotently in the existing table-setup functions:
    `mas_job_outcomes(created_at DESC)`, `mas_async_jobs(status, created_at)`,
    `mas_events(created_at)`, `mas_messages(created_at)`, `mas_memory(updated_at)`.
+   The outcome index (#2294) is necessary but not sufficient: the steady reader scans ~13.5k rows
+   per request (§4.3), which fits `mas_events` or `mas_messages` better than the outcome feed —
+   index those next.
 2. Replace `WHERE status NOT IN ('completed','failed')` with an index-usable predicate
    (`status IN ('queued','running',…)`) and return only the fields the gate needs.
 3. Retention for `mas_job_outcomes` (age and count bound), enforced **inside each instance**.
@@ -209,8 +212,41 @@ all, and no query in the repo is checked with `EXPLAIN QUERY PLAN`.
 - A normal day, including the 30-minute ticks and the 60-second polls, stays under 25% of the cap.
 - Login round-trip works with the session store healthy.
 
+## 4.3 Request shape — two different readers
+
+Hourly for `dhmprstw@gmail.com` on 2026-10-29 (rows read from `durableObjectsPeriodicGroups`,
+requests from `durableObjectsInvocationsAdaptiveGroups`):
+
+| Hour (UTC) | requests | rows read | rows/request |
+|---|---:|---:|---:|
+| 03:00 | 80 | 114,689 | 1,434 |
+| 04:00 | 1,149 | 887,485 | 772 |
+| 05:00 | 274 | 638,596 | 2,331 |
+| 06:00 | 50 | 625,204 | 12,504 |
+| 07:00 | 46 | 629,621 | 13,687 |
+| 08:00 | 44 | 633,651 | 14,401 |
+| 09:00 | 42 | 567,953 | 13,523 |
+
+The daily average (~2,432 rows/request) mixes two readers and understates the one that costs the
+most:
+
+- **steady hours**: ~45 requests/hour — about one every 80 seconds — at **~13.5k rows each**
+  (~600k rows/hour). A repeating, clock-driven read of a table roughly that size.
+- **04:00**: 1,149 requests at ~772 rows each, a burst of small queries in the nightly window.
+
+A ~13.5k-row scan is larger than the outcome feed and fits `mas_events` (365-day audit log) or a
+long `mas_messages` history better than `mas_job_outcomes`. The outcome index shipped in #2294
+removes that feed's scan, but it is probably not the whole 4.1M.
+
 ## 8. Known gap
 
-Which exact statement dominates within the two burning objects is **not yet attributable** — agent
-SQL has no per-statement measurement. The ranking above is by scan size × frequency and is confirmed
-only for the object and the per-request cost, not for the individual query. P0 item 5 closes it.
+Two questions this record cannot answer yet, both for the same reason — agent SQL emits no
+per-statement rows measurement:
+
+1. **Which statement/job** dominates inside the burning objects. The object, the per-request cost
+   (§4.3) and the read:write ratio are measured; the individual query is not.
+2. **Which tables** the ~13.5k rows/request come from. Five candidates carry a scan of this shape
+   (`mas_job_outcomes`, `mas_async_jobs`, `mas_events`, `mas_messages`, `mas_reports`); the split is
+   unmeasured.
+
+P0 item 5 closes both by emitting rows-per-statement with a statement tag.
