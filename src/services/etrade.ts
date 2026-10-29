@@ -52,6 +52,8 @@ import {
   type NasdaqUniverseDeps,
   type NasdaqUniverseSeam,
 } from "../trading";
+import type { DataProviderPorts } from "../data/buildDataProviderPorts";
+import { buildRegisteredDataProviderPorts } from "../data/dataProviderPortsProvider";
 import { getCuratedStockBySymbol } from "../config/curatedStockUniverse";
 import { resolveEnvironmentConfig } from "../config/environment";
 import {
@@ -70,6 +72,31 @@ export class ETradeService {
   private overrideEnv?: string;
   private breakerRegistry: BreakerRegistry;
   private storage?: Parameters<typeof nasdaqUniverseSeamFromSql>[3];
+
+  /**
+   * #2303 (#1976 step 1): the data-provider platform ports for
+   * the internally built universe seam — built lazily from env
+   * (AGENT_DB) via the shared production build, memoized per
+   * service instance; unbound → the seam keeps its sql path.
+   */
+  private dataProviderPortsPromise?: Promise<DataProviderPorts>;
+
+  private dataProviderPorts(): Promise<DataProviderPorts> {
+    if (!this.dataProviderPortsPromise) {
+      // The ports builder is resolved through the registered
+      // provider (src/data/dataProviderPortsProvider): this
+      // module is reachable from the client bundle through the
+      // trading barrel, and the builder's graph (D1 adapters
+      // → transaction aspect → node:async_hooks) is
+      // server-only, so it cannot be imported here, statically
+      // or dynamically. The worker entry registers the real
+      // builder; unregistered contexts resolve to null ports
+      // and the seam keeps its legacy path.
+      this.dataProviderPortsPromise =
+        buildRegisteredDataProviderPorts(this.env);
+    }
+    return this.dataProviderPortsPromise;
+  }
 
   setScreenerUniverse(universe: ScreenedStockItem[]): void {
     this.screener.setUniverse(universe);
@@ -181,7 +208,7 @@ export class ETradeService {
   ): Promise<StockScreenResult> {
     const resolved =
       seam ??
-      (await nasdaqUniverseSeamFromSql(this.orm?.getSql?.(), this.env, this.userLogin, this.storage));
+      (await nasdaqUniverseSeamFromSql(this.orm?.getSql?.(), this.env, this.userLogin, this.storage, await this.dataProviderPorts()));
     return this.screener.screenLive(filter, resolved);
   }
 
@@ -207,7 +234,8 @@ export class ETradeService {
         this.orm?.getSql?.(),
         this.env,
         this.userLogin,
-        storage
+        storage,
+        await this.dataProviderPorts()
       );
       if (!seam?.universeRoute) return undefined;
       const provider = nasdaqUniverseProviderFromRoute(
