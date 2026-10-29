@@ -577,6 +577,7 @@ const EXPECTED_INVENTORY = [
   "handleSchedulesRoutes :: endsWith(\"/schedules/cancel\")",
   "handleSchedulesRoutes :: includes(\"/schedules/cancel/\")",
   "handleSchedulesRoutes :: includes(\"/schedules/\")",
+  "handleSchedulesRoutes :: endsWith(\"/schedules/cancel-all\")",
   "handleSchedulesRoutes :: includes(\"/schedules/\")",
   "handleSchedulesRoutes :: includes(\"/schedules/\")",
   "handleSchedulesRoutes :: endsWith(\"/pause\")",

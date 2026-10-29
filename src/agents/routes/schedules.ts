@@ -288,6 +288,68 @@ export async function handleSchedulesRoutes(
       }
     }
 
+    // Cancel ALL schedules on this instance (POST /api/schedules/cancel-all).
+    // Issue #2280: the post-reset queue wipe mechanism — one endpoint for
+    // the whole framework queue instead of one cancel per id. The list
+    // covers every cf_agents_jobs row owned by this agent: user schedules
+    // AND executeAsyncJob rows share the scheduler capability (verified
+    // against agents SDK 0.24.0: JobQueue.list filters by capability, and
+    // async jobs are scheduled through the same ctx.schedule API), so
+    // cancelling each listed id empties the queue; the next alarm then
+    // finds nothing due and the SDK deletes the alarm (rearmAlarm),
+    // which stops the loop. Paused schedules are NOT queue rows (already
+    // cancelled at SDK level) — their resume records in the paused store
+    // are preserved, counted in the response, and never deleted here.
+    // Fail-closed: without { confirm: true } this returns the preview
+    // (what would be cancelled) and cancels nothing.
+    if (path.endsWith("/schedules/cancel-all") && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as any;
+        const schedules = await ctx.listSchedules();
+        const preview = schedules.map((s) => ({ id: s.id, callback: s.callback }));
+        let pausedPreserved = 0;
+        try {
+          pausedPreserved = pausedStore().list().length;
+        } catch {
+          pausedPreserved = 0;
+        }
+        if (body.confirm !== true) {
+          return Response.json({
+            cancelled: 0,
+            confirmRequired: true,
+            wouldCancel: preview,
+            wouldCancelCount: preview.length,
+            pausedPreserved,
+          });
+        }
+        const cancelledIds: string[] = [];
+        const failed: Array<{ id: string; error: string }> = [];
+        for (const item of preview) {
+          try {
+            const ok = await ctx.cancelSchedule(item.id);
+            if (ok) cancelledIds.push(item.id);
+            else failed.push({ id: item.id, error: "not found" });
+          } catch (err: any) {
+            failed.push({ id: item.id, error: err.message || "cancel failed" });
+          }
+        }
+        ctx.audit("schedules.cancelled.all", "orchestrator", {
+          cancelledCount: cancelledIds.length,
+          cancelledIds,
+          failedCount: failed.length,
+          pausedPreserved,
+        });
+        return Response.json({
+          cancelled: cancelledIds.length,
+          cancelledIds,
+          failed,
+          pausedPreserved,
+        });
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to cancel all schedules" }, { status: 500 });
+      }
+    }
+
     // Get specific schedule by ID (GET /api/schedules/:id)
     if (path.includes("/schedules/") && request.method === "GET") {
       try {
