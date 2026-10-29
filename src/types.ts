@@ -111,6 +111,18 @@ export interface Env {
   // and redeploying — no code change. The flag NEVER touches the
   // aiSearch fallback (S3 owns it) or the G1 1.0 scores.
   KNOWLEDGE_SERVING_ENABLED?: string;
+  // #2246 — flag-gated report indexing into the AI Search instance.
+  // Same idiom as KNOWLEDGE_SERVING_ENABLED above: "1"/"true"/"on"
+  // (case-insensitive) = on; absence = OFF (the var is deliberately
+  // NOT in wrangler.jsonc — the slice ships default-off). Flag-ON
+  // makes the canonical report store seams ALSO upload each report
+  // to the instance via AiSearchAgent's indexing executor
+  // (src/agents/aiSearchPaths.ts), best-effort beside the Vectorize
+  // leg. Enablement follows the #1169 probe gate (owner adds the
+  // ai_search_namespaces binding + AI_SEARCH_INSTANCE, the probe
+  // verifies, then the flag flips). Rollback is unsetting the var —
+  // no code change, no data migration.
+  AI_SEARCH_REPORT_INDEXING_ENABLED?: string;
   // Comma-separated provider ids. Default when wiring is on: "github".
   // An id with no registered adapter is ignored, never a fallback.
   IAAA_ENABLED_PROVIDERS?: string;

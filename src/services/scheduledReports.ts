@@ -47,6 +47,7 @@ import {
   indexCanonicalReport,
   type IndexEnv,
 } from "./reportSemanticIndex";
+import { indexCanonicalReportInAiSearch } from "./reportAiSearchIndex";
 
 export const SCHEDULED_REPORTS_TABLE = "mas_reports";
 /** Body payload cap — keeps every row far under the SQLite row limit. */
@@ -317,6 +318,11 @@ function insertScheduledReportRow(
  * it; the hook is a silent no-op and those rows are covered by the
  * backfill route instead. The seam stays SYNC: the hook is
  * fire-and-forget (`void`), mirroring researchPublish's call.
+ * Issue #2246: the same env also feeds the AI Search instance leg
+ * (indexCanonicalReportInAiSearch, fired beside the Vectorize hook
+ * at every site below) — inert unless AI_SEARCH_REPORT_INDEXING_ENABLED
+ * is on; the fields ride the caller's env object, whose full shape
+ * is the worker Env.
  */
 export function storeReportAtGeneration(
   sql: SqlStorage,
@@ -341,6 +347,16 @@ export function storeReportAtGeneration(
             body: row.body,
             bodyR2Key: row.bodyR2Key,
           });
+          void indexCanonicalReportInAiSearch(env, {
+            reportId: id,
+            title: row.title,
+            source: row.source,
+            summary: row.summary,
+            body: row.body,
+            bodyR2Key: row.bodyR2Key,
+            runId: input.runId,
+            ownerLogin: owner,
+          });
         }
         return { reportId: id, created: false };
       }
@@ -354,6 +370,17 @@ export function storeReportAtGeneration(
       summary: rec.summary,
       body: rec.body,
       bodyR2Key: null,
+    });
+    void indexCanonicalReportInAiSearch(env, {
+      reportId: rec.id,
+      title: rec.title,
+      source: rec.source,
+      summary: rec.summary,
+      body: rec.body,
+      bodyR2Key: null,
+      runId: rec.runId,
+      ownerLogin: owner,
+      storedAt: rec.createdAt,
     });
     return { reportId: rec.id, created: true };
   } catch (err) {
@@ -400,6 +427,16 @@ export async function storeReportAtGenerationWithR2(
             body: row.body,
             bodyR2Key: row.bodyR2Key,
           });
+          void indexCanonicalReportInAiSearch(env, {
+            reportId: id,
+            title: row.title,
+            source: row.source,
+            summary: row.summary,
+            body: row.body,
+            bodyR2Key: row.bodyR2Key,
+            runId: input.runId,
+            ownerLogin: owner,
+          });
         }
         return { reportId: id, created: false };
       }
@@ -429,6 +466,17 @@ export async function storeReportAtGenerationWithR2(
       summary: rec.summary,
       body: bodyR2Key ? "" : rec.body,
       bodyR2Key,
+    });
+    void indexCanonicalReportInAiSearch(env, {
+      reportId: rec.id,
+      title: rec.title,
+      source: rec.source,
+      summary: rec.summary,
+      body: bodyR2Key ? "" : rec.body,
+      bodyR2Key,
+      runId: rec.runId,
+      ownerLogin: owner,
+      storedAt: rec.createdAt,
     });
     return { reportId: rec.id, created: true };
   } catch (err) {
