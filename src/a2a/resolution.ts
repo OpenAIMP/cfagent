@@ -23,11 +23,31 @@
  * - payments keeps parity: no instance override, the URL name is
  *   the instance (its handler lands in a later slice).
  *
+ * Final slice (this change) — the six remaining agents:
+ *
+ * - screener lands on the service instance "default" ONLY when a
+ *   service identity is configured: the bare name would start a
+ *   virgin instance whose identity resolution throws, and a
+ *   "default" instance with no service identity behind it has no
+ *   legitimate owner (SURVEY §1.3). No identity → null → the
+ *   dispatcher fails honestly instead of starting a wrong instance.
+ * - research lands on research:<service-login>: instances are
+ *   per-login and the run methods' literal "default" login fallback
+ *   is a legacy value, not the service identity (SURVEY §1.5). No
+ *   identity → null, same honest failure.
+ * - report-asset lands on the service instance "default"; identity
+ *   travels in the request, not the instance name (SURVEY §1.6).
+ * - browser is stateless and slack's helpers are env-driven: both
+ *   keep URL-name parity, like payments.
+ *
  * OPERATION_CATALOG is deliberately NOT touched: adding entries
  * there changes planner behavior (SURVEY §2). This map is A2A's
  * own; the anti-drift pins tie the cards to what is served.
  */
-import { SHARED_ORCHESTRATOR_INSTANCE } from "../security/serviceIdentity";
+import {
+  SHARED_ORCHESTRATOR_INSTANCE,
+  getServiceUserLogin,
+} from "../security/serviceIdentity";
 import type { Env } from "../types";
 
 export interface A2AResolution {
@@ -53,6 +73,20 @@ export const A2A_RESOLUTIONS: Readonly<Record<string, A2AResolution>> = {
   payments: { binding: "PAYMENTS_AGENT" },
   scheduled: { binding: "SCHEDULED_AGENT", instanceName: "default" },
   aisearch: { binding: "AI_SEARCH_AGENT" },
+  screener: {
+    binding: "SCREENER_AGENT",
+    instanceName: (env) => (getServiceUserLogin(env) ? "default" : null),
+  },
+  research: {
+    binding: "RESEARCH_AGENT",
+    instanceName: (env) => {
+      const login = getServiceUserLogin(env);
+      return login ? `research:${login}` : null;
+    },
+  },
+  "report-asset": { binding: "REPORT_ASSET_AGENT", instanceName: "default" },
+  browser: { binding: "BROWSER_AGENT" },
+  slack: { binding: "SLACK_AGENT" },
 };
 
 /** Resolve an A2A agent name, or undefined when A2A does not serve it. */

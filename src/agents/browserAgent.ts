@@ -12,6 +12,11 @@
  */
 
 import { PortThink } from "../actors/thinkAdapter";
+import {
+  dispatchBrowserA2A,
+  browserA2AOutcome,
+  type BrowserA2AOutcome,
+} from "./browserA2aDispatch";
 import type {
   Env,
   TransactionSnapData,
@@ -95,6 +100,31 @@ export class BrowserAgent extends PortThink {
   async scrapeTables(url: string): Promise<BrowserInspectResult> {
     const service = this.getService();
     return service.inspectPage({ url });
+  }
+
+  /**
+   * Issue #2223 (final slice): A2A door, cfpay signature — the edge
+   * dispatcher (src/a2a) resolves the "browser" name to this class
+   * (the class is stateless, so the bare name is the instance) and
+   * calls this with the parsed body + origin (a Request cannot
+   * cross the DO RPC boundary). Thin delegation to the dispatch
+   * module (./browserA2aDispatch), which mirrors onRequest's three
+   * routes onto the same methods and never forwards a
+   * caller-supplied webhookUrl — delivery targets come from env
+   * configuration only. The deliberately unset portHooks do not
+   * block this door: it calls the real methods directly, never a
+   * turn. Returns the collected { text, data } outcome.
+   */
+  async handleA2A(body: unknown, origin: string): Promise<BrowserA2AOutcome> {
+    void origin; // reserved for per-origin policy (cfpay parity); unused in v1
+    const data = await dispatchBrowserA2A(this.env, body, {
+      executor: {
+        sendTransactionSnapToSlack: (tx, options) => this.sendTransactionSnapToSlack(tx, options),
+        capturePageSnapshot: (url, options) => this.capturePageSnapshot(url, options),
+        scrapeTables: (url) => this.scrapeTables(url),
+      },
+    });
+    return browserA2AOutcome(data);
   }
 
   /**
