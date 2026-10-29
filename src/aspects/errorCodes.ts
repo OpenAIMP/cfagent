@@ -581,6 +581,9 @@ export enum DataFoundationCode {
   PROPOSAL_GATE_MISSING = "DATA_PROPOSAL_GATE_MISSING",
   PROPOSAL_ILLEGAL_TRANSITION = "DATA_PROPOSAL_ILLEGAL_TRANSITION",
   TRACE_APPEND_FAILED = "DATA_TRACE_APPEND_FAILED",
+  REPORT_FANOUT_STORED = "DATA_REPORT_FANOUT_STORED",
+  REPORT_FANOUT_DEGRADED = "DATA_REPORT_FANOUT_DEGRADED",
+  REPORT_FANOUT_FAILED = "DATA_REPORT_FANOUT_FAILED",
 }
 
 export interface DataFoundationMetadata {
@@ -629,6 +632,24 @@ export const DATA_FOUNDATION_CATALOG: Record<
     httpStatus: 500,
     defaultMessage: "Trace record was not appended; the failure is recorded with this code instead of being thrown into the caller's path.",
     remediation: "Check the trace store's availability; the caller's operation is unaffected, but the substrate has a gap at this record until appends succeed again.",
+  },
+  [DataFoundationCode.REPORT_FANOUT_STORED]: {
+    code: DataFoundationCode.REPORT_FANOUT_STORED,
+    httpStatus: 200,
+    defaultMessage: "Canonical report fan-out stored: the row was written and every attempted leg's outcome is recorded on the report record.",
+    remediation: "No action required; this is the success outcome recorded for the canonical report fan-out (#2347).",
+  },
+  [DataFoundationCode.REPORT_FANOUT_DEGRADED]: {
+    code: DataFoundationCode.REPORT_FANOUT_DEGRADED,
+    httpStatus: 200,
+    defaultMessage: "Canonical report stored with a degraded fan-out: a leg failed or the R2 body put fell back to inline storage; the per-leg outcome is recorded on the report record.",
+    remediation: "Read the report's recorded fan-out outcome to name the degraded leg; the S4-1 backfill remains the repair path for a failed index leg, and an inline-fallback body is complete inline.",
+  },
+  [DataFoundationCode.REPORT_FANOUT_FAILED]: {
+    code: DataFoundationCode.REPORT_FANOUT_FAILED,
+    httpStatus: 500,
+    defaultMessage: "Canonical report fan-out failed: the row insert did not land, so no report was stored and there is no record to carry an outcome.",
+    remediation: "Inspect the store error logged by the canonical seam; generation-id idempotency makes a retry safe.",
   },
 };
 
