@@ -1,4 +1,13 @@
 /**
+ * ADAPTED for #2345 (step 3a): the handlers' marketplace access
+ * moved behind the marketplace ports (orm.marketplacePorts) and
+ * the raw mas_referrals/mas_ads statements were retired, so the
+ * handler-B behaviour tests assert on the port surface instead
+ * of the SQL exec log (same responses, same audit calls, same
+ * record contents; the #730 bump-before-list contract is pinned
+ * by port call order). The stub repositories double as the
+ * ports — their sync vi.fn's are await-compatible.
+ *
  * Issue #359-03: characterization for the ads / revenue / referrals route
  * extraction.
  *
@@ -27,8 +36,8 @@ const src = (rel: string) => readFileSync(`src/${rel}`, "utf8");
 const makeSql = (execImpl: (query: string, ...params: unknown[]) => unknown[] = () => []) =>
   ({ exec: vi.fn(execImpl) }) as any;
 
-const makeOrm = (overrides: Record<string, any> = {}) => ({
-  categories: {
+const makeOrm = (overrides: Record<string, any> = {}) => {
+  const categories = {
     findMany: vi.fn(() => []),
     findById: vi.fn(() => null),
     update: vi.fn((id: string, patch: any) => ({ id, ...patch })),
@@ -36,17 +45,46 @@ const makeOrm = (overrides: Record<string, any> = {}) => ({
     delete: vi.fn(),
     count: vi.fn(() => 0),
     ...overrides.categories,
-  },
-  externalAds: {
+  };
+  const externalAds = {
     findMany: vi.fn(() => []),
     findById: vi.fn(() => null),
     update: vi.fn((id: string, patch: any) => ({ id, ...patch })),
     create: vi.fn((rec: any) => rec),
     ...overrides.externalAds,
-  },
-  getRevenueSummary: vi.fn(() => ({ total: 0, currency: "USD" })),
-  ...overrides.rest,
-});
+  };
+  const referrals = {
+    findMany: vi.fn(async () => []),
+    findById: vi.fn(async () => null),
+    update: vi.fn(async (id: string, patch: any) => ({ id, ...patch })),
+    create: vi.fn(async (rec: any) => rec),
+    delete: vi.fn(async () => true),
+    count: vi.fn(async () => 0),
+    incrementCounter: vi.fn(async () => null),
+    ...overrides.referrals,
+  };
+  const ads = {
+    findMany: vi.fn(async () => []),
+    findById: vi.fn(async () => null),
+    update: vi.fn(async (id: string, patch: any) => ({ id, ...patch })),
+    create: vi.fn(async (rec: any) => rec),
+    delete: vi.fn(async () => true),
+    count: vi.fn(async () => 0),
+    incrementCounter: vi.fn(async () => null),
+    incrementAllImpressions: vi.fn(async () => undefined),
+    ...overrides.ads,
+  };
+  return {
+    categories,
+    externalAds,
+    referrals,
+    ads,
+    transactions: { findMany: vi.fn(() => []) },
+    getRevenueSummary: vi.fn(() => ({ total: 0, currency: "USD" })),
+    marketplacePorts: vi.fn(async () => ({ categories, externalAds, ads, referrals })),
+    ...overrides.rest,
+  };
+};
 
 const baseCtx = (
   overrides: Partial<AdsRevenueReferralsRouteContext> = {}
@@ -214,9 +252,24 @@ describe("handleAdsRevenueReferralsRoutes behavior", () => {
   });
 
   it("GET /revenue returns the ORM revenue summary", async () => {
-    const orm = makeOrm({ rest: { getRevenueSummary: vi.fn(() => ({ total: 42, currency: "USD" })) } });
+    // #2345 adaptation: the summary is computed from the ports
+    // by the shared core (the stub's canned getRevenueSummary
+    // value is no longer the source); the route still passes
+    // the one computed summary through — here the all-zero
+    // summary of the empty stub ports.
+    const orm = makeOrm();
     const { res } = await callA("GET", "/revenue", undefined, baseCtx({ getOrm: () => orm as any }));
-    expect((await res!.json()) as any).toEqual({ total: 42, currency: "USD" });
+    expect((await res!.json()) as any).toEqual({
+      grossRevenue: 0,
+      adNetworkRevenue: 0,
+      marketplaceRevenue: 0,
+      paymentPlatformFees: 0,
+      referralPayouts: 0,
+      netRevenue: 0,
+      totalImpressions: 0,
+      totalAdClicks: 0,
+      averageRPM: 18.5,
+    });
   });
 
   it("POST /external-ads validates title/targetUrl, then creates and audits", async () => {
@@ -273,43 +326,46 @@ describe("handleReferralsAdsRoutes behavior", () => {
   });
 
   it("GET /referrals lists mapped rows", async () => {
-    const sql = makeSql((query) =>
-      query.includes("mas_referrals")
-        ? [{ id: "ref_1", session_id: "s1", title: "T", url: "https://u", category: "C", reward_text: "R", clicks: 3, signups: 1, created_at: "2026-01-01" }]
-        : []
-    );
-    const { res } = await callB("GET", "/referrals", undefined, baseCtx({ ensureTables: () => sql }));
+    const orm = makeOrm({
+      referrals: {
+        findMany: vi.fn(async () => [
+          { id: "ref_1", userLogin: "s1", title: "T", url: "https://u", category: "C", rewardText: "R", clicks: 3, signups: 1, createdAt: "2026-01-01" },
+        ]),
+      },
+    });
+    const { res } = await callB("GET", "/referrals", undefined, baseCtx({ getOrm: () => orm as any }));
     const body = (await res!.json()) as any;
     expect(body.count).toBe(1);
     expect(body.referrals[0]).toMatchObject({ id: "ref_1", userLogin: "s1", clicks: 3, rewardText: "R" });
+    expect(orm.referrals.findMany).toHaveBeenCalledWith({ orderBy: "created_at DESC", limit: 100 });
   });
 
   it("POST /referrals validates, inserts with the session id, and audits", async () => {
-    const sql = makeSql();
+    const orm = makeOrm();
     const audit = vi.fn();
-    const bad = await callB("POST", "/referrals", { title: "x" }, baseCtx({ ensureTables: () => sql, audit }));
+    const bad = await callB("POST", "/referrals", { title: "x" }, baseCtx({ getOrm: () => orm as any, audit }));
     expect(bad.res!.status).toBe(400);
     const ok = await callB(
       "POST",
       "/referrals",
       { title: "T", url: "https://u" },
-      baseCtx({ ensureTables: () => sql, audit })
+      baseCtx({ getOrm: () => orm as any, audit })
     );
     const body = (await ok.res!.json()) as any;
     expect(body.success).toBe(true);
     expect(body.referral.id).toMatch(/^ref_/);
     expect(body.referral.userLogin).toBe("sess-1");
-    const insertCall = (sql.exec as any).mock.calls.find((c: any[]) => String(c[0]).startsWith("INSERT INTO mas_referrals"));
-    expect(insertCall[1]).toMatch(/^ref_/);
-    expect(insertCall[2]).toBe("sess-1");
+    const created = (orm.referrals.create as any).mock.calls[0][0];
+    expect(created.id).toMatch(/^ref_/);
+    expect(created.userLogin).toBe("sess-1");
     expect(audit).toHaveBeenCalledWith("referral.created", "orchestrator", expect.objectContaining({ title: "T" }));
   });
 
   it("DELETE /referrals deletes by id and audits", async () => {
-    const sql = makeSql();
+    const orm = makeOrm();
     const audit = vi.fn();
     const url = new URL("https://agent.internal/referrals?id=ref_9");
-    const ctx = baseCtx({ ensureTables: () => sql, audit });
+    const ctx = baseCtx({ getOrm: () => orm as any, audit });
     const res = await handleReferralsAdsRoutes(
       new Request(url, { method: "DELETE" }),
       url,
@@ -318,81 +374,88 @@ describe("handleReferralsAdsRoutes behavior", () => {
       ctx
     );
     expect((await res!.json()) as any).toEqual({ success: true });
-    expect((sql.exec as any).mock.calls.some((c: any[]) => String(c[0]).startsWith("DELETE FROM mas_referrals") && c[1] === "ref_9")).toBe(true);
+    expect(orm.referrals.delete).toHaveBeenCalledWith("ref_9");
     expect(audit).toHaveBeenCalledWith("referral.deleted", "orchestrator", { id: "ref_9" });
   });
 
   it("POST /referrals/click increments and returns success", async () => {
-    const sql = makeSql();
-    const { res } = await callB("POST", "/referrals/click", { id: "ref_1" }, baseCtx({ ensureTables: () => sql }));
+    const orm = makeOrm();
+    const { res } = await callB("POST", "/referrals/click", { id: "ref_1" }, baseCtx({ getOrm: () => orm as any }));
     expect((await res!.json()) as any).toEqual({ success: true });
-    expect((sql.exec as any).mock.calls.some((c: any[]) => String(c[0]).includes("mas_referrals SET clicks"))).toBe(true);
+    expect(orm.referrals.incrementCounter).toHaveBeenCalledWith("ref_1", "clicks", 1);
   });
 
   it("GET /ads bumps impressions, then lists mapped rows", async () => {
-    const sql = makeSql((query) => {
-      // Since 362bcac the handler first probes the table (ensureAdsSeeded);
-      // a non-empty count skips seeding, so the flow under test is
-      // COUNT -> UPDATE impressions -> SELECT listing (#730).
-      if (query.startsWith("SELECT COUNT")) return [{ count: 1 }];
-      if (query.startsWith("UPDATE mas_ads")) return [];
-      return query.includes("mas_ads")
-        ? [{ id: "ad_1", title: "T", tagline: "tg", sponsor: "S", badge: "PROMOTED", url: "https://u", cta_text: "Go", accent_color: "#fff", impressions: 11, clicks: 2, created_at: "2026-01-01" }]
-        : [];
+    // #2345: the flow runs through the ads port — count (the
+    // seeding probe; non-empty skips seeding) -> impression bump
+    // -> listing.
+    const orm = makeOrm({
+      ads: {
+        count: vi.fn(async () => 1),
+        findMany: vi.fn(async () => [
+          { id: "ad_1", title: "T", tagline: "tg", sponsor: "S", badge: "PROMOTED", url: "https://u", ctaText: "Go", accentColor: "#fff", impressions: 11, clicks: 2, createdAt: "2026-01-01" },
+        ]),
+      },
     });
-    const { res } = await callB("GET", "/ads", undefined, baseCtx({ ensureTables: () => sql }));
+    const { res } = await callB("GET", "/ads", undefined, baseCtx({ getOrm: () => orm as any }));
     const body = (await res!.json()) as any;
     expect(body.count).toBe(1);
     expect(body.ads[0]).toMatchObject({ id: "ad_1", ctaText: "Go", impressions: 11 });
-    // Contract (#730): the impressions UPDATE runs, and it runs BEFORE the
-    // listing SELECT so listed rows reflect post-bump counts. The position
+    // Contract (#730): the impressions bump runs, and it runs BEFORE the
+    // listing read so listed rows reflect post-bump counts. The position
     // of the seeding probe is not pinned — it is read-only.
-    const queries = (sql.exec as any).mock.calls.map((c: any[]) => String(c[0]));
-    const updateIdx = queries.indexOf("UPDATE mas_ads SET impressions = impressions + 1");
-    const selectIdx = queries.findIndex((q: string) => q.startsWith("SELECT id, title, tagline"));
-    expect(updateIdx).toBeGreaterThanOrEqual(0);
-    expect(selectIdx).toBeGreaterThan(updateIdx);
+    const bumpOrder = (orm.ads.incrementAllImpressions as any).mock.invocationCallOrder[0];
+    const listOrder = (orm.ads.findMany as any).mock.invocationCallOrder[0];
+    expect(bumpOrder).toBeGreaterThan(0);
+    expect(listOrder).toBeGreaterThan(bumpOrder);
   });
 
   it("GET /ads seeds the default sponsor offers when the table is empty (362bcac)", async () => {
-    const sql = makeSql((query) => {
-      if (query.startsWith("SELECT COUNT")) return [{ count: 0 }];
-      if (query.startsWith("SELECT id, title")) {
-        return [{ id: "ad_workers_ai", title: "Cloudflare Workers AI", tagline: "tg", sponsor: "Cloudflare", badge: "FLAGSHIP PARTNER", url: "https://u", cta_text: "Go", accent_color: "#f38020", impressions: 1, clicks: 0, created_at: "2026-01-01" }];
-      }
-      return [];
+    const orm = makeOrm({
+      ads: {
+        count: vi.fn(async () => 0),
+        findMany: vi.fn(async () => [
+          { id: "ad_workers_ai", title: "Cloudflare Workers AI", tagline: "tg", sponsor: "Cloudflare", badge: "FLAGSHIP PARTNER", url: "https://u", ctaText: "Go", accentColor: "#f38020", impressions: 1, clicks: 0, createdAt: "2026-01-01" },
+        ]),
+      },
     });
-    const { res } = await callB("GET", "/ads", undefined, baseCtx({ ensureTables: () => sql }));
+    const { res } = await callB("GET", "/ads", undefined, baseCtx({ getOrm: () => orm as any }));
     const body = (await res!.json()) as any;
     expect(body.count).toBe(1);
     expect(body.ads[0].id).toBe("ad_workers_ai");
-    const queries = (sql.exec as any).mock.calls.map((c: any[]) => String(c[0]));
-    // The 4 default offers are inserted on read, and impressions still
+    // The 4 default offers are created on read, and impressions still
     // bump on the same fetch.
-    expect(queries.filter((q: string) => q.startsWith("INSERT OR IGNORE INTO mas_ads")).length).toBe(4);
-    expect(queries).toContain("UPDATE mas_ads SET impressions = impressions + 1");
+    expect((orm.ads.create as any).mock.calls.length).toBe(4);
+    expect((orm.ads.create as any).mock.calls.map((c: any[]) => c[0].id)).toEqual([
+      "ad_workers_ai",
+      "ad_ai_search",
+      "ad_durable_objects",
+      "ad_openaimp",
+    ]);
+    expect(orm.ads.incrementAllImpressions).toHaveBeenCalledWith(1);
   });
 
   it("POST /ads validates, inserts, and audits", async () => {
-    const sql = makeSql();
+    const orm = makeOrm();
     const audit = vi.fn();
-    const bad = await callB("POST", "/ads", { title: "x" }, baseCtx({ ensureTables: () => sql, audit }));
+    const bad = await callB("POST", "/ads", { title: "x" }, baseCtx({ getOrm: () => orm as any, audit }));
     expect(bad.res!.status).toBe(400);
-    const ok = await callB("POST", "/ads", { title: "T", url: "https://u" }, baseCtx({ ensureTables: () => sql, audit }));
+    const ok = await callB("POST", "/ads", { title: "T", url: "https://u" }, baseCtx({ getOrm: () => orm as any, audit }));
     const body = (await ok.res!.json()) as any;
     expect(body.success).toBe(true);
     expect(body.ad.id).toMatch(/^ad_/);
-    const insertCall = (sql.exec as any).mock.calls.find((c: any[]) => String(c[0]).startsWith("INSERT INTO mas_ads"));
-    expect(insertCall).toBeTruthy();
+    const created = (orm.ads.create as any).mock.calls[0][0];
+    expect(created.id).toMatch(/^ad_/);
+    expect(created.title).toBe("T");
     expect(audit).toHaveBeenCalledWith("ad.submitted", "orchestrator", expect.objectContaining({ title: "T" }));
   });
 
   it("POST /ads/click increments, audits, and returns success", async () => {
-    const sql = makeSql();
+    const orm = makeOrm();
     const audit = vi.fn();
-    const { res } = await callB("POST", "/ads/click", { id: "ad_1" }, baseCtx({ ensureTables: () => sql, audit }));
+    const { res } = await callB("POST", "/ads/click", { id: "ad_1" }, baseCtx({ getOrm: () => orm as any, audit }));
     expect((await res!.json()) as any).toEqual({ success: true });
-    expect((sql.exec as any).mock.calls.some((c: any[]) => String(c[0]).includes("mas_ads SET clicks") && c[1] === "ad_1")).toBe(true);
+    expect(orm.ads.incrementCounter).toHaveBeenCalledWith("ad_1", "clicks", 1);
     expect(audit).toHaveBeenCalledWith("ad.clicked", "orchestrator", { id: "ad_1" });
   });
 });
