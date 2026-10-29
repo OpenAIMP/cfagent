@@ -129,6 +129,19 @@ describe("Issue #1326 — RunDetailView", () => {
     expect(container.querySelector('a[href*="report.pdf"]')).toBeNull();
   });
 
+  it("a failed XLSX shows its coded error via Notice (#2247)", async () => {
+    const run: RunDetailRun = {
+      ...baseRun,
+      xlsxStatus: "failed",
+      xlsxError: "[REPORT_002] The XLSX report could not be generated. — blob store down",
+    };
+    await render(<RunDetailView run={run} confirmations={[]} confirmationsLoading={false} />);
+    const text = container.textContent || "";
+    expect(text).toContain("REPORT_002");
+    expect(text).toContain("XLSX unavailable");
+    expect(container.querySelector(".ui-notice")).not.toBeNull();
+  });
+
   it("a generated PDF renders its download link", async () => {
     await render(<RunDetailView run={baseRun} confirmations={[]} confirmationsLoading={false} />);
     const link = container.querySelector('a[href*="report.pdf"]');
