@@ -14,6 +14,7 @@ import { Button } from "../components/ui/Button";
 import { Notice } from "../components/ui/Notice";
 import { TextInput } from "../components/ui/TextInput";
 import { useToast } from "../components/ui/Toast";
+import { Modal } from "../components/ui/Modal";
 interface AgentChatTabContentProps {
   user: User;
   ads: AdItem[];
@@ -46,6 +47,7 @@ export function AgentChatTabContent({
   showSponsorSpotlight = false,
 }: AgentChatTabContentProps) {
   const [input, setInput] = useState("");
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const toast = useToast();
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -137,13 +139,35 @@ export function AgentChatTabContent({
   };
 
   const handleClearWithConfirm = () => {
-    if (window.confirm("Are you sure you want to clear this conversation history?")) {
-      onResetSession(true);
-    }
+    setClearConfirmOpen(true);
   };
 
   return (
     <div className="chat-view">
+      <Modal
+        open={clearConfirmOpen}
+        onClose={() => setClearConfirmOpen(false)}
+        title="Clear conversation history?"
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="danger"
+              onClick={() => {
+                setClearConfirmOpen(false);
+                onResetSession(true);
+              }}
+            >
+              Clear history
+            </Button>{" "}
+            <Button type="button" variant="secondary" onClick={() => setClearConfirmOpen(false)}>
+              Cancel
+            </Button>
+          </>
+        }
+      >
+        <p>Clear this conversation history? This cannot be undone.</p>
+      </Modal>
       {/* Top Sponsor Spotlight Bar (Configurable via Settings) */}
       {showSponsorSpotlight && ads.length > 0 && (
         <div
@@ -455,7 +479,7 @@ export function AgentChatTabContent({
               variant="danger"
               tone="subtle"
               disabled={isResetting}
-              onClick={() => onResetSession(true)}
+              onClick={() => handleClearWithConfirm()}
               title="Reset conversation state and clear history"
             >
               {isResetting ? "Resetting…" : "Reset & Clear History"}

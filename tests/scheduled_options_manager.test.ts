@@ -689,11 +689,15 @@ describe("ScheduledOptionsManager — strategy discovery schedules (#126 PR-G)",
 
   it("cancels a discovery schedule through the shared cancel route", async () => {
     const calls = installFetch(withDiscovery());
-    vi.stubGlobal("confirm", () => true);
     await renderManager();
     await waitForText("Strategy Discovery");
 
     await click(buttonByText(cardByTitle("Strategy Discovery"), "Cancel"));
+
+    // #2283 stream 1: Cancel now opens the confirm Modal (portaled to
+    // document.body) instead of a native confirm().
+    const modal = document.querySelector(".modal-backdrop") as HTMLElement;
+    await click(buttonByText(modal, "Cancel task"));
 
     const cancelCalls = callsTo(calls, "/api/schedules/cancel", "POST");
     expect(cancelCalls).toHaveLength(1);

@@ -16,7 +16,7 @@ import {
   type CatalogOperation,
   type PresetGoalResult,
 } from "./scheduleApi";
-import { TextInput, Select, Button } from "./components/ui";
+import { TextInput, Select, Button, Modal } from "./components/ui";
 
 export interface ScheduledGoalsPanelProps {
   embedded?: boolean;
@@ -41,6 +41,7 @@ export function ScheduledGoalsPanel({ embedded = false }: ScheduledGoalsPanelPro
   const [formError, setFormError] = useState("");
   const [busy, setBusy] = useState("");
   const [presetResults, setPresetResults] = useState<PresetGoalResult[] | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<ScheduledGoal | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -119,6 +120,34 @@ export function ScheduledGoalsPanel({ embedded = false }: ScheduledGoalsPanelPro
 
   return (
     <div className={embedded ? "" : "scheduled-goals-panel"}>
+      <Modal
+        open={removeTarget !== null}
+        onClose={() => setRemoveTarget(null)}
+        title="Remove scheduled goal?"
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="danger"
+              disabled={!!busy}
+              onClick={() => {
+                const target = removeTarget;
+                setRemoveTarget(null);
+                if (target) void withBusy(`remove-${target.id}`, () => removeGoal(target.id).then(() => {}));
+              }}
+            >
+              Remove
+            </Button>{" "}
+            <Button type="button" variant="secondary" onClick={() => setRemoveTarget(null)}>
+              Cancel
+            </Button>
+          </>
+        }
+      >
+        <p>
+          Remove scheduled goal &quot;{removeTarget?.name}&quot;? This cannot be undone.
+        </p>
+      </Modal>
       <h3 style={{ margin: "0 0 12px" }}>Scheduled goals</h3>
       {error && <div style={{ color: "var(--color-danger)", marginBottom: 12 }}>{error}</div>}
       {loading && <div>Loading…</div>}
@@ -164,9 +193,7 @@ export function ScheduledGoalsPanel({ embedded = false }: ScheduledGoalsPanelPro
             <Button
               disabled={!!busy}
               onClick={() => {
-                if (window.confirm(`Remove scheduled goal "${g.name}"?`)) {
-                  void withBusy(`remove-${g.id}`, () => removeGoal(g.id).then(() => {}));
-                }
+                setRemoveTarget(g);
               }}
             >
               Remove

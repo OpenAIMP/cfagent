@@ -23,7 +23,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { Button, EmptyState, Notice, Select, Spinner, Table, Tabs, TabPanel, TextInput } from "./components/ui";
+import { Button, EmptyState, Modal, Notice, Select, Spinner, Table, Tabs, TabPanel, TextInput } from "./components/ui";
 import {
   deactivateSelf,
   decideAccessRequest,
@@ -161,6 +161,8 @@ export function IaaaAdminPanel() {
     }
   }, [grantTarget, grantRole, grantScope, loadMemberships]);
 
+  const [revokeTarget, setRevokeTarget] = useState<{ id: string; label: string } | null>(null);
+
   const revoke = useCallback(
     async (membershipId: string) => {
       setActingId(membershipId);
@@ -251,6 +253,33 @@ export function IaaaAdminPanel() {
 
   return (
     <div className="iaaa-admin-panel">
+      <Modal
+        open={revokeTarget !== null}
+        onClose={() => setRevokeTarget(null)}
+        title="Revoke membership?"
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="danger"
+              onClick={() => {
+                const target = revokeTarget;
+                setRevokeTarget(null);
+                if (target) void revoke(target.id);
+              }}
+            >
+              Revoke
+            </Button>{" "}
+            <Button type="button" variant="secondary" onClick={() => setRevokeTarget(null)}>
+              Cancel
+            </Button>
+          </>
+        }
+      >
+        <p>
+          Revoke membership for {revokeTarget?.label}? The member loses access immediately.
+        </p>
+      </Modal>
       <Tabs
         tabs={[...IAAA_ADMIN_TABS]}
         value={tab}
@@ -430,7 +459,12 @@ export function IaaaAdminPanel() {
                       <Button
                         type="button"
                         disabled={actingId === m.membershipId}
-                        onClick={() => void revoke(m.membershipId)}
+                        onClick={() =>
+                          setRevokeTarget({
+                            id: m.membershipId,
+                            label: `${m.internalUserId} (${m.tenantId})`,
+                          })
+                        }
                       >
                         Revoke
                       </Button>{" "}
