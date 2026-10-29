@@ -150,6 +150,28 @@ export class PaymentGatewayService {
   }
 
   /**
+   * Issue #2193 (slice 1, #2146) — retrieve a Stripe Checkout
+   * Session by id, via the Stripe strategy (the only Stripe API
+   * surface). Used by the native gate's confirm-by-retrieve rule:
+   * a session is evidence only when the gate judges it complete,
+   * paid, amount-matched, and reference-matched. Throws on
+   * missing configuration or transport failure (fail closed, and
+   * retryable in a durable step); never consults a redirect.
+   */
+  async retrieveCheckoutSession(sessionId: string): Promise<{
+    id: string;
+    status: string;
+    payment_status: string;
+    amount_total: number;
+    client_reference_id: string;
+    payment_intent?: string;
+    url?: string;
+  }> {
+    const stripeStrategy = PaymentStrategyFactory.getStrategy("stripe") as StripePaymentStrategy;
+    return stripeStrategy.retrieveCheckoutSession(this.env, sessionId);
+  }
+
+  /**
    * Captures an authorized payment order across Stripe or PayPal
    */
   async capturePayment(params: {

@@ -69,10 +69,27 @@ const post = <T>(path: string, body: unknown): Promise<T> =>
 
 export type ScreenerFamily = "stock" | "goal" | "options" | "strategy";
 
+/**
+ * Issue #2196 (slice 3, #2146): the pricing route's server-derived
+ * network marker. The panel renders this marker — it never hardcodes
+ * a network. testnetOnly is gone: acceptMainnet's negation is the
+ * testnet presentation, derived server-side from the Stripe mode +
+ * x402 network. browserPaymentScope is operator-served (default
+ * card-only) so widening it needs no client deploy.
+ */
+export interface NetworkMarker {
+  stripeMode: "sandbox" | "live" | "unconfigured";
+  x402Network: string | null;
+  acceptsMainnet: boolean;
+}
+
+export type BrowserPaymentScope = "card-only" | "card-and-x402";
+
 export interface Pricing {
   monetizationEnabled: boolean;
   prices: Record<ScreenerFamily, number>;
-  testnetOnly: boolean;
+  network: NetworkMarker;
+  browserPaymentScope: BrowserPaymentScope;
   failurePolicy: string;
 }
 
@@ -116,12 +133,29 @@ export interface SubmitResult {
   creditRunId?: string;
 }
 
+/**
+ * Issue #2196 (slice 3, #2146): the native check-payment response.
+ * paymentUrl is the native Stripe checkoutUrl for card (null when
+ * Stripe serves none, e.g. a completed session). x402 never has a
+ * URL: challengeFlow carries the 402 presentation instead (network,
+ * amount, recipient, no link).
+ */
+export interface ChallengeFlow {
+  network: string | null;
+  amountUSD?: number;
+  currency: "USDC";
+  recipient?: string;
+  note: string;
+}
+
 export interface CheckPaymentResult {
   runRequestId: string;
   paid: boolean;
   delivered?: boolean;
   state?: string;
   paymentUrl?: string | null;
+  rail?: "stripe" | "x402";
+  challengeFlow?: ChallengeFlow;
 }
 
 export interface FeaturesResponse {
@@ -158,8 +192,11 @@ export interface SubmitBody {
 }
 
 export const submitRun = (body: SubmitBody): Promise<SubmitResult> => post<SubmitResult>("/submit", body);
-export const checkPayment = (runRequestId: string): Promise<CheckPaymentResult> =>
-  post<CheckPaymentResult>("/submission/check-payment", { runRequestId });
+export const checkPayment = (
+  runRequestId: string,
+  opts?: { sessionId?: string; family?: ScreenerFamily; paymentProof?: string; payer?: string },
+): Promise<CheckPaymentResult> =>
+  post<CheckPaymentResult>("/submission/check-payment", { runRequestId, ...(opts ?? {}) });
 export const buildGoalCommand = (body: {
   jobId: string;
   goalKind: string;
