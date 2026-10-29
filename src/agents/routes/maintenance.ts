@@ -28,7 +28,7 @@
  */
 
 import type { AgentContext } from "agents";
-import { SqlPausedScheduleStore } from "../../services/scheduleManagement";
+import { createOptionsDiscoveryPorts } from "../../data/createOptionsDiscoveryPorts";
 
 export interface MaintenanceRouteContext {
   /** Durable Object agent context (owner: OrchestratorAgent). */
@@ -180,7 +180,7 @@ export async function handleMaintenanceRoutes(
       };
     } else {
       scope = "instance";
-      const store = new SqlPausedScheduleStore(sql as any);
+      const store = createOptionsDiscoveryPorts({ sql: sql as never, scheduleSql: sql as never }).pausedSchedulesSync;
       wouldDelete = store.list().length;
       runDelete = () => {
         sql.exec("DELETE FROM paused_schedules");
