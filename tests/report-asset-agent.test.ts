@@ -206,3 +206,66 @@ describe("#1958 report asset agent migrates to PortThink", () => {
     });
   });
 });
+
+describe("#2349 report asset agent listAssets (mesh G1 batch B door support)", () => {
+  /** Constructor-free instance with a Map-backed storage incl. list(). */
+  async function bareListInstance() {
+    const { ReportAssetAgent } = await import("../src/agents/report-asset-agent");
+    const inst = Object.create(ReportAssetAgent.prototype) as any;
+    const store = new Map<string, unknown>();
+    inst.ctx = {
+      storage: {
+        put: async (k: string, v: unknown) => {
+          store.set(k, v);
+        },
+        get: async (k: string) => store.get(k) ?? null,
+        list: async () => new Map(store),
+      },
+    };
+    inst.env = {};
+    return { inst, store };
+  }
+
+  it("is part of the class RPC surface", async () => {
+    const { ReportAssetAgent } = await import("../src/agents/report-asset-agent");
+    expect(typeof ReportAssetAgent.prototype.listAssets).toBe("function");
+  });
+
+  it("lists stored asset metadata newest first, skipping non-asset records", async () => {
+    const { inst, store } = await bareListInstance();
+    store.set("report:pdf:research:aaa", {
+      fileName: "research-report.pdf",
+      storedAt: "2026-10-28T09:00:00.000Z",
+      base64: "QUJD",
+    });
+    store.set("report:pdf:screener:bbb", {
+      fileName: "screener-report.pdf",
+      storedAt: "2026-10-29T10:00:00.000Z",
+      r2Key: "report/pdf/screener/bbb",
+    });
+    // Non-asset records sharing the instance storage are not assets.
+    store.set("some:other:key", { hello: "world" });
+    store.set("a:string", "not a meta record");
+
+    const assets = await inst.listAssets();
+    expect(assets).toEqual([
+      { key: "report:pdf:screener:bbb", fileName: "screener-report.pdf", storedAt: "2026-10-29T10:00:00.000Z" },
+      { key: "report:pdf:research:aaa", fileName: "research-report.pdf", storedAt: "2026-10-28T09:00:00.000Z" },
+    ]);
+    // Metadata only — no bytes or base64 payloads ride the list.
+    for (const asset of assets) {
+      expect(Object.keys(asset).sort()).toEqual(["fileName", "key", "storedAt"]);
+    }
+  });
+
+  it("respects the limit and sees assets written by generateAsset", async () => {
+    const { inst } = await bareListInstance();
+    const made = await inst.generateAsset({ type: "research", data: {} });
+    expect(made).not.toBeNull();
+    const assets = await inst.listAssets(1);
+    expect(assets).toHaveLength(1);
+    expect(assets[0].key).toBe(made.key);
+    expect(assets[0].fileName).toBe("research-report.pdf");
+    expect(typeof assets[0].storedAt).toBe("string");
+  });
+});

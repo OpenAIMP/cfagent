@@ -193,7 +193,7 @@ const MATRIX: MatrixRow[] = [
         "ctx.storage KV facade plus SQLite ORM over ctx.storage.sql in-instance; config resolved per call from env.",
       ),
       connections: NA(
-        "No client connects and no connection surface exists; reachable via A2A dispatch and (in tests) stub RPC.",
+        "No client connects and no connection surface exists; reachable via A2A dispatch and via stub RPC — since #2349 the orchestrator's chat turn is a production stub caller through the G1 door (proposals + reads, src/agents/orchestrator/meshDoors.ts).",
       ),
       scheduling: NA(
         "None in the agent: its durable timing lives in TradingTradeWorkflow's 24h waitForEvent, not in any schedule of its own.",
@@ -208,7 +208,7 @@ const MATRIX: MatrixRow[] = [
         "The mechanism is wired: portHooks are set lazily via tradingTurnHooks() (:975). But no production caller has ever driven a turn on this class (survey §1/§6.5), so no transcript has ever accumulated — claiming IMPLEMENTED would overclaim. S9, the first-caller slice, owns the proof.",
       ),
       routing: IMPL(
-        "Binding TRADING_AGENT; A2A surface trading — handleA2A at :1236 dispatching to dispatchTradingA2A, pinned by tests/trading_agent.test.ts. No stub caller anywhere in src/ (survey §1, still true on current main).",
+        "Binding TRADING_AGENT; A2A surface trading — handleA2A at :1236 dispatching to dispatchTradingA2A, pinned by tests/trading_agent.test.ts. The orchestrator's G1 chat door (#2349, src/agents/orchestrator/meshDoors.ts) is the first production stub caller: proposals and reads only, addressed per-user via tradingAgentName. The approval door (executeApprovedOrder/startTradeApproval/decideTradeApproval) has no door or turn caller; S9/G4 builds behind it.",
       ),
       websockets: NA("No WebSocket surface of its own: it defines no onConnect/onMessage and no socket client connects to it (fleet pin below: onConnect exists only in TickerAgent)."),
       "sdk-scheduling": NA("No SDK scheduler use: the file contains no this.schedule/this.scheduleEvery call (fleet pin below: such calls exist only in OrchestratorAgent and TickerAgent)."),
@@ -321,7 +321,7 @@ const MATRIX: MatrixRow[] = [
       "sdk-state": SDK_STATE_DIVERGENT,
       sessions: NA("No sessions: an RPC-only asset store with no turn path, so no transcript exists."),
       routing: IMPL(
-        "Binding REPORT_ASSET_AGENT; A2A surface report-asset (registry — the survey-era hyphen concern is resolved on current main); stub callers: ScreenerAgent and the report pipeline helpers.",
+        "Binding REPORT_ASSET_AGENT; A2A surface report-asset (registry — the survey-era hyphen concern is resolved on current main); stub callers: ScreenerAgent, the report pipeline helpers, and the orchestrator's G1 chat door (#2349: list/get via src/agents/orchestrator/meshDoors.ts, per-user assets:<login> addressing).",
       ),
       websockets: NA("No WebSocket surface of its own: it defines no onConnect/onMessage and no socket client connects to it (fleet pin below: onConnect exists only in TickerAgent)."),
       "sdk-scheduling": NA("No SDK scheduler use: the file contains no this.schedule/this.scheduleEvery call (fleet pin below: such calls exist only in OrchestratorAgent and TickerAgent)."),

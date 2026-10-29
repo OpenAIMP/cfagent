@@ -92,6 +92,13 @@ import {
   TriggerScheduledGoalCommand,
   CheckPaymentBudgetCommand,
   GetPaymentsOverviewCommand,
+  ProposeStockTradeCommand,
+  ProposeOptionsTradeCommand,
+  GetTradingAccountsCommand,
+  GetTradingPositionsCommand,
+  GetTradingQuoteCommand,
+  ListReportAssetsCommand,
+  GetReportAssetCommand,
 } from "./meshDoorCommands";
 
 import { searchPlatformKnowledge } from "../services/platformKnowledge";
@@ -1698,6 +1705,19 @@ export class McpToolFactory {
     this.registerTool(new TriggerScheduledGoalCommand());
     this.registerTool(new CheckPaymentBudgetCommand());
     this.registerTool(new GetPaymentsOverviewCommand());
+
+    // Agent Mesh G1 doors (#2349, S6 batch B): the chat turn reaches
+    // TradingAgent (proposals + reads) and ReportAssetAgent
+    // (list/get) through the same typed doors. Same identity
+    // discipline as batch A; no command reaches TradingAgent's
+    // approval door — execution stays behind it until S9/G4.
+    this.registerTool(new ProposeStockTradeCommand());
+    this.registerTool(new ProposeOptionsTradeCommand());
+    this.registerTool(new GetTradingAccountsCommand());
+    this.registerTool(new GetTradingPositionsCommand());
+    this.registerTool(new GetTradingQuoteCommand());
+    this.registerTool(new ListReportAssetsCommand());
+    this.registerTool(new GetReportAssetCommand());
   }
 
   /**

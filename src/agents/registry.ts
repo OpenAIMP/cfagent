@@ -139,6 +139,8 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     bindings: ["TRADING_AGENT"],
     sourceFile: "src/agents/trading-agent.ts",
     role: "E*TRADE trading agent: quotes, previews, and the human approval door; starts TradingTradeWorkflow for approved executions.",
+    notes:
+      "Chat reaches the proposal side through the G1 door (#2349, src/agents/orchestrator/meshDoors.ts), addressed to the acting user's own instance (trading:<login>): trade proposals via the preview-only stock_trading/options_trading services plus the accounts/positions/quote reads. The approval door (executeApprovedOrder/startTradeApproval/decideTradeApproval) has no chat caller by design — S9/G4 wires the workflow run behind it.",
   },
   {
     className: "PaymentsAgent",
@@ -175,6 +177,8 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     bindings: ["REPORT_ASSET_AGENT"],
     sourceFile: "src/agents/report-asset-agent.ts",
     role: "Report asset storage and serving; blobs in R2 (REPORTS_BUCKET) when bound, metadata in DO storage.",
+    notes:
+      "Chat reaches the user's assets through the G1 door (#2349, src/agents/orchestrator/meshDoors.ts), addressed to the acting user's own instance (assets:<login>): list (listAssets metadata) + get, replacing the turn's indirect reach through the report pipeline. Generation stays with the pipeline/A2A callers.",
   },
   {
     className: "BrowserAgent",
@@ -451,10 +455,17 @@ export const MESH_TOOL_FAMILIES: MeshToolFamilyEntry[] = [
       "trigger_scheduled_goal",
       "check_payment_budget",
       "get_payments_overview",
+      "propose_stock_trade",
+      "propose_options_trade",
+      "get_trading_accounts",
+      "get_trading_positions",
+      "get_trading_quote",
+      "list_report_assets",
+      "get_report_asset",
     ],
     commandSources: [{ file: "src/mcp/meshDoorCommands.ts", kind: "readonly-name" }],
     notes:
-      "G1 outbound doors, batch A (#2341): the chat turn reaches ScheduledAgent and PaymentsAgent through the typed doors in src/agents/orchestrator/meshDoors.ts. The commands require the turn's acting identity (the context actingLogin carrier) and fail closed without one, so they serve the chat door; external MCP callers use the A2A doors for these agents. Later G1 batches extend this family.",
+      "G1 outbound doors, batch A (#2341) + batch B (#2349): the chat turn reaches ScheduledAgent, PaymentsAgent, TradingAgent, and ReportAssetAgent through the typed doors in src/agents/orchestrator/meshDoors.ts. The commands require the turn's acting identity (the context actingLogin carrier) and fail closed without one, so they serve the chat door; external MCP callers use the A2A doors for these agents. The TradingAgent door exposes proposals (preview only) and reads — never the approval door; later G1 batches extend this family.",
   },
   {
     id: "mas-tools",
