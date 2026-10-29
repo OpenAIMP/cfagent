@@ -491,7 +491,16 @@ export async function handleScreenerResearchRoutes(
     // Workers Free 5-trigger ceiling). Fires exactly once per weekday at
     // or after 21:00 UTC; the manual route above is never guarded.
     if (path.endsWith("/research/scheduled-tick") && request.method === "POST") {
-      const userLogin = request.headers.get("x-user-login") || "default";
+      // Issue #2327 (Agent Mesh S3): the tick acts under the identity
+      // server.ts asserts on the header — the configured service
+      // identity, whose dispatch is skipped entirely when none is
+      // configured (#1185). A header-less or synthetic-literal tick
+      // is refused with the route family's unauthenticated response
+      // rather than run under a fabricated default login.
+      const userLogin = request.headers.get("x-user-login");
+      if (!userLogin || userLogin.trim().length === 0 || userLogin.trim() === "default") {
+        return unauthenticatedResponse();
+      }
       try {
         // Issue #354 — idempotency guard against double-fire across the
         // 21:00/21:30 ticks. The last-fired date lives in mas_settings

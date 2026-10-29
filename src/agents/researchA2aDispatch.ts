@@ -8,15 +8,16 @@
  *
  * Instance + identity discipline (SURVEY §1.5): ResearchAgent
  * instances are research:<login>, and identity comes from the
- * request — but both run methods default an absent login to the
- * literal string "default", a legacy value that is NOT the #1185
- * service identity. This dispatch therefore threads
- * getServiceUserLogin(env) into every run request explicitly
- * (overriding any body-supplied login) and fails closed
- * (not_configured) when no service identity is configured;
- * resolution (src/a2a/resolution.ts) lands on the matching
- * research:<login> instance and likewise fails closed. The
- * "default" fallback is never inherited through this door.
+ * request. The run methods refuse an absent login outright (issue
+ * #2327 — they previously defaulted one to the literal string
+ * "default", a legacy value that is NOT the #1185 service
+ * identity). This dispatch threads getServiceUserLogin(env) into
+ * every run request explicitly (overriding any body-supplied
+ * login) and fails closed (not_configured) when no service
+ * identity is configured; resolution (src/a2a/resolution.ts)
+ * lands on the matching research:<login> instance and likewise
+ * fails closed. No default identity is inherited through this
+ * door — or any other — anymore.
  * Byte-returning getters (PDF/XLSX/CSV) stay out of the set, as
  * with screener — they do not fit the { text, data } JSON outcome.
  *

@@ -212,7 +212,10 @@ describe("screener + research behavior (extraction #378)", () => {
     const runResearchAndPublish = vi.fn();
     const writeSetting = vi.fn();
     const ctx = baseCtx({ runResearchAndPublish: runResearchAndPublish as any, writeSetting });
-    const res = await handleScreenerResearchRoutes(req("POST", "/research/scheduled-tick"), urlOf("/research/scheduled-tick"), "/research/scheduled-tick", "s1", ctx);
+    // Issue #2327: the tick request carries the identity header
+    // server.ts asserts (the service identity); a header-less tick
+    // is refused 401 before the guard is ever consulted.
+    const res = await handleScreenerResearchRoutes(req("POST", "/research/scheduled-tick", undefined, { "x-user-login": "cronbot" }), urlOf("/research/scheduled-tick"), "/research/scheduled-tick", "s1", ctx);
     const body = await (res as Response).json();
     expect(body.skipped).toBe(true);
     expect(runResearchAndPublish).not.toHaveBeenCalled();

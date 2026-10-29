@@ -1,4 +1,5 @@
 import { PortThink } from "../actors/thinkAdapter";
+import { AGENTIC_SPEND_AGENT_ID } from "../payments/ledger";
 import {
   dispatchScheduledA2A,
   scheduledA2AOutcome,
@@ -314,12 +315,18 @@ export class ScheduledAgent extends PortThink {
           budgetCheck(req: {
             operation: string;
             amountCents: number;
-            agentId?: string;
+            agentId: string;
           }): Promise<{ allowed: boolean; reason?: string }>;
         };
         const budgetOk = await payments.budgetCheck({
           operation: goal.operation,
           amountCents: goal.budgetCents,
+          // Issue #2327: name the budget bucket explicitly. The spend
+          // these goals gate is executed and recorded under the
+          // orchestrator identity (src/payments/ledger.ts attribution
+          // contract), so the check names that bucket deliberately —
+          // it no longer inherits it from a callee-side default.
+          agentId: AGENTIC_SPEND_AGENT_ID,
         });
 
         if (!budgetOk.allowed) {
@@ -1113,12 +1120,15 @@ export class ScheduledAgent extends PortThink {
       budgetCheck(req: {
         operation: string;
         amountCents: number;
-        agentId?: string;
+        agentId: string;
       }): Promise<{ allowed: boolean; reason?: string }>;
     };
     const budgetOk = await payments.budgetCheck({
       operation: CHAIN_EXECUTE_OPERATION,
       amountCents: record.budgetCents,
+      // Issue #2327: same explicit bucket as the onCron goal check —
+      // see the attribution note there.
+      agentId: AGENTIC_SPEND_AGENT_ID,
     });
     if (!budgetOk.allowed) {
       return {
