@@ -43,6 +43,7 @@ export interface RunDetailRun {
   pdfError?: string;
   xlsxKey?: string;
   xlsxStatus?: string;
+  xlsxError?: string;
 }
 
 export interface RunDetailConfirmation {
@@ -139,6 +140,10 @@ export function RunDetailView({ run, confirmations, confirmationsLoading }: RunD
               <a href={xlsxUrl} target="_blank" rel="noreferrer">
                 📊 Download XLSX report
               </a>
+            ) : run.xlsxError ? (
+              <Notice tone="danger" density="compact">
+                📊 XLSX unavailable — {run.xlsxError}
+              </Notice>
             ) : run.xlsxStatus === "failed" ? (
               <span>📊 XLSX generation failed.</span>
             ) : (
