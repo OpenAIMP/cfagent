@@ -37,6 +37,7 @@ export interface StripeCheckoutClient {
     amount_total: number;
     client_reference_id: string;
     payment_intent?: string;
+    url?: string;
   }>;
 }
 
@@ -76,6 +77,7 @@ export class StripeCheckoutAdapter implements CheckoutPort {
       amountTotalCents: s.amount_total,
       clientReferenceId: s.client_reference_id,
       paymentIntentId: s.payment_intent || undefined,
+      checkoutUrl: s.url || undefined,
     };
   }
 

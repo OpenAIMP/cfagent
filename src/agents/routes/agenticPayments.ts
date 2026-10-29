@@ -89,7 +89,14 @@ import {
 } from "../../services/paymentWorkflowSubmission";
 import { createFeatureFlagPort } from "../../features/createFeatureFlagPort";
 import { cfpayA2AOperation, getCfpayConfig } from "../../services/cfpayA2A";
-import { PAYMENT_DISCLOSURE } from "../../services/cfpayMonetization";
+import { NATIVE_PAYMENT_DISCLOSURE } from "../../services/nativeMonetization";
+import {
+  deriveNetworkMarker,
+  resolveBrowserPaymentScope,
+  type StripeDisplayMode,
+} from "../../services/checkoutDisplay";
+import { createCheckoutPorts, type CheckoutEnv } from "../../services/createCheckoutPorts";
+import { StripePaymentStrategy } from "../../patterns/paymentStrategies";
 import { PROPOSED_SEED_PRICES } from "../../data/priceCataloguePorts";
 import {
   createPriceCatalogueAdapter,
@@ -1076,14 +1083,27 @@ export async function handleAgenticPaymentsRoutes(
   //
   // GET /payments/agentic/commercial/pricing — server-truth family prices
   // (PROPOSED until owner approval), the monetization flag state, the
-  // testnet-only marker, and the gate's failure policy, all from one
-  // source so UI copy can never drift from the gate. Prices come
-  // from the operator catalogue (#2185) when the store is bound;
-  // the display fallback to the proposed seeds below is DISPLAY
-  // ONLY — the gate never reads it and never charges from it, so
-  // a store outage shows proposed prices instead of failing the
-  // panel, but can never mint a charge. This GET never ensures
-  // the schema (no writes on a read path).
+  // server-derived network marker, the externalized browser payment
+  // scope, and the native gate's failure policy, all from one source
+  // so UI copy can never drift from the gate. Prices come from the
+  // operator catalogue (#2185) when the store is bound; the display
+  // fallback to the proposed seeds below is DISPLAY ONLY — the gate
+  // never reads it and never charges from it, so a store outage
+  // shows proposed prices instead of failing the panel, but can
+  // never mint a charge. This GET never ensures the schema (no
+  // writes on a read path).
+  //
+  // Issue #2196 (slice 3, #2146): the network marker is DERIVED, never
+  // hardcoded — Stripe test-vs-live mode from
+  // StripePaymentStrategy.resolveApiKey plus the x402 network, but
+  // only when the x402 checkout port actually exists (an unconfigured
+  // rail contributes no network). The old hardcoded testnetOnly: true
+  // is gone; the panel renders network.acceptsMainnet instead. The
+  // browser scope defaults to card-only and is served here so it can
+  // be widened by operator configuration (COMMERCIAL_BROWSER_PAYMENT_SCOPE)
+  // without a client deploy. The failure policy is the native gate's
+  // disclosure: a one-time replacement-run credit, never a cash
+  // refund promise — refund copy lands with the refunds slice (#2147).
   if (path.endsWith("/payments/agentic/commercial/pricing") && request.method === "GET") {
     try {
       const login = commercialLogin();
@@ -1101,11 +1121,28 @@ export async function handleAgenticPaymentsRoutes(
       } catch {
         // Display fallback only (see above): keep the proposed seeds.
       }
+      const envRecord = ctx.env as unknown as Record<string, unknown>;
+      const ports = createCheckoutPorts(ctx.env as unknown as CheckoutEnv);
+      let stripeMode: StripeDisplayMode = "unconfigured";
+      try {
+        const { apiKey, mode } = new StripePaymentStrategy().resolveApiKey(ctx.env);
+        // The MCP-remote path is not a screener card configuration, so
+        // a mode without a direct REST key still counts as unconfigured.
+        stripeMode = apiKey ? mode : "unconfigured";
+      } catch {
+        stripeMode = "unconfigured";
+      }
+      const x402Network = ports?.x402
+        ? typeof envRecord.X402_NETWORK === "string" && envRecord.X402_NETWORK.trim().length > 0
+          ? (envRecord.X402_NETWORK as string)
+          : "base-sepolia"
+        : null;
       return Response.json({
         monetizationEnabled,
         prices,
-        testnetOnly: true,
-        failurePolicy: PAYMENT_DISCLOSURE,
+        network: deriveNetworkMarker({ stripeMode, x402Network }),
+        browserPaymentScope: resolveBrowserPaymentScope(envRecord.COMMERCIAL_BROWSER_PAYMENT_SCOPE),
+        failurePolicy: NATIVE_PAYMENT_DISCLOSURE,
       });
     } catch {
       return Response.json({ error: "Failed to read pricing." }, { status: 500 });
@@ -1148,63 +1185,214 @@ export async function handleAgenticPaymentsRoutes(
 
   // POST /payments/agentic/commercial/submission/check-payment — the
   // production mirror of the assurance check-payment, for REAL runs.
-  // Re-reads cfpay checkout.status for requestId == runRequestId (the
-  // gate's checkout id) and delivers payment_verified ONLY when
-  // fulfilled. The wake-up event is never sent for an unfulfilled
+  //
+  // Issue #2196 (slice 3, #2146): reworked from cfpay to native. The
+  // cfpay checkout.status re-read is GONE from this route (the
+  // assurance live check-payment is slice 4's scope, untouched here).
+  // Native verification re-reads provider state through the checkout
+  // ports and delivers payment_verified ONLY when the native rule
+  // holds. The wake-up event is never sent for an unverified
   // checkout, and a Stripe return page is never proof (the gate
-  // re-checks status itself). Ownership: runRequestId is unguessable,
-  // the same standard as submission-status. A payment URL is returned
-  // only when cfpay provides one; the UI must not invent one.
+  // re-checks provider state itself on confirm). Ownership:
+  // runRequestId is unguessable, the same standard as
+  // submission-status. A payment URL is returned ONLY when it is the
+  // native checkoutUrl from a retrieved Stripe session; the UI must
+  // not invent one, and x402 has no URL at all — it gets a
+  // challenge-flow presentation object instead (network, amount,
+  // recipient, no link).
+  //
+  // Session resolution (card): the caller may supply sessionId, or
+  // the route reads it from the payment.checkout_created audit
+  // payload for this run (the flow audits checkoutId there; audit
+  // writes are best-effort, so a missing row means
+  // checkout_not_found, never a guessed session). Amount matching
+  // uses the STORED catalogue price for the run's family (from the
+  // audit row, or the caller's family field); the display seed
+  // prices are NEVER used for verification, and a missing catalogue
+  // or price fails closed with 503. Card is paid ONLY when the
+  // session retrieve reports complete + paid + amount_total ==
+  // priceUSD x 100 + client_reference_id == runRequestId — the same
+  // four-condition rule the gate applies. Crypto is paid ONLY when
+  // the facilitator verifies the supplied proof for this run's amount
+  // and recipient (and the claimed payer matches, when supplied).
   if (path.endsWith("/payments/agentic/commercial/submission/check-payment") && request.method === "POST") {
     try {
       const login = commercialLogin();
       if (!login) return Response.json({ error: "Unauthorized: verified login required." }, { status: 401 });
-      const body = (await request.json().catch(() => ({}))) as { runRequestId?: unknown };
+      const body = (await request.json().catch(() => ({}))) as {
+        runRequestId?: unknown; sessionId?: unknown; family?: unknown; paymentProof?: unknown; payer?: unknown;
+      };
       const runRequestId = typeof body.runRequestId === "string" ? body.runRequestId : "";
       if (!runRequestId) return Response.json({ error: "runRequestId is required." }, { status: 400 });
-      const config = getCfpayConfig(ctx.env);
-      if (!config) return Response.json({ error: "Payment verification is temporarily unavailable." }, { status: 503 });
-      const res = await cfpayA2AOperation(config, "/a2a/payments", "checkout.status", { requestId: runRequestId });
-      if (!res.ok) return Response.json({ error: "Payment verification is temporarily unavailable." }, { status: 503 });
-      const checkout = (res.data ?? {}) as {
-        status?: unknown; state?: unknown; paid?: unknown;
-        claimTxHash?: unknown; paymentIntentId?: unknown;
-        checkoutUrl?: unknown; url?: unknown; paymentUrl?: unknown; checkout_url?: unknown;
-      };
-      const state = String(checkout.status ?? checkout.state ?? "").toLowerCase();
-      const paid = state === "fulfilled" || state === "paid" || checkout.paid === true;
-      const paymentUrl = [checkout.checkoutUrl, checkout.url, checkout.paymentUrl, checkout.checkout_url].find(
-        (v) => typeof v === "string" && v.length > 0
-      ) as string | undefined;
-      if (!paid) {
-        return Response.json({ runRequestId, paid: false, state: state || "unknown", paymentUrl: paymentUrl ?? null });
+      const asString = (v: unknown): string | undefined =>
+        typeof v === "string" && v.length > 0 ? v : undefined;
+      if (
+        (body.sessionId !== undefined && typeof body.sessionId !== "string") ||
+        (body.family !== undefined && typeof body.family !== "string") ||
+        (body.paymentProof !== undefined && typeof body.paymentProof !== "string") ||
+        (body.payer !== undefined && typeof body.payer !== "string")
+      ) {
+        return Response.json({ error: "sessionId, family, paymentProof, and payer must be strings when supplied." }, { status: 400 });
       }
-      const binding = ctx.env.PAYMENT_WORKFLOW as unknown as PaymentWorkflowBinding | undefined;
-      if (!binding || typeof binding.get !== "function") {
-        return Response.json({ runRequestId, paid: true, delivered: false, state });
-      }
-      try {
-        const host: PaymentWorkflowHost = {
-          runWorkflow: async (_bindingName: string, params: unknown) => {
-            const started = await startPaymentWorkflowViaBinding(binding, params as never);
-            return { id: started.workflowId };
-          },
-          sendWorkflowEvent: async (_bindingName: string, workflowId: string, event: { type: string; payload: unknown }) => {
-            const instance = await binding.get(workflowId);
-            if (!instance || typeof instance.sendEvent !== "function") {
-              throw new Error("Workflow binding cannot deliver events.");
+      const envRecord = ctx.env as unknown as Record<string, unknown>;
+      const ports = createCheckoutPorts(ctx.env as unknown as CheckoutEnv);
+      if (!ports) return Response.json({ error: "Payment verification is temporarily unavailable." }, { status: 503 });
+      // Resolve the card session + family from the checkout_created
+      // audit trail when the caller did not supply a session id.
+      let sessionId = asString(body.sessionId);
+      let family = asString(body.family);
+      if (!sessionId && ports.card) {
+        try {
+          const orm = ctx.getOrm() as unknown as {
+            events?: { findMany?: (args: unknown) => Array<{ payload?: unknown }> };
+          };
+          const rows = orm.events?.findMany?.({ where: { type: "payment.checkout_created" } }) ?? [];
+          for (let i = rows.length - 1; i >= 0; i -= 1) {
+            const raw = (rows[i] as { payload?: unknown }).payload;
+            let payload: Record<string, unknown> = {};
+            if (raw && typeof raw === "object") payload = raw as Record<string, unknown>;
+            else {
+              try {
+                payload = JSON.parse(String(raw ?? "{}")) as Record<string, unknown>;
+              } catch {
+                payload = {};
+              }
             }
-            await instance.sendEvent(event);
-          },
-        };
-        await deliverPaymentVerifiedViaHost(host, runRequestId, {
-          claimTxHash: typeof checkout.claimTxHash === "string" ? checkout.claimTxHash : undefined,
-          paymentIntentId: typeof checkout.paymentIntentId === "string" ? checkout.paymentIntentId : undefined,
-        });
-        return Response.json({ runRequestId, paid: true, delivered: true, state });
-      } catch {
-        return Response.json({ runRequestId, paid: true, delivered: false, state });
+            if (payload.runRequestId === runRequestId) {
+              sessionId = asString(payload.checkoutId) ?? sessionId;
+              family = family ?? asString(payload.family);
+              break;
+            }
+          }
+        } catch {
+          // Audit read failure degrades to "no session known", never a crash.
+        }
       }
+      // Stored catalogue price for verification (fail-closed: never
+      // the display seeds). Needed only on the verify paths; the
+      // informational paths below may omit the amount instead.
+      const resolvePrice = async (): Promise<number | null> => {
+        if (!family) return null;
+        const catalogue = createPriceCatalogueAdapter(ctx.env as { AGENT_DB?: unknown });
+        if (!catalogue) return null;
+        try {
+          const price = await catalogue.getPrice(family);
+          return price !== null && Number.isFinite(price) && price > 0 ? price : null;
+        } catch {
+          return null;
+        }
+      };
+      const deliver = async (
+        proof: { sessionId?: string; paymentIntentId?: string; paymentProof?: string; payer?: string },
+        state: string,
+        rail: "stripe" | "x402",
+      ) => {
+        const binding = ctx.env.PAYMENT_WORKFLOW as unknown as PaymentWorkflowBinding | undefined;
+        if (!binding || typeof binding.get !== "function") {
+          return Response.json({ runRequestId, paid: true, delivered: false, state, paymentUrl: null, rail });
+        }
+        try {
+          const host: PaymentWorkflowHost = {
+            runWorkflow: async (_bindingName: string, params: unknown) => {
+              const started = await startPaymentWorkflowViaBinding(binding, params as never);
+              return { id: started.workflowId };
+            },
+            sendWorkflowEvent: async (_bindingName: string, workflowId: string, event: { type: string; payload: unknown }) => {
+              const instance = await binding.get(workflowId);
+              if (!instance || typeof instance.sendEvent !== "function") {
+                throw new Error("Workflow binding cannot deliver events.");
+              }
+              await instance.sendEvent(event);
+            },
+          };
+          await deliverPaymentVerifiedViaHost(host, runRequestId, proof);
+          return Response.json({ runRequestId, paid: true, delivered: true, state, paymentUrl: null, rail });
+        } catch {
+          return Response.json({ runRequestId, paid: true, delivered: false, state, paymentUrl: null, rail });
+        }
+      };
+      // Card path: a session id is known (caller-supplied or audited).
+      if (sessionId) {
+        if (!ports.card) return Response.json({ error: "Payment verification is temporarily unavailable." }, { status: 503 });
+        const price = await resolvePrice();
+        if (price === null) return Response.json({ error: "Payment verification is temporarily unavailable." }, { status: 503 });
+        let evidence;
+        try {
+          evidence = await ports.card.retrieveCardSession({ sessionId });
+        } catch {
+          return Response.json({ error: "Payment verification is temporarily unavailable." }, { status: 503 });
+        }
+        const paid =
+          evidence.status === "complete" &&
+          evidence.paymentStatus === "paid" &&
+          evidence.amountTotalCents === Math.round(price * 100) &&
+          evidence.clientReferenceId === runRequestId;
+        if (!paid) {
+          // Unpaid: present the native checkoutUrl when Stripe still
+          // serves one (open session); never invent a link.
+          return Response.json({
+            runRequestId, paid: false, state: evidence.status || "unknown",
+            paymentUrl: evidence.checkoutUrl ?? null, rail: "stripe",
+          });
+        }
+        return deliver(
+          { sessionId: evidence.sessionId, paymentIntentId: evidence.paymentIntentId },
+          evidence.status,
+          "stripe",
+        );
+      }
+      // Crypto path: the caller supplies a payment proof to verify.
+      const paymentProof = asString(body.paymentProof);
+      if (paymentProof) {
+        if (!ports.x402) return Response.json({ error: "Payment verification is temporarily unavailable." }, { status: 503 });
+        const price = await resolvePrice();
+        if (price === null) return Response.json({ error: "Payment verification is temporarily unavailable." }, { status: 503 });
+        let verdict;
+        try {
+          verdict = await ports.x402.verifyCryptoPayment({ paymentProof, expectedAmountUSD: price });
+        } catch {
+          return Response.json({ error: "Payment verification is temporarily unavailable." }, { status: 503 });
+        }
+        const payer = asString(body.payer);
+        const paid = verdict.verified && (!payer || verdict.payer === payer);
+        if (!paid) {
+          return Response.json({
+            runRequestId, paid: false, state: "unverified", paymentUrl: null, rail: "x402",
+          });
+        }
+        return deliver(
+          { paymentProof, payer: verdict.payer ?? payer },
+          "verified",
+          "x402",
+        );
+      }
+      // Informational path: nothing verifiable was supplied. For the
+      // x402-only configuration, present the 402 challenge flow (no
+      // URL exists for crypto); for card, report that no checkout
+      // session is known yet. Nothing is delivered from this path.
+      if (ports.x402 && !ports.card) {
+        const price = await resolvePrice();
+        const network = deriveNetworkMarker({
+          stripeMode: "unconfigured",
+          x402Network:
+            typeof envRecord.X402_NETWORK === "string" && envRecord.X402_NETWORK.trim().length > 0
+              ? (envRecord.X402_NETWORK as string)
+              : "base-sepolia",
+        });
+        return Response.json({
+          runRequestId, paid: false, state: "awaiting_proof", paymentUrl: null, rail: "x402",
+          challengeFlow: {
+            network: network.x402Network,
+            ...(price !== null ? { amountUSD: price } : {}),
+            currency: "USDC",
+            recipient: typeof envRecord.X402_RECIPIENT_ADDRESS === "string" ? envRecord.X402_RECIPIENT_ADDRESS : undefined,
+            note: "Crypto payments have no link: complete the 402 payment with your wallet or agent, then verify with your payment proof.",
+          },
+        });
+      }
+      return Response.json({
+        runRequestId, paid: false, state: "checkout_not_found", paymentUrl: null, rail: "stripe",
+      });
     } catch {
       return Response.json({ error: "Failed to check payment." }, { status: 500 });
     }
