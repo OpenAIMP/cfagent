@@ -35,6 +35,8 @@
  * would produce a different candidate set than the ranked order
  * refers to), carried by FixedCandidateBuilder.
  */
+import { DoSqliteComparisonLedgerStore } from "../data/doSqliteComparisonLedgerAdapter";
+import type { ComparisonOutcomeRow } from "../data/comparisonLedgerPorts";
 import { requireGatewayPorts } from "../gateway/createGatewayPorts";
 import { resolveAiModelName } from "../agents/model";
 import {
@@ -183,34 +185,17 @@ export class FixedCandidateBuilder implements CandidateBuilder {
   }
 }
 
-export interface ComparisonOutcomeRow {
-  id: string;
-  run_id: string;
-  arm: string;
-  candidate_id: string;
-  structure: string;
-  symbol: string;
-  status: string;
-  provenance: string;
-  created_at: string;
-}
+export type { ComparisonOutcomeRow } from "../data/comparisonLedgerPorts";
 
-/** Ledger read-back (C4 wrote rows with no read API). Sorted in code — no ORDER BY dependence. */
+/** Ledger read-back (C4 wrote rows with no read API). Sorted in code — no ORDER BY dependence.
+ *  Since #1976 step 4c (#2356) the read lives in the data layer
+ *  (src/data/doSqliteComparisonLedgerAdapter.ts); this is the
+ *  runner's seam onto that port. */
 export function listComparisonOutcomes(
   sql: { exec: (query: string, ...args: unknown[]) => Iterable<unknown> },
   runId?: string,
 ): ComparisonOutcomeRow[] {
-  const rows = (
-    runId
-      ? Array.from(sql.exec(`SELECT id, run_id, arm, candidate_id, structure, symbol, status, provenance, created_at FROM mas_comparison_arm_outcomes WHERE run_id = ?`, runId))
-      : Array.from(sql.exec(`SELECT id, run_id, arm, candidate_id, structure, symbol, status, provenance, created_at FROM mas_comparison_arm_outcomes`))
-  ) as ComparisonOutcomeRow[];
-  return rows.sort(
-    (a, b) =>
-      String(a.created_at).localeCompare(String(b.created_at)) ||
-      String(a.arm).localeCompare(String(b.arm)) ||
-      String(a.candidate_id).localeCompare(String(b.candidate_id)),
-  );
+  return new DoSqliteComparisonLedgerStore(sql).listOutcomes(runId);
 }
 
 export interface ProductionComparisonDeps {
