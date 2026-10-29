@@ -191,7 +191,9 @@ describe("POST /screening/goal-screen async flag (#1996)", () => {
     const rows = orm.events.findMany({ where: { type: "goal_screen.workflow_submitted" } });
     expect(rows).toHaveLength(1);
     expect(rows[0].sessionId).toBe("alice");
-    expect(rows[0].payload.principalKind).toBe("session");
+    // Issue #2178 S1: payloads are stored as JSON text (the #1968 read
+    // path parses); read the stored form, not the mock's old object shape.
+    expect((JSON.parse(rows[0].payload as unknown as string) as { principalKind: string }).principalKind).toBe("session");
   });
 
   it("a manual start failure leaves a session-principal run_failed audit row (#1999)", async () => {
@@ -209,8 +211,10 @@ describe("POST /screening/goal-screen async flag (#1996)", () => {
     const rows = orm.events.findMany({ where: { type: "goal_screen.run_failed" } });
     expect(rows).toHaveLength(1);
     expect(rows[0].sessionId).toBe("alice");
-    expect(rows[0].payload.principalKind).toBe("session");
-    expect(rows[0].payload.code).toBe("start_failed");
+    // Issue #2178 S1: stored payload is JSON text — see the test above.
+    const failedPayload = JSON.parse(rows[0].payload as unknown as string) as { principalKind: string; code: string };
+    expect(failedPayload.principalKind).toBe("session");
+    expect(failedPayload.code).toBe("start_failed");
   });
 
   it("without the async flag the direct path runs and no workflow start is attempted", async () => {

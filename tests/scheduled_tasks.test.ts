@@ -261,7 +261,8 @@ describe("Cloudflare Agents: Task Scheduling & Durable Timers", () => {
       // Verify audit event in mas_events if opportunities detected
       const events = orm.events.findMany({ where: { type: "screener.opportunities_detected" } });
       const runEvent = orm.events.findMany({ where: { type: "screener.run_completed" } })[0];
-      expect(runEvent.payload).toMatchObject({
+      // #2178 S1: stored payload is JSON text — parse the stored form.
+      expect(JSON.parse(runEvent.payload as unknown as string)).toMatchObject({
         screenType: "stock",
         runType: "scheduled",
         runId: expect.stringMatching(/^screener:/),

@@ -161,7 +161,8 @@ describe("runStorageRetention", () => {
     const [ev] = events;
     expect(ev.agent).toBe("orchestrator");
     expect(ev.sessionId).toBe("system");
-    const payload = ev.payload as Record<string, unknown>;
+    // #2178 S1: stored payload is JSON text — parse the stored form.
+    const payload = JSON.parse(ev.payload as unknown as string) as Record<string, unknown>;
     expect(payload.pruned).toBe(1);
     expect(payload.windowDays).toBe(90);
     expect(payload.cutoffIso).toBe(res.cutoffIso);
@@ -177,6 +178,6 @@ describe("runStorageRetention", () => {
     expect(res.pruned).toBe(0);
     const events = orm.events.findMany({ where: { type: "STORAGE_RETENTION" } });
     expect(events).toHaveLength(1);
-    expect((events[0].payload as Record<string, unknown>).pruned).toBe(0);
+    expect((JSON.parse(events[0].payload as unknown as string) as Record<string, unknown>).pruned).toBe(0);
   });
 });

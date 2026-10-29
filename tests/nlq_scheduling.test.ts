@@ -169,7 +169,8 @@ describe("NLQ scheduling executes against the real scheduling port (issue #109)"
     // The audit event is stamped with the REAL schedule id.
     const created = orm.events.findMany({ where: { type: "schedule.created" } });
     expect(created).toHaveLength(1);
-    expect((created[0].payload as any)?.scheduleId).toBe("fake-port-id-1");
+    // #2178 S1: stored payload is JSON text — parse the stored form.
+    expect((JSON.parse(created[0].payload as unknown as string) as any)?.scheduleId).toBe("fake-port-id-1");
   });
 
   it("creates an interval market screen through scheduleEvery() with the schema-built payload", async () => {
@@ -364,7 +365,7 @@ describe("NLQ scheduling executes against the real scheduling port (issue #109)"
     expect(port.items).toHaveLength(0);
     const cancelEvents = orm.events.findMany({ where: { type: "schedule.cancelled" } });
     expect(cancelEvents).toHaveLength(1);
-    expect((cancelEvents[0].payload as any)?.scheduleId).toBe(realId);
+    expect((JSON.parse(cancelEvents[0].payload as unknown as string) as any)?.scheduleId).toBe(realId);
 
     const missingPlan = await planNLQ(env, "cancel schedule does-not-exist");
     const missingResult = await executeNLQQueryAsync(orm, sessionId, missingPlan, env, sessionId, undefined, {
