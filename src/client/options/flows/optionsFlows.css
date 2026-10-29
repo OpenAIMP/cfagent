@@ -711,12 +711,6 @@
 }
 
 /* Sliders */
-.flow-slider-label-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
 .flow-slider-val-tag {
   font-size: 0.82rem;
   font-weight: 700;
