@@ -17,10 +17,12 @@ distinct things, and every answer below says which one it means:
 1. The Worker itself: `wrangler.jsonc` `"name": "ai-search-agent"`.
 2. The search service: `ETradeAISearchService` in `src/services/aiSearch.ts:226`.
 3. The MAS tool: `searchKnowledge` in `src/agents/mas.ts:26` (defined, see §3).
-4. The DO binding with no class: `wrangler.jsonc` binds `SEARCH_AGENT` to
-   class `SearchAgent`, but no `SearchAgent` class exists anywhere in the
-   repo at this SHA (whole-tree grep for `class SearchAgent` returns
-   nothing). The binding cannot be verified from code to do anything.
+4. The DO binding (CORRECTED 2026-10-28): `wrangler.jsonc:48` binds
+   `SEARCH_AGENT` to class_name `SearchAgent`, and `src/server.ts:216`
+   exports `OrchestratorAgent as SearchAgent`. The original text's
+   literal `class SearchAgent` grep missed the alias. The binding is a
+   live surface — `src/server.ts` dispatches through `env.SEARCH_AGENT`
+   (e.g. :341, :1452, :1622, :1756).
 
 The user-visible "search agent" behavior is (2) + (3) + the MCP tools in §3,
 all reaching one Cloudflare AI Search instance over HTTPS (see §8 for the
@@ -195,8 +197,9 @@ DEFINED BUT NOT WIRED TODAY:
    flag-gated corpus provenance on this path are therefore unreachable
    until something instantiates it. This is distinct from (3): chat's
    `searchKnowledge` name currently resolves to MCP `knowledge_search`.
-9. `SearchAgent` DO (`SEARCH_AGENT` binding) — no class in repo (§0).
-   Cannot be verified as a surface at all.
+9. `SearchAgent` DO (`SEARCH_AGENT` binding) — resolves via the
+   `src/server.ts:216` export alias to `OrchestratorAgent` (corrected
+   §0); a live surface, dispatched through `env.SEARCH_AGENT`.
 10. `VectorMemory`'s AI-Search leg — the constructor takes an
     `aiSearch` client (`src/memory/vector-memory.ts:40`), but NO method
     in the file reads it, and all five construction sites pass
@@ -567,8 +570,10 @@ agent NEVER touches the Vectorize binding.
    a runtime trace would be needed to fully exclude dynamic
    invocation. Treat as unwired unless a trace shows otherwise.
 7. Does the `SEARCH_AGENT` DO binding resolve to a framework class
-   at runtime? — Needs: runtime/binding inspection; no class exists
-   in the repo.
+   at runtime? — Yes, via the `src/server.ts:216` export alias: the
+   binding resolves to `OrchestratorAgent`, dispatched live through
+   `env.SEARCH_AGENT` (corrected §0; the original "no class exists"
+   was a literal-grep miss).
 8. Which reports (beyond research-published ones) are in the
    Vectorize `vector-memory` index in production (e.g. from older
    indexers or manual upserts)? — Needs: live Vectorize query
