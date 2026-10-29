@@ -31,6 +31,10 @@ import {
   verifyAuditChain,
   type AuditChainRow,
 } from "../security/auditChain";
+import {
+  fingerprintSql,
+  type ResourceUsagePort,
+} from "../telemetry/resourceUsagePorts";
 
 export interface SqlStorage {
   exec: (query: string, ...args: unknown[]) => Iterable<unknown>;
@@ -303,7 +307,18 @@ export class DatabaseORM {
     return this.sql;
   }
 
-  constructor(private sql: SqlStorage) {
+  /**
+   * Issue #2280 (slice 5): optional measurement sink for raw reads. When
+   * absent (no bindings, tests, other constructions), execQuery behaves
+   * exactly as before — zero overhead, zero behavior change.
+   */
+  private readonly resourceSink?: ResourceUsagePort;
+
+  constructor(
+    private sql: SqlStorage,
+    opts?: { resourceSink?: ResourceUsagePort },
+  ) {
+    this.resourceSink = opts?.resourceSink;
     this.categories = new Repository<CategoryRecord>(sql, "mas_categories", "id", {
       id: "id",
       name: "name",
@@ -1048,7 +1063,38 @@ export class DatabaseORM {
    * All values still travel as bound args — never interpolate into the SQL.
    */
   execQuery(query: string, ...args: unknown[]): any[] {
-    return Array.from(this.sql.exec(query, ...args));
+    const startedAt = Date.now();
+    const cursor = this.sql.exec(query, ...args) as Iterable<unknown> & {
+      rowsRead?: number;
+      rowsWritten?: number;
+    };
+    // The cursor must be fully consumed before rowsRead/rowsWritten are
+    // final (sessionStore.ts execCounted pattern) — Array.from does that.
+    const rows = Array.from(cursor);
+    const sink = this.resourceSink;
+    if (sink) {
+      try {
+        const res = sink.record({
+          ns: "orm",
+          op: "query",
+          rowsRead: cursor.rowsRead ?? 0,
+          rowsWritten: cursor.rowsWritten ?? 0,
+          // Template only, never bound values (port contract).
+          statement: fingerprintSql(query),
+          timestampMs: Date.now(),
+          durationMs: Date.now() - startedAt,
+        });
+        if (res instanceof Promise) res.catch(() => {});
+      } catch (error) {
+        // Recording never throws (port contract); a failing sink must not
+        // fail the read. Warn, mirroring durableKv's sink-failure handling.
+        console.warn(
+          "[orm] resource sink failed:",
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    }
+    return rows;
   }
 
   /**

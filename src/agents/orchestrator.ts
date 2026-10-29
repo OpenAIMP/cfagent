@@ -31,6 +31,7 @@ import { assessPortfolioConcentration } from "../services/portfolioConcentration
 import { sizeCandidateAgainstPortfolio, type SizingCandidate } from "../services/positionSizing";
 import { generateHedgeProposals } from "../services/hedgeProposals";
 import { ensureFrameworkQueueIndexes } from "../services/frameworkQueueIndexes";
+import { createResourceUsagePort } from "../telemetry/createResourceUsagePorts";
 import { ensureAsyncJobGateIndexes } from "../services/asyncJobGate";
 import { ensureMasRetentionIndexes } from "../services/masRetentionIndexes";
 import { sharedCorrelationService } from "../services/correlationService";
@@ -1308,7 +1309,12 @@ export class OrchestratorAgent extends PortThink {
 
   private getOrm(): DatabaseORM {
     this.ensureTables();
-    const orm = new DatabaseORM(this.ctx.storage.sql);
+    // Issue #2280 (slice 5): app-SQL measurement. A null port (no
+    // OBSERVABILITY/AGENT_DB bindings) means no sink, and execQuery
+    // behaves exactly as before.
+    const orm = new DatabaseORM(this.ctx.storage.sql, {
+      resourceSink: createResourceUsagePort(this.env) ?? undefined,
+    });
     orm.initializeSchema(this.sessionKey());
     return orm;
   }
