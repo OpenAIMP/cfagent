@@ -43,10 +43,35 @@
  * No command reaches TradingAgent's approval door: there is no
  * execute/approve/decide command in this family, by design — order
  * execution stays behind the existing approval door until S9/G4.
+ *
+ * Batch C (#2351) adds five commands over the BrowserAgent and
+ * SlackAgent doors, each also declaring exactly one scope:
+ *   - `browser_snap_transaction`      (mcp:write) — a transaction
+ *     snap receipt delivered to the configured Slack destination
+ *     through BrowserAgent.
+ *   - `browser_capture_page`          (mcp:write) — a page
+ *     snapshot delivered the same way.
+ *   - `browser_scrape_tables`         (mcp:read)  — DOM tables
+ *     scraped through BrowserAgent; a placeholder-labelled
+ *     screenshot stays labelled in the result.
+ *   - `slack_send_pre_trade_approval` (mcp:trade) — post the
+ *     strict HITL pre-trade approval ticket through SlackAgent.
+ *     The command only requests the human decision; it approves
+ *     and executes nothing.
+ *   - `slack_dispatch_transaction_snap` (mcp:write) — a
+ *     transaction snap dispatched through SlackAgent.
+ * No command in this batch accepts a webhookUrl: delivery targets
+ * are env configuration only (the #2223 A2A delivery-target
+ * discipline, adopted as the mesh-door policy in meshDoors.ts).
+ * Slack ingress is not served here — S13/G10 owns it.
  */
 
 import { z } from "zod";
 import type { IMcpToolCommand, McpToolContext } from "../patterns/interfaces";
+import type {
+  BrowserAgentSnapResult,
+  BrowserInspectResult,
+} from "../types";
 import {
   listScheduledGoalsViaDoor,
   triggerScheduledGoalViaDoor,
@@ -59,6 +84,11 @@ import {
   getTradingQuoteViaDoor,
   listReportAssetsViaDoor,
   getReportAssetViaDoor,
+  sendTransactionSnapViaDoor,
+  capturePageSnapshotViaDoor,
+  scrapePageTablesViaDoor,
+  sendPreTradeApprovalTicketViaDoor,
+  dispatchTransactionSnapViaDoor,
   type ScheduledGoalsDoorResult,
   type ScheduledGoalTriggerDoorResult,
   type PaymentBudgetDoorResult,
@@ -68,6 +98,9 @@ import {
   type OptionsTradeProposalInput,
   type ReportAssetsDoorResult,
   type ReportAssetDoorResult,
+  type TransactionSnapDoorInput,
+  type PreTradeApprovalDraftDoorInput,
+  type PreTradeApprovalTicketDoorResult,
 } from "../agents/orchestrator/meshDoors";
 
 /* ------------------------------------------------------------------ */
@@ -521,6 +554,324 @@ export class GetReportAssetCommand implements IMcpToolCommand<{ key: string }> {
       key: input.key,
       fileName: result.fileName,
       byteLength: result.byteLength,
+    });
+    return result;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Batch C shared input shapes (#2351)                                 */
+/* ------------------------------------------------------------------ */
+
+const transactionSnapLegSchema = z.object({
+  action: z.string().min(1).describe("Leg action"),
+  symbol: z.string().min(1).describe("Leg symbol"),
+  strike: z.number().optional().describe("Leg strike (optional)"),
+  expiry: z.string().optional().describe("Leg expiry (optional)"),
+  type: z.string().optional().describe("Leg type (optional)"),
+});
+
+const transactionSnapSchema = z.object({
+  transactionId: z.string().min(1).describe("The transaction id"),
+  symbol: z.string().min(1).describe("The transaction symbol"),
+  action: z.string().min(1).describe("The transaction action, e.g. BUY"),
+  quantity: z.number().describe("The transaction quantity"),
+  status: z.string().min(1).describe("The transaction status, e.g. executed"),
+  price: z.number().optional().describe("Execution price (optional)"),
+  orderType: z.string().optional().describe("Order type (optional)"),
+  totalValue: z.number().optional().describe("Total value (optional)"),
+  environment: z.string().optional().describe("Environment label (optional)"),
+  accountKey: z.string().optional().describe("Account key (optional)"),
+  commission: z.number().optional().describe("Commission (optional)"),
+  timestamp: z.string().optional().describe("Transaction timestamp (optional)"),
+  humanApproved: z
+    .boolean()
+    .optional()
+    .describe("Set ONLY when a flow recorded an actual human approval for this transaction (optional)"),
+  notes: z.string().optional().describe("Notes (optional)"),
+  legs: z.array(transactionSnapLegSchema).optional().describe("Option legs (optional)"),
+});
+
+const transactionSnapJsonProperties = {
+  transactionId: { type: "string", description: "The transaction id." },
+  symbol: { type: "string", description: "The transaction symbol." },
+  action: { type: "string", description: "The transaction action, e.g. BUY." },
+  quantity: { type: "number", description: "The transaction quantity." },
+  status: { type: "string", description: "The transaction status, e.g. executed." },
+  price: { type: "number", description: "Execution price (optional)." },
+  orderType: { type: "string", description: "Order type (optional)." },
+  totalValue: { type: "number", description: "Total value (optional)." },
+  environment: { type: "string", description: "Environment label (optional)." },
+  accountKey: { type: "string", description: "Account key (optional)." },
+  commission: { type: "number", description: "Commission (optional)." },
+  timestamp: { type: "string", description: "Transaction timestamp (optional)." },
+  humanApproved: {
+    type: "boolean",
+    description: "Set ONLY when a flow recorded an actual human approval for this transaction (optional).",
+  },
+  notes: { type: "string", description: "Notes (optional)." },
+  legs: { type: "array", description: "Option legs: action, symbol, and optionally strike, expiry, type (optional)." },
+};
+
+/* ------------------------------------------------------------------ */
+/* browser_snap_transaction (#2351)                                    */
+/* ------------------------------------------------------------------ */
+
+export interface BrowserSnapTransactionInput {
+  transaction: TransactionSnapDoorInput;
+  channel?: string;
+  caption?: string;
+}
+
+export class BrowserSnapTransactionCommand implements IMcpToolCommand<BrowserSnapTransactionInput> {
+  readonly name = "browser_snap_transaction";
+  readonly description =
+    "Generate a transaction snap receipt through BrowserAgent and deliver it to the configured Slack destination. Delivery goes only where environment configuration sends it — this command accepts no webhook URL. The agent's result is returned verbatim: a not-delivered outcome is reported as such, never as a success. Requires the chat turn's acting identity.";
+  readonly jsonSchema = {
+    type: "object" as const,
+    properties: {
+      transaction: {
+        type: "object",
+        description: "The transaction to snap: transactionId, symbol, action, quantity, status, and optional price/orderType/totalValue/environment/accountKey/commission/timestamp/humanApproved/notes/legs.",
+        properties: transactionSnapJsonProperties,
+        required: ["transactionId", "symbol", "action", "quantity", "status"],
+      },
+      channel: { type: "string", description: "Slack channel override within the configured destination (optional)." },
+      caption: { type: "string", description: "Caption for the snap (optional)." },
+    },
+    required: ["transaction"],
+  };
+  readonly zodSchema = z.object({
+    transaction: transactionSnapSchema.describe("The transaction to snap"),
+    channel: z.string().min(1).optional().describe("Slack channel override (optional)"),
+    caption: z.string().optional().describe("Caption (optional)"),
+  });
+
+  async execute(
+    input: BrowserSnapTransactionInput,
+    context: McpToolContext,
+  ): Promise<BrowserAgentSnapResult> {
+    const actingLogin = context.actingLogin?.();
+    const result = await sendTransactionSnapViaDoor(context.env, actingLogin, input);
+    context.audit("browser_snap_transaction", "mcp", {
+      actingLogin: actingLogin ?? null,
+      transactionId: input.transaction.transactionId,
+      symbol: input.transaction.symbol,
+      success: result.success,
+    });
+    return result;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* browser_capture_page (#2351)                                        */
+/* ------------------------------------------------------------------ */
+
+export interface BrowserCapturePageInput {
+  url: string;
+  caption?: string;
+  channel?: string;
+}
+
+export class BrowserCapturePageCommand implements IMcpToolCommand<BrowserCapturePageInput> {
+  readonly name = "browser_capture_page";
+  readonly description =
+    "Capture a rendered page snapshot through BrowserAgent and deliver it to the configured Slack destination. Delivery goes only where environment configuration sends it — this command accepts no webhook URL. The agent's result is returned verbatim, including a not-delivered outcome. Requires the chat turn's acting identity.";
+  readonly jsonSchema = {
+    type: "object" as const,
+    properties: {
+      url: { type: "string", description: "The page URL to capture." },
+      caption: { type: "string", description: "Caption for the snapshot (optional)." },
+      channel: { type: "string", description: "Slack channel override within the configured destination (optional)." },
+    },
+    required: ["url"],
+  };
+  readonly zodSchema = z.object({
+    url: z.string().min(1).describe("The page URL to capture"),
+    caption: z.string().optional().describe("Caption (optional)"),
+    channel: z.string().min(1).optional().describe("Slack channel override (optional)"),
+  });
+
+  async execute(
+    input: BrowserCapturePageInput,
+    context: McpToolContext,
+  ): Promise<BrowserAgentSnapResult> {
+    const actingLogin = context.actingLogin?.();
+    const result = await capturePageSnapshotViaDoor(context.env, actingLogin, input);
+    context.audit("browser_capture_page", "mcp", {
+      actingLogin: actingLogin ?? null,
+      url: input.url,
+      success: result.success,
+    });
+    return result;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* browser_scrape_tables (#2351)                                       */
+/* ------------------------------------------------------------------ */
+
+export class BrowserScrapeTablesCommand implements IMcpToolCommand<{ url: string }> {
+  readonly name = "browser_scrape_tables";
+  readonly description =
+    "Scrape structured DOM tables from a rendered page through BrowserAgent. Read-only. The inspect result is returned verbatim, including its provenance labelling: when no real browser capture was available, the screenshot is labelled a placeholder and must not be presented as a capture of the page. Requires the chat turn's acting identity.";
+  readonly jsonSchema = {
+    type: "object" as const,
+    properties: {
+      url: { type: "string", description: "The page URL to scrape." },
+    },
+    required: ["url"],
+  };
+  readonly zodSchema = z.object({
+    url: z.string().min(1).describe("The page URL to scrape"),
+  });
+
+  async execute(
+    input: { url: string },
+    context: McpToolContext,
+  ): Promise<BrowserInspectResult> {
+    const actingLogin = context.actingLogin?.();
+    const result = await scrapePageTablesViaDoor(context.env, actingLogin, input.url);
+    context.audit("browser_scrape_tables", "mcp", {
+      actingLogin: actingLogin ?? null,
+      url: input.url,
+      success: result.success,
+      screenshotKind: result.screenshotKind ?? null,
+      tables: result.tables?.length ?? 0,
+    });
+    return result;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* slack_send_pre_trade_approval (#2351)                               */
+/* ------------------------------------------------------------------ */
+
+const approvalDraftSchema = z.object({
+  orderId: z.string().min(1).describe("The draft order id"),
+  symbol: z.string().min(1).describe("The draft symbol"),
+  action: z.enum(["BUY", "SELL", "BUY_TO_COVER", "SELL_SHORT"]).describe("The draft action"),
+  quantity: z.number().positive().describe("The draft quantity"),
+  orderType: z.enum(["MARKET", "LIMIT", "STOP", "STOP_LIMIT"]).optional().describe("Order type (optional)"),
+  limitPrice: z.number().positive().optional().describe("Limit price (optional)"),
+  estimatedPrice: z
+    .union([z.number(), z.string()])
+    .optional()
+    .describe("Estimated price (optional)"),
+  estimatedTotal: z
+    .union([z.number(), z.string()])
+    .optional()
+    .describe("Estimated total (optional)"),
+  commission: z.union([z.number(), z.string()]).optional().describe("Commission (optional)"),
+  proposerDid: z.string().optional().describe("Proposer DID (optional)"),
+  expiresAt: z.string().optional().describe("Expiry (optional)"),
+  notes: z.string().optional().describe("Notes (optional)"),
+});
+
+export interface SlackSendPreTradeApprovalInput {
+  draft: PreTradeApprovalDraftDoorInput;
+  channel?: string;
+  threadTs?: string;
+}
+
+export class SlackSendPreTradeApprovalCommand implements IMcpToolCommand<SlackSendPreTradeApprovalInput> {
+  readonly name = "slack_send_pre_trade_approval";
+  readonly description =
+    "Post a pre-trade approval ticket — the strict human-in-the-loop gate card — for an existing order draft to the configured Slack destination through SlackAgent. This command only REQUESTS the human decision: it approves nothing and executes nothing, and no trade can proceed without the human authorization the ticket asks for. Delivery goes only where environment configuration sends it — this command accepts no webhook URL. Requires the chat turn's acting identity.";
+  readonly jsonSchema = {
+    type: "object" as const,
+    properties: {
+      draft: {
+        type: "object",
+        description: "The order draft the ticket asks a human to authorize: orderId, symbol, action, quantity, and optional orderType/limitPrice/estimatedPrice/estimatedTotal/commission/proposerDid/expiresAt/notes.",
+        properties: {
+          orderId: { type: "string", description: "The draft order id." },
+          symbol: { type: "string", description: "The draft symbol." },
+          action: { type: "string", description: "BUY, SELL, BUY_TO_COVER, or SELL_SHORT." },
+          quantity: { type: "number", description: "The draft quantity (positive)." },
+          orderType: { type: "string", description: "MARKET, LIMIT, STOP, or STOP_LIMIT (optional)." },
+          limitPrice: { type: "number", description: "Limit price (optional)." },
+          estimatedPrice: { type: "number", description: "Estimated price (optional)." },
+          estimatedTotal: { type: "number", description: "Estimated total (optional)." },
+          commission: { type: "number", description: "Commission (optional)." },
+          proposerDid: { type: "string", description: "Proposer DID (optional)." },
+          expiresAt: { type: "string", description: "Expiry (optional)." },
+          notes: { type: "string", description: "Notes (optional)." },
+        },
+        required: ["orderId", "symbol", "action", "quantity"],
+      },
+      channel: { type: "string", description: "Slack channel override within the configured destination (optional)." },
+      threadTs: { type: "string", description: "Thread timestamp to reply under (optional)." },
+    },
+    required: ["draft"],
+  };
+  readonly zodSchema = z.object({
+    draft: approvalDraftSchema.describe("The order draft"),
+    channel: z.string().min(1).optional().describe("Slack channel override (optional)"),
+    threadTs: z.string().min(1).optional().describe("Thread timestamp (optional)"),
+  });
+
+  async execute(
+    input: SlackSendPreTradeApprovalInput,
+    context: McpToolContext,
+  ): Promise<PreTradeApprovalTicketDoorResult> {
+    const actingLogin = context.actingLogin?.();
+    const result = await sendPreTradeApprovalTicketViaDoor(context.env, actingLogin, input);
+    context.audit("slack_send_pre_trade_approval", "mcp", {
+      actingLogin: actingLogin ?? null,
+      orderId: result.orderId,
+      symbol: input.draft.symbol,
+      success: result.success,
+    });
+    return result;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* slack_dispatch_transaction_snap (#2351)                             */
+/* ------------------------------------------------------------------ */
+
+export interface SlackDispatchTransactionSnapInput {
+  transaction: TransactionSnapDoorInput;
+  channel?: string;
+  caption?: string;
+}
+
+export class SlackDispatchTransactionSnapCommand implements IMcpToolCommand<SlackDispatchTransactionSnapInput> {
+  readonly name = "slack_dispatch_transaction_snap";
+  readonly description =
+    "Dispatch a transaction snap to the configured Slack destination through SlackAgent (which coordinates BrowserAgent for the receipt image). Delivery goes only where environment configuration sends it — this command accepts no webhook URL. The agent's result is returned verbatim, including a not-delivered outcome. Requires the chat turn's acting identity.";
+  readonly jsonSchema = {
+    type: "object" as const,
+    properties: {
+      transaction: {
+        type: "object",
+        description: "The transaction to snap: transactionId, symbol, action, quantity, status, and optional price/orderType/totalValue/environment/accountKey/commission/timestamp/humanApproved/notes/legs.",
+        properties: transactionSnapJsonProperties,
+        required: ["transactionId", "symbol", "action", "quantity", "status"],
+      },
+      channel: { type: "string", description: "Slack channel override within the configured destination (optional)." },
+      caption: { type: "string", description: "Caption for the snap (optional)." },
+    },
+    required: ["transaction"],
+  };
+  readonly zodSchema = z.object({
+    transaction: transactionSnapSchema.describe("The transaction to snap"),
+    channel: z.string().min(1).optional().describe("Slack channel override (optional)"),
+    caption: z.string().optional().describe("Caption (optional)"),
+  });
+
+  async execute(
+    input: SlackDispatchTransactionSnapInput,
+    context: McpToolContext,
+  ): Promise<BrowserAgentSnapResult> {
+    const actingLogin = context.actingLogin?.();
+    const result = await dispatchTransactionSnapViaDoor(context.env, actingLogin, input);
+    context.audit("slack_dispatch_transaction_snap", "mcp", {
+      actingLogin: actingLogin ?? null,
+      transactionId: input.transaction.transactionId,
+      symbol: input.transaction.symbol,
+      success: result.success,
     });
     return result;
   }

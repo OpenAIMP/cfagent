@@ -135,7 +135,7 @@ export interface ToolPermissionPort {
  * fails loudly instead of executing unscoped.
  */
 export const MCP_TOOL_SCOPES: Record<string, McpScope> = {
-  // read (38)
+  // read (39)
   knowledge_search: "mcp:read",
   query_platform_knowledge: "mcp:read",
   get_async_job: "mcp:read",
@@ -181,7 +181,11 @@ export const MCP_TOOL_SCOPES: Record<string, McpScope> = {
   get_trading_quote: "mcp:read",
   list_report_assets: "mcp:read",
   get_report_asset: "mcp:read",
-  // write (7)
+  // #2351 (mesh S7): the BrowserAgent door's scrape — a pure read of
+  // a rendered page through the agent (its snap/capture siblings
+  // deliver to Slack, so they sit in write).
+  browser_scrape_tables: "mcp:read",
+  // write (10)
   manage_categories: "mcp:write",
   manage_referrals: "mcp:write",
   manage_external_ads: "mcp:write",
@@ -191,6 +195,12 @@ export const MCP_TOOL_SCOPES: Record<string, McpScope> = {
   // #2341 (mesh S5): firing a goal changes state (and is budget-gated
   // inside ScheduledAgent/PaymentsAgent); the trigger itself moves no money.
   trigger_scheduled_goal: "mcp:write",
+  // #2351 (mesh S7): the BrowserAgent/SlackAgent doors' deliveries —
+  // each posts a snap to the configured Slack destination (an
+  // outbound side effect; no caller-supplied webhook is accepted).
+  browser_snap_transaction: "mcp:write",
+  browser_capture_page: "mcp:write",
+  slack_dispatch_transaction_snap: "mcp:write",
   // execute (7)
   execute_nlq: "mcp:execute",
   "chain.run": "mcp:execute",
@@ -212,7 +222,7 @@ export const MCP_TOOL_SCOPES: Record<string, McpScope> = {
   // ledger data, so both sit in the payments scope, not read).
   check_payment_budget: "mcp:payments",
   get_payments_overview: "mcp:payments",
-  // trade (7)
+  // trade (8)
   etrade_preview_order: "mcp:trade",
   etrade_execute_order: "mcp:trade",
   alpaca_place_order: "mcp:trade",
@@ -223,6 +233,11 @@ export const MCP_TOOL_SCOPES: Record<string, McpScope> = {
   // placed order), in the trade scope alongside etrade_preview_order.
   propose_stock_trade: "mcp:trade",
   propose_options_trade: "mcp:trade",
+  // #2351 (mesh S7): the SlackAgent door's approval-ticket command —
+  // it posts the strict HITL gate card for a trade draft (part of
+  // the trade flow, alongside the proposal commands); the ticket
+  // approves and executes nothing by itself.
+  slack_send_pre_trade_approval: "mcp:trade",
   // admin (4)
   get_audit_events: "mcp:admin",
   list_database_tables: "mcp:admin",

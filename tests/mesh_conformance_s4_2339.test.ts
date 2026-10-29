@@ -347,7 +347,7 @@ const MATRIX: MatrixRow[] = [
         "portHooks deliberately unset (class header): no chat behavior was ever configured, so no session store is exercised.",
       ),
       routing: IMPL(
-        "Binding BROWSER_AGENT; A2A surface browser (dispatch module src/agents/browserA2aDispatch.ts); production reachability is the in-process construction recorded under connections. Design note carried from the survey (§2.8): its methods accept a caller-supplied webhookUrl — any future agent door must decide whether that URL is caller data or pinned to env configuration (G1/G10 slice work, not a cell state).",
+        "Binding BROWSER_AGENT; A2A surface browser (dispatch module src/agents/browserA2aDispatch.ts); production reachability is the in-process construction recorded under connections, and since #2351 the orchestrator's G1 chat door (src/agents/orchestrator/meshDoors.ts) is a production stub caller addressed to the fixed instance \"browser\": snap/capture/scrape with results verbatim. The survey §2.8 webhookUrl call is decided in #2351: the door never accepts or forwards a caller-supplied webhookUrl — delivery targets are env configuration only, the #2223 A2A precedent.",
       ),
       websockets: NA("No WebSocket surface of its own: it defines no onConnect/onMessage and no socket client connects to it (fleet pin below: onConnect exists only in TickerAgent)."),
       "sdk-scheduling": NA("No SDK scheduler use: the file contains no this.schedule/this.scheduleEvery call (fleet pin below: such calls exist only in OrchestratorAgent and TickerAgent)."),
@@ -379,7 +379,7 @@ const MATRIX: MatrixRow[] = [
         "No chat transcript; its sessionKey-keyed service state is not an agent session store.",
       ),
       routing: IMPL(
-        "Binding SLACK_AGENT exists (migration v10, #2215 — the class header's no-binding claim is stale, survey §6.4); A2A surface slack (registry); no production stub caller — production ingress bypasses the class (see connections), which S13 owns.",
+        "Binding SLACK_AGENT exists (migration v10, #2215 — the class header's no-binding claim is stale, survey §6.4); A2A surface slack (registry); production stub callers: the A2A dispatcher (#2223) and, since #2351, the orchestrator's G1 chat door (src/agents/orchestrator/meshDoors.ts) addressed to the fixed instance \"slack\", serving only the two outbound helpers (approval ticket + transaction snap). Production ingress still bypasses the class (see connections), which S13 owns.",
       ),
       websockets: NA("No WebSocket surface of its own: it defines no onConnect/onMessage and no socket client connects to it (fleet pin below: onConnect exists only in TickerAgent)."),
       "sdk-scheduling": NA("No SDK scheduler use: the file contains no this.schedule/this.scheduleEvery call (fleet pin below: such calls exist only in OrchestratorAgent and TickerAgent)."),

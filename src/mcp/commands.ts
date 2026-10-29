@@ -100,6 +100,11 @@ import {
   GetTradingQuoteCommand,
   ListReportAssetsCommand,
   GetReportAssetCommand,
+  BrowserSnapTransactionCommand,
+  BrowserCapturePageCommand,
+  BrowserScrapeTablesCommand,
+  SlackSendPreTradeApprovalCommand,
+  SlackDispatchTransactionSnapCommand,
 } from "./meshDoorCommands";
 
 import { searchPlatformKnowledge } from "../services/platformKnowledge";
@@ -1732,6 +1737,17 @@ export class McpToolFactory {
     this.registerTool(new GetTradingQuoteCommand());
     this.registerTool(new ListReportAssetsCommand());
     this.registerTool(new GetReportAssetCommand());
+
+    // Agent Mesh G1 doors (#2351, S7 batch C): the chat turn reaches
+    // BrowserAgent (snap/capture/scrape) and SlackAgent (approval
+    // ticket + transaction snap) through the same typed doors. Same
+    // identity discipline as batches A/B; no command accepts a
+    // webhookUrl — delivery targets are env configuration only.
+    this.registerTool(new BrowserSnapTransactionCommand());
+    this.registerTool(new BrowserCapturePageCommand());
+    this.registerTool(new BrowserScrapeTablesCommand());
+    this.registerTool(new SlackSendPreTradeApprovalCommand());
+    this.registerTool(new SlackDispatchTransactionSnapCommand());
   }
 
   /**

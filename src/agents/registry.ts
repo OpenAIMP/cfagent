@@ -187,6 +187,8 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     bindings: ["BROWSER_AGENT"],
     sourceFile: "src/agents/browserAgent.ts",
     role: "Browser fetch, inspect, and screenshot over the Browser Rendering binding (BROWSER, declared in wrangler.jsonc).",
+    notes:
+      "Chat reaches it through the G1 door (#2351, src/agents/orchestrator/meshDoors.ts), addressed to the fixed instance \"browser\" (A2A parity — the class is stateless/env-driven): transaction snap, page capture, and table scrape, results verbatim (a placeholder-labelled screenshot or a not-delivered outcome stays labelled). The door takes no caller-supplied webhookUrl — delivery targets are env configuration only (the survey §2.8 call, decided in #2351 following the #2223 A2A precedent).",
   },
   {
     className: "SlackAgent",
@@ -196,7 +198,7 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     sourceFile: "src/agents/slackAgent.ts",
     role: "Slack app agent: slash commands, events, interactions, approval buttons.",
     notes:
-      "Production Slack ingress currently arrives via the src/server.ts forwarder routes; the agent's own gated ingress is a parallel implementation (channel posture MIXED; G10 completes it in a later slice).",
+      "Production Slack ingress currently arrives via the src/server.ts forwarder routes; the agent's own gated ingress is a parallel implementation (channel posture MIXED; G10 completes it in a later slice). Chat reaches its outbound side through the G1 door (#2351, src/agents/orchestrator/meshDoors.ts), addressed to the fixed instance \"slack\" (A2A parity): the pre-trade approval ticket (posts the HITL gate; approves/executes nothing) and the transaction snap, with no caller-supplied webhookUrl. Ingress is not part of the door — S13/G10 owns it.",
   },
   {
     className: "AiSearchAgent",
@@ -206,7 +208,7 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     sourceFile: "src/agents/aiSearchAgent.ts",
     role: "AI Search agent (#2223): three-path search — Cloudflare AI Search namespace binding, the shared instance's MCP endpoint, REST fallback (src/agents/aiSearchPaths.ts).",
     notes:
-      "Landed after the mesh survey base (migration v12). The ai_search_namespaces binding is NOT declared in wrangler.jsonc — its namespace value is dashboard-issued (see src/types.ts) — so the namespace path is config-gated and degrades honestly to the other two paths.",
+      "Landed after the mesh survey base (migration v12). The ai_search_namespaces binding is NOT declared in wrangler.jsonc — its namespace value is dashboard-issued (see src/types.ts) — so the namespace path is config-gated and degrades honestly to the other two paths. Chat reach (G1, verified in #2351): the chat turn already reaches this agent through the ai_search_agent_search command (#2250, src/mcp/cloudflareAgentCommands.ts) — a typed stub over the AI_SEARCH_AGENT binding on the fixed service instance \"aisearch\", threading the turn's session login as callerLogin so report-type results are served only to their owner. No mesh-door command is added for it: a second door to the same agent would be a parallel implementation.",
   },
   {
     className: "TickerAgent",
@@ -462,10 +464,15 @@ export const MESH_TOOL_FAMILIES: MeshToolFamilyEntry[] = [
       "get_trading_quote",
       "list_report_assets",
       "get_report_asset",
+      "browser_snap_transaction",
+      "browser_capture_page",
+      "browser_scrape_tables",
+      "slack_send_pre_trade_approval",
+      "slack_dispatch_transaction_snap",
     ],
     commandSources: [{ file: "src/mcp/meshDoorCommands.ts", kind: "readonly-name" }],
     notes:
-      "G1 outbound doors, batch A (#2341) + batch B (#2349): the chat turn reaches ScheduledAgent, PaymentsAgent, TradingAgent, and ReportAssetAgent through the typed doors in src/agents/orchestrator/meshDoors.ts. The commands require the turn's acting identity (the context actingLogin carrier) and fail closed without one, so they serve the chat door; external MCP callers use the A2A doors for these agents. The TradingAgent door exposes proposals (preview only) and reads — never the approval door; later G1 batches extend this family.",
+      "G1 outbound doors, batches A (#2341) + B (#2349) + C (#2351): the chat turn reaches ScheduledAgent, PaymentsAgent, TradingAgent, ReportAssetAgent, BrowserAgent, and SlackAgent through the typed doors in src/agents/orchestrator/meshDoors.ts. The commands require the turn's acting identity (the context actingLogin carrier) and fail closed without one, so they serve the chat door; external MCP callers use the A2A doors for these agents. The TradingAgent door exposes proposals (preview only) and reads — never the approval door. The Browser/Slack doors take no caller-supplied webhookUrl: delivery targets are env configuration only. AiSearchAgent is deliberately not in this family — the chat turn already reaches it through ai_search_agent_search (#2250, see its agent record).",
   },
   {
     id: "mas-tools",
