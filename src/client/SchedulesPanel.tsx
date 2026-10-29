@@ -29,7 +29,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
-import { Button, TextInput } from "./components/ui";
+import { Button, TextInput, useToast } from "./components/ui";
 import { apiFetch as fetch } from "./apiFetch";
 import "./reports.css";
 
@@ -164,6 +164,7 @@ export const SCREENING_CALLBACKS = new Set([
 ]);
 
 export function SchedulesPanel({ activeEnv, userLogin, onPreviewTrade }: SchedulesPanelProps) {
+  const toast = useToast();
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -230,7 +231,7 @@ export function SchedulesPanel({ activeEnv, userLogin, onPreviewTrade }: Schedul
     const ok = await runAction(() =>
       fetch(`/api/schedules/${id}/trigger`, { method: "POST", headers: envHeaders })
     );
-    if (ok) alert("Triggered successfully");
+    if (ok) toast.success("Triggered successfully");
   };
 
   const handlePauseResume = async (s: ScheduleItem) => {

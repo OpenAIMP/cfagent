@@ -35,6 +35,9 @@
  * - PageShell + PageSection — page chrome (title + scope note + sections)
  *   with primitive loading/empty/error states; sections carry the shared
  *   section treatment (title + description) instead of hand-rolled h3s.
+ * - Toast — the one global place for transient success/failure feedback
+ *   (ToastProvider + useToast; auto-dismiss by tone, danger persists,
+ *   hover/focus pause, Escape dismisses, role=status/alert announced).
  *
  * Styles live in ./primitives.css (imported once by main.tsx). New
  * primitives are added here with their styles + tests in the same PR.
@@ -57,3 +60,4 @@ export { Modal, type ModalProps } from "./Modal";
 export { Table, type TableProps, type TableColumn } from "./Table";
 export { Skeleton, type SkeletonProps } from "./Skeleton";
 export { PageShell, PageSection, type PageShellProps, type PageSectionProps } from "./PageShell";
+export { ToastProvider, useToast, type ToastTone, type ToastInput, type ToastApi } from "./Toast";

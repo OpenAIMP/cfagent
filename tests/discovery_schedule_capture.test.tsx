@@ -19,6 +19,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { StrategyDiscoveryPanel } from "../src/client/options/StrategyDiscoveryPanel";
+import { ToastProvider } from "../src/client/components/ui/Toast";
 import { etToUtcCron } from "../src/client/options/cronTime";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -122,10 +123,12 @@ async function flush(ms = 30) {
 async function waitForText(text: string, timeoutMs = 6000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    if (container.textContent?.includes(text)) return;
+    // Toasts portal to document.body, so read the document, not just
+    // the panel container (portaled-dialog lesson).
+    if (document.body.textContent?.includes(text)) return;
     await flush(50);
   }
-  throw new Error(`Timed out waiting for "${text}". Panel text: ${container.textContent?.slice(0, 800)}`);
+  throw new Error(`Timed out waiting for "${text}". Panel text: ${document.body.textContent?.slice(0, 800)}`);
 }
 
 async function renderPanel() {
@@ -134,11 +137,15 @@ async function renderPanel() {
   root = createRoot(container);
   await act(async () => {
     root.render(
-      React.createElement(StrategyDiscoveryPanel, {
-        initialSymbol: "NVDA",
-        activeEnv: "PROD",
-        userLogin: "tester",
-      })
+      React.createElement(
+        ToastProvider,
+        null,
+        React.createElement(StrategyDiscoveryPanel, {
+          initialSymbol: "NVDA",
+          activeEnv: "PROD",
+          userLogin: "tester",
+        }),
+      ),
     );
   });
   await flush(80);

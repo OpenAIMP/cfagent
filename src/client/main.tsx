@@ -1,6 +1,7 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { Chat } from "./Chat";
+import { ToastProvider } from "./components/ui";
 import { applyThemeToDocument, getStoredTheme, initThemeListener } from "./theme";
 import { applyTypographyToDocument, getStoredFontScale, getStoredFontStyle, initTypographyListener } from "./typography";
 import { applyDensityToDocument, getStoredDensity, initDensityListener } from "./designTokens";
@@ -61,7 +62,9 @@ if (!user) {
   }
   createRoot(document.getElementById("root")!).render(
     <React.StrictMode>
-      <Chat user={user} />
+      <ToastProvider>
+        <Chat user={user} />
+      </ToastProvider>
     </React.StrictMode>
   );
 }

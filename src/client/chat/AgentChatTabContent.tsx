@@ -13,6 +13,7 @@ import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Notice } from "../components/ui/Notice";
 import { TextInput } from "../components/ui/TextInput";
+import { useToast } from "../components/ui/Toast";
 interface AgentChatTabContentProps {
   user: User;
   ads: AdItem[];
@@ -45,6 +46,7 @@ export function AgentChatTabContent({
   showSponsorSpotlight = false,
 }: AgentChatTabContentProps) {
   const [input, setInput] = useState("");
+  const toast = useToast();
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const agent = useAgent({ agent: "SearchAgent", name: user.login });
@@ -465,7 +467,7 @@ export function AgentChatTabContent({
               onClick={() => {
                 const info = `Error Code: ${errorAspect.code}\nTitle: ${errorAspect.title}\nDetails: ${errorAspect.message}\nRemediation:\n${errorAspect.resolutionSteps.map((s, i) => `${i + 1}. ${s}`).join("\n")}`;
                 navigator.clipboard.writeText(info);
-                alert("Diagnostic error information copied to clipboard.");
+                toast.success("Diagnostic error information copied to clipboard.");
               }}
               title="Copy error code and diagnostic information"
             >

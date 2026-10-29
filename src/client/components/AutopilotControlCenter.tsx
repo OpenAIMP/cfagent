@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { AGENT_DIDS } from "../../agents/did";
-import { EmptyState, Table, Badge, Button, PillGroup, TextInput, Select, Notice, type BadgeTone, Modal } from "./ui";
+import { EmptyState, Table, Badge, Button, PillGroup, TextInput, Select, Notice, type BadgeTone, Modal, useToast } from "./ui";
 import { BRAND } from "../branding";
 import { normalizeAutopilotLimits, type AutopilotPolicyLimits } from "../../services/riskPolicyEngine";
 import type { TradeRecord } from "../../types";
@@ -386,6 +386,7 @@ export function AutopilotControlCenter({
   onNavigateOrder,
   className = "",
 }: AutopilotControlCenterProps) {
+  const toast = useToast();
   const [chartTimeframe, setChartTimeframe] = useState<"1d" | "1w" | "1m" | "3m" | "6m" | "ytd">("6m");
   // Autopilot Running / Paused status
   const [isRunning, setIsRunning] = useState<boolean>(() => {
@@ -582,7 +583,7 @@ export function AutopilotControlCenter({
 
   const handleToggleAutopilot = async () => {
     if (isKillSwitched) {
-      alert("Platform kill switch is active. Clear the kill switch before resuming Autopilot.");
+      toast.warning("Platform kill switch is active. Clear the kill switch before resuming Autopilot.");
       return;
     }
     const next = !isRunning;
@@ -703,7 +704,7 @@ export function AutopilotControlCenter({
     } catch (err) {
       console.warn("[Autopilot] Policy check failed:", err);
       setIsServerBacked(false);
-      alert("Policy check failed: the policy engine did not answer, so no verdict was recorded.");
+      toast.danger("Policy check failed: the policy engine did not answer, so no verdict was recorded.");
     } finally {
       setIsSimulating(false);
     }
