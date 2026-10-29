@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useUrlSyncedTabs } from "./useUrlSyncedTabs";
 import { apiFetch as fetch } from "./apiFetch";
-import { EmptyState, Spinner, Button, Select, Table, TextInput, PageShell, PageSection } from "./components/ui";
+import { EmptyState, Spinner, Button, Select, Table, TextInput, PageShell, PageSection, FieldShell } from "./components/ui";
 import { ResearchReportActions } from "./ResearchReportActions";
 import { TabHoverItem } from "./TabHoverItem";
 import { CapabilityNavBar, CopilotTriggerButton } from "./components/CapabilityNavBar";
@@ -840,8 +840,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
           {/* Screener Controls Bar */}
           <div className="screener-controls-bar" style={{ marginBottom: "1rem" }}>
             <div className="control-item search-item">
-              <label>Search Ticker / Company</label>
-              <TextInput
+              <TextInput label="Search Ticker / Company"
                 type="text"
                 placeholder="e.g. NVDA, Apple, Semiconductors…"
                 value={screenerSearch}
@@ -853,8 +852,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
             </div>
 
             <div className="control-item">
-              <label>Sector</label>
-              <Select
+              <Select label="Sector"
                 value={screenerSector}
                 onChange={(e) => {
                   setScreenerSector(e.target.value);
@@ -870,48 +868,49 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
             </div>
 
             <div className="control-item">
-              <label>Quick Presets</label>
-              <div style={{ display: "flex", gap: "var(--space-1-5)" }}>
-                <Button
-                  type="button"
-                  className={`btn-filter-pill ${screenerGainersOnly ? "active gainers" : ""}`}
-                  onClick={() => {
-                    const next = !screenerGainersOnly;
-                    setScreenerGainersOnly(next);
-                    if (next) setScreenerLosersOnly(false);
-                    fetchScreener({ gainersOnly: next, losersOnly: false });
-                  }}
-                >
-                  🚀 Gainers
-                </Button>
-                <Button
-                  type="button"
-                  className={`btn-filter-pill ${screenerLosersOnly ? "active losers" : ""}`}
-                  onClick={() => {
-                    const next = !screenerLosersOnly;
-                    setScreenerLosersOnly(next);
-                    if (next) setScreenerGainersOnly(false);
-                    fetchScreener({ losersOnly: next, gainersOnly: false });
-                  }}
-                >
-                  📉 Losers
-                </Button>
-                <Button
-                  type="button"
-                  className="btn-filter-pill"
-                  onClick={() => {
-                    setScreenerSearch("");
-                    setScreenerSector("all");
-                    setScreenerGainersOnly(false);
-                    setScreenerLosersOnly(false);
-                    setScreenerMinRsi(undefined);
-                    setScreenerMaxRsi(undefined);
-                    fetchScreener({ search: "", sector: "all", gainersOnly: false, losersOnly: false, minRsi: undefined, maxRsi: undefined });
-                  }}
-                >
-                  Reset
-                </Button>
-              </div>
+              <FieldShell id="marketdata-quick-presets" label="Quick Presets">
+                <div style={{ display: "flex", gap: "var(--space-1-5)" }}>
+                  <Button
+                    type="button"
+                    className={`btn-filter-pill ${screenerGainersOnly ? "active gainers" : ""}`}
+                    onClick={() => {
+                      const next = !screenerGainersOnly;
+                      setScreenerGainersOnly(next);
+                      if (next) setScreenerLosersOnly(false);
+                      fetchScreener({ gainersOnly: next, losersOnly: false });
+                    }}
+                  >
+                    🚀 Gainers
+                  </Button>
+                  <Button
+                    type="button"
+                    className={`btn-filter-pill ${screenerLosersOnly ? "active losers" : ""}`}
+                    onClick={() => {
+                      const next = !screenerLosersOnly;
+                      setScreenerLosersOnly(next);
+                      if (next) setScreenerGainersOnly(false);
+                      fetchScreener({ losersOnly: next, gainersOnly: false });
+                    }}
+                  >
+                    📉 Losers
+                  </Button>
+                  <Button
+                    type="button"
+                    className="btn-filter-pill"
+                    onClick={() => {
+                      setScreenerSearch("");
+                      setScreenerSector("all");
+                      setScreenerGainersOnly(false);
+                      setScreenerLosersOnly(false);
+                      setScreenerMinRsi(undefined);
+                      setScreenerMaxRsi(undefined);
+                      fetchScreener({ search: "", sector: "all", gainersOnly: false, losersOnly: false, minRsi: undefined, maxRsi: undefined });
+                    }}
+                  >
+                    Reset
+                  </Button>
+                </div>
+              </FieldShell>
             </div>
 
             <Button
@@ -1568,8 +1567,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
               Historical OHLCV Bars for <strong>{activeSymbol}</strong>
             </span>
             <div className="bars-filters">
-              <label>Feed:</label>
-              <Select
+              <Select label="Feed:"
                 value={barProvider}
                 onChange={(e) => {
                   const p = e.target.value as "yfinance" | "alpaca";
@@ -1580,8 +1578,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
                 <option value="yfinance">Yahoo Finance</option>
                 <option value="alpaca">Alpaca Data v2</option>
               </Select>
-              <label>Timeframe:</label>
-              <Select
+              <Select label="Timeframe:"
                 value={barTimeframe}
                 onChange={(e) => {
                   const tf = e.target.value;
@@ -1594,8 +1591,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
                 <option value="1M">Monthly (1M)</option>
                 <option value="1H">Hourly (1H)</option>
               </Select>
-              <label>Limit:</label>
-              <Select
+              <Select label="Limit:"
                 value={barLimit}
                 onChange={(e) => {
                   const l = Number(e.target.value);
@@ -1820,8 +1816,7 @@ export function MarketDataResearchHub({ user, onSendPrompt, onTradeSymbol }: Mar
       {subTab === "compare" && (
         <div className="research-section compare-section">
           <div className="compare-bar">
-            <label>Compare Tickers:</label>
-            <TextInput
+            <TextInput label="Compare Tickers:"
               type="text"
               className="compare-input"
               value={compareSymbolsInput}

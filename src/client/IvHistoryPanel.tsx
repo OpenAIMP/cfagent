@@ -111,16 +111,13 @@ export function IvHistoryPanel() {
       {names.length > 0 && (
         <div style={{ display: "flex", gap: "var(--space-6)", flexWrap: "wrap" }}>
           <div style={{ minWidth: 260 }}>
-            <label style={{ fontSize: "0.85rem" }}>
-              Symbol{" "}
-              <Select value={symbol} onChange={(e) => setSymbol(e.target.value)}>
-                {names.map((n) => (
-                  <option key={n.symbol} value={n.symbol}>
-                    {n.symbol} ({n.observations} obs)
-                  </option>
-                ))}
-              </Select>
-            </label>
+            <Select label="Symbol" value={symbol} onChange={(e) => setSymbol(e.target.value)}>
+              {names.map((n) => (
+                <option key={n.symbol} value={n.symbol}>
+                  {n.symbol} ({n.observations} obs)
+                </option>
+              ))}
+            </Select>
             <div style={{ marginTop: "var(--space-3)" }}>
               <Table
                 columns={[

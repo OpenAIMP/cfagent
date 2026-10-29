@@ -517,31 +517,22 @@ export function GoalScreenPanel({ activeEnv, userLogin }: GoalScreenPanelProps) 
         Results are recorded in Reports and the screening activity log.
       </p>
       <form onSubmit={runScreen} style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-4)", alignItems: "flex-end" }}>
-        <label style={fieldStyle}>
-          Goal
-          <Select value={goalKind} onChange={(e) => setGoalKind(e.target.value)}>
-            {GOAL_KIND_OPTIONS.map((g) => (
-              <option key={g.id} value={g.id}>{g.label}</option>
-            ))}
-          </Select>
-        </label>
-        <label style={fieldStyle}>
-          Direction
-          <Select value={direction} onChange={(e) => setDirection(e.target.value)}>
-            {DIRECTION_OPTIONS.map((d) => (
-              <option key={d.id} value={d.id}>{d.label}</option>
-            ))}
-          </Select>
-        </label>
-        <label style={{ ...fieldStyle, flex: "1 1 220px" }}>
-          Symbols (optional, comma-separated — scopes the options leg only; the stock leg always scans the full universe)
-          <TextInput
-            type="text"
-            value={symbolsText}
-            onChange={(e) => setSymbolsText(e.target.value)}
-            placeholder="AAPL, NVDA, MSFT"
-          />
-        </label>
+        <Select label="Goal" value={goalKind} onChange={(e) => setGoalKind(e.target.value)}>
+          {GOAL_KIND_OPTIONS.map((g) => (
+            <option key={g.id} value={g.id}>{g.label}</option>
+          ))}
+        </Select>
+        <Select label="Direction" value={direction} onChange={(e) => setDirection(e.target.value)}>
+          {DIRECTION_OPTIONS.map((d) => (
+            <option key={d.id} value={d.id}>{d.label}</option>
+          ))}
+        </Select>
+        <TextInput label="Symbols (optional, comma-separated — scopes the options leg only; the stock leg always scans the full universe)"
+          type="text"
+          value={symbolsText}
+          onChange={(e) => setSymbolsText(e.target.value)}
+          placeholder="AAPL, NVDA, MSFT"
+        />
         <label style={{ ...fieldStyle, flexDirection: "row", alignItems: "center", gap: "var(--space-1-5)" }}>
           <Checkbox checked={includeStocks} onChange={(e) => setIncludeStocks(e.target.checked)} />
           Stocks

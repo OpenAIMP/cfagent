@@ -492,38 +492,29 @@ export function RawContractsScreener({
         onSubmit={(e) => void handleScreenSubmit(e)}
         style={{ margin: 0 }}
       >
-        <label className="options-field">
-          <span>Underlying Symbol</span>
-          <TextInput
-            value={symbol}
-            onChange={(e) => setSymbol(e.target.value.toUpperCase())}
-            placeholder="e.g. NVDA, TSLA, SPY"
-            required
-            style={{ fontWeight: 600, letterSpacing: "0.05em" }}
-          />
-        </label>
+        <TextInput label="Underlying Symbol"
+          value={symbol}
+          onChange={(e) => setSymbol(e.target.value.toUpperCase())}
+          placeholder="e.g. NVDA, TSLA, SPY"
+          required
+          style={{ fontWeight: 600, letterSpacing: "0.05em" }}
+        />
 
-        <label className="options-field">
-          <span>Sort By</span>
-          <Select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)}>
-            <option value="volume">Volume (Highest First)</option>
-            <option value="iv">Implied Volatility (IV)</option>
-            <option value="spreadPct">Tightest Spread (%)</option>
-            <option value="strikeDistance">Strike Distance</option>
-          </Select>
-        </label>
+        <Select label="Sort By" value={sortBy} onChange={(e) => setSortBy(e.target.value as any)}>
+          <option value="volume">Volume (Highest First)</option>
+          <option value="iv">Implied Volatility (IV)</option>
+          <option value="spreadPct">Tightest Spread (%)</option>
+          <option value="strikeDistance">Strike Distance</option>
+        </Select>
 
-        <label className="options-field">
-          <span>Max Results (Limit)</span>
-          <TextInput
-            type="number"
-            min="10"
-            max="10000"
-            value={maxResults}
-            onChange={(e) => setMaxResults(e.target.value)}
-            placeholder="5000"
-          />
-        </label>
+        <TextInput label="Max Results (Limit)"
+          type="number"
+          min="10"
+          max="10000"
+          value={maxResults}
+          onChange={(e) => setMaxResults(e.target.value)}
+          placeholder="5000"
+        />
 
         <div className="screener-criteria-presets-deck">
           <ScreenerPresetManager

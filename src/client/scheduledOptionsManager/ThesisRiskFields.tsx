@@ -16,8 +16,7 @@ export function ThesisRiskFields(props: ThesisRiskFieldsProps) {
   return (
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-4)" }}>
                   <div className="sched-form-group">
-                    <label htmlFor="sched-market-thesis" className="sched-form-label">Market Thesis / Outlook</label>
-                    <Select id="sched-market-thesis"
+                    <Select label="Market Thesis / Outlook" id="sched-market-thesis"
                       value={thesis}
                       onChange={(e) => setThesis(e.target.value as any)}
                     >
@@ -29,8 +28,7 @@ export function ThesisRiskFields(props: ThesisRiskFieldsProps) {
                   </div>
 
                   <div className="sched-form-group">
-                    <label htmlFor="sched-risk-profile" className="sched-form-label">Risk Profile</label>
-                    <Select id="sched-risk-profile"
+                    <Select label="Risk Profile" id="sched-risk-profile"
                       value={riskProfile}
                       onChange={(e) => setRiskProfile(e.target.value as any)}
                     >

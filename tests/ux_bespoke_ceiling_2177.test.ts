@@ -108,7 +108,16 @@ describe("bespoke-styling ceiling (issue #2177)", () => {
     // ScreenersHub 10, FlowFiltersSidebar 5); 3 pill-row labels and 4
     // checkbox-row labels remain in those files by design, counted in
     // the 56.
+    // Ratcheted to 22 by chunk 4 (MarketDataResearchHub 7,
+    // AutopilotControlCenter 6, CadenceFields 5, GoalScreenPanel 3,
+    // NotificationFields 1, RawContractsScreener 3,
+    // ResearchReportActions 3, ThesisRiskFields 2,
+    // LlmOptionsIdeasPanel 2, LlmStrategyEvalModal 1, IvHistoryPanel 1);
+    // the remaining 22 are all sanctioned exceptions: 18 checkbox-wrapper
+    // labels (Checkbox is a bare control) and 3 pill-row labels, plus the
+    // ResearchRunsPanel config-list row label whose control varies
+    // between Checkbox and TextInput.
     expect(inlineStyles).toBeLessThanOrEqual(843);
-    expect(rawLabels).toBeLessThanOrEqual(56);
+    expect(rawLabels).toBeLessThanOrEqual(22);
   });
 });
