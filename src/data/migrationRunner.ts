@@ -888,6 +888,42 @@ CREATE INDEX IF NOT EXISTS agent_data_captures_provider_idx ON agent_data_captur
 `,
 };
 
+/**
+ * Migration 0020 — the IV-history table on D1 (issue #2337,
+ * step 2 of ADR 0022; D-0 + D-I step 2).
+ *
+ * The options/discovery family's only D1 residency: the table
+ * is tenant-free market data keyed (symbol, date) — the same
+ * columns and key as the DO table (mas_iv_history) — while its
+ * durable read is a whole-series read whose correctness
+ * depends on seeing ALL collected observations, which DO
+ * residency silently fragments per collecting instance.
+ *
+ * CUTOVER GATE (R-2 on #2337): this migration creates the
+ * table and the D1 adapter is conformance-proven, but
+ * production composition defaults to the DO adapter; the
+ * read/write cutover waits on the owner ruling recorded on
+ * the issue (backfill vs warming-up restart). Creating an
+ * empty table changes no production behaviour.
+ */
+export const MIGRATION_0020_IV_HISTORY: DataMigration = {
+  version: 20,
+  name: "0020_iv_history",
+  sql: `
+CREATE TABLE IF NOT EXISTS agent_iv_history (
+  symbol TEXT NOT NULL,
+  date TEXT NOT NULL,
+  atm_iv REAL NOT NULL,
+  spot REAL NOT NULL,
+  expiry_date TEXT NOT NULL,
+  dte INTEGER NOT NULL,
+  collected_at TEXT NOT NULL,
+  PRIMARY KEY (symbol, date)
+);
+CREATE INDEX IF NOT EXISTS agent_iv_history_symbol_date_idx ON agent_iv_history (symbol, date DESC);
+`,
+};
+
 export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0001_AGENT_GOVERNANCE,
   MIGRATION_0002_AGENT_CHAINS_SCHEDULES,
@@ -907,6 +943,7 @@ export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0017_INTELLIGENCE_SUBSTRATE,
   MIGRATION_0018_REFUNDS,
   MIGRATION_0019_DATA_PROVIDER_PLATFORM,
+  MIGRATION_0020_IV_HISTORY,
 ];
 
 function splitStatements(sqlText: string): string[] {
