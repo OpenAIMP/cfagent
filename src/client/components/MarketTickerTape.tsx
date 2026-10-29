@@ -24,7 +24,7 @@ export interface TickerTapeQuote {
   price: string;
   change: string;
   isPositive: boolean;
-  type?: "stock" | "crypto" | "etf";
+  type?: "stock" | "crypto" | "etf" | "index";
   rawPrice?: number;
   source?: "Alpaca" | "Yahoo Finance" | "Reference";
   timestamp?: number;

@@ -1,5 +1,6 @@
 import { generatedThemeTokens } from "./designTokens";
 import { BRAND } from "./branding";
+import { TAPE_SYMBOLS } from "./quotes/symbolSets";
 
 export function renderLandingPage(appName?: string): string {
   const name = appName || BRAND.name;
@@ -12,6 +13,39 @@ export function renderLandingPage(appName?: string): string {
   const hcTokens = Object.entries(generatedThemeTokens["high-contrast"])
     .map(([k, v]) => `  ${k}: ${v};`)
     .join("\n");
+
+  // One canonical tape (#2312): the landing tape and the in-app tape
+  // default are the same TAPE_SYMBOLS list, rendered here at page
+  // generation time. The updater script below subscribes to the same
+  // TickerAgent feed with these symbols; the static items are only the
+  // pre-tick baseline, never a second list to drift.
+  const tapeLabel = (t: { symbol: string; name?: string }) => t.name ?? t.symbol;
+  // Static baselines, verbatim from the previous hardcoded items, for
+  // the 8 symbols the landing tape already carried: the landing
+  // contract is never-blank, never a dash, before the first live tick.
+  // The 5 symbols new to the landing tape show "—" until that tick —
+  // no baseline is invented for them.
+  const tapeBaseline: Record<string, { val: string; chg: string; cls: string }> = {
+    SPY: { val: "5,864.67", chg: "+0.42%", cls: "gain" },
+    QQQ: { val: "18,518.61", chg: "+0.63%", cls: "gain" },
+    DIA: { val: "42,114.40", chg: "-0.61%", cls: "loss" },
+    IWM: { val: "2,213.78", chg: "+0.15%", cls: "gain" },
+    "^VIX": { val: "18.24", chg: "-4.10%", cls: "loss" },
+    "^TNX": { val: "4.24%", chg: "+0.03", cls: "gain" },
+    "BTC/USD": { val: "68,450.00", chg: "+2.15%", cls: "gain" },
+    "ETH/USD": { val: "2,540.00", chg: "+1.80%", cls: "gain" },
+  };
+  const tapeItem = (t: { symbol: string; name?: string }) => {
+    const label = tapeLabel(t).replace(/&/g, "&amp;");
+    const base = tapeBaseline[t.symbol] ?? { val: "—", chg: "—", cls: "" };
+    return `<div class="ticker-item"><span class="ticker-sym">${label}</span><span class="ticker-val">${base.val}</span><span class="ticker-chg ${base.cls}">${base.chg}</span></div>`;
+  };
+  // Both marquee halves are generated from the same list: the slide
+  // animation translates -50%, so a seamless loop needs two identical
+  // halves (the previous template repeated only the first 4 items,
+  // which jumped every 45s).
+  const tapeItemsHtml = TAPE_SYMBOLS.map(tapeItem).join("\n      ");
+  const tapeMapLiteral = `{\n${TAPE_SYMBOLS.map((t) => `        ${JSON.stringify(tapeLabel(t))}: ${JSON.stringify(t.symbol)}`).join(",\n")}\n      }`;
 
   return `<!DOCTYPE html>
 <html lang="en" data-theme="dark">
@@ -1117,19 +1151,9 @@ ${hcTokens}
   <!-- Live Market Ticker Tape -->
   <div class="ticker-tape-wrap" role="region" aria-label="Live Market Indices">
     <div class="ticker-tape-inner">
-      <div class="ticker-item"><span class="ticker-sym">S&amp;P 500</span><span class="ticker-val">5,864.67</span><span class="ticker-chg gain">+0.42%</span></div>
-      <div class="ticker-item"><span class="ticker-sym">NASDAQ 100</span><span class="ticker-val">18,518.61</span><span class="ticker-chg gain">+0.63%</span></div>
-      <div class="ticker-item"><span class="ticker-sym">DOW JONES</span><span class="ticker-val">42,114.40</span><span class="ticker-chg loss">-0.61%</span></div>
-      <div class="ticker-item"><span class="ticker-sym">RUSSELL 2000</span><span class="ticker-val">2,213.78</span><span class="ticker-chg gain">+0.15%</span></div>
-      <div class="ticker-item"><span class="ticker-sym">CBOE VIX</span><span class="ticker-val">18.24</span><span class="ticker-chg loss">-4.10%</span></div>
-      <div class="ticker-item"><span class="ticker-sym">US 10Y YIELD</span><span class="ticker-val">4.24%</span><span class="ticker-chg gain">+0.03</span></div>
-      <div class="ticker-item"><span class="ticker-sym">BTC / USD</span><span class="ticker-val">68,450.00</span><span class="ticker-chg gain">+2.15%</span></div>
-      <div class="ticker-item"><span class="ticker-sym">ETH / USD</span><span class="ticker-val">2,540.00</span><span class="ticker-chg gain">+1.80%</span></div>
+      ${tapeItemsHtml}
       <!-- Duplicate for infinite marquee effect -->
-      <div class="ticker-item"><span class="ticker-sym">S&amp;P 500</span><span class="ticker-val">5,864.67</span><span class="ticker-chg gain">+0.42%</span></div>
-      <div class="ticker-item"><span class="ticker-sym">NASDAQ 100</span><span class="ticker-val">18,518.61</span><span class="ticker-chg gain">+0.63%</span></div>
-      <div class="ticker-item"><span class="ticker-sym">DOW JONES</span><span class="ticker-val">42,114.40</span><span class="ticker-chg loss">-0.61%</span></div>
-      <div class="ticker-item"><span class="ticker-sym">RUSSELL 2000</span><span class="ticker-val">2,213.78</span><span class="ticker-chg gain">+0.15%</span></div>
+      ${tapeItemsHtml}
     </div>
   </div>
 
@@ -1708,16 +1732,7 @@ ${hcTokens}
     // marquee duplicates included) updates by symbol; a symbol with no
     // live quote keeps its static baseline, never a blank.
     (function() {
-      var MAP = {
-        'S&P 500': 'SPY',
-        'NASDAQ 100': 'QQQ',
-        'DOW JONES': 'DIA',
-        'RUSSELL 2000': 'IWM',
-        'CBOE VIX': '^VIX',
-        'US 10Y YIELD': '^TNX',
-        'BTC / USD': 'BTC/USD',
-        'ETH / USD': 'ETH/USD'
-      };
+      var MAP = ${tapeMapLiteral};
       var SYMBOLS = Object.keys(MAP).map(function(k) { return MAP[k]; });
       var itemsBySymbol = {};
       document.querySelectorAll('.ticker-item').forEach(function(item) {
