@@ -113,8 +113,11 @@ import type {
   CaptureBlobEnv,
   CaptureBlobStorage,
   DataCaptureRawKind,
+  DataCaptureRecord,
   DataCaptureRetentionClass,
+  RecordCaptureInput,
 } from "./captureStore";
+import type { ProviderCaptureStore } from "../../data/providerCapturePorts";
 
 /** Tag a wrapped result with its provenance envelope (payload by reference). */
 function tag<T>(
@@ -167,6 +170,39 @@ export interface ETradeCaptureDeps {
   blobStorage: CaptureBlobStorage;
   env: CaptureBlobEnv;
   retentionClass?: DataCaptureRetentionClass;
+  /**
+   * #2303 (#1976 step 1): the capture port. When the wiring
+   * supplies it, capture writes and outcome recording run
+   * through the port (production: the D1 capture log); the sql
+   * handle remains for the legacy path and is unused for
+   * captures while the port is present. Every provider's capture
+   * deps alias this shape (Yahoo/Nasdaq/Public below), so the
+   * port threads through all of them uniformly.
+   */
+  capturePort?: ProviderCaptureStore | null;
+}
+
+/**
+ * #2303: one capture write through the deps — the port when
+ * wired, else the legacy store function. Same input, same
+ * never-throws contract either way (the flows are shared code
+ * in src/data/providerCapturePorts.ts).
+ */
+async function recordCaptureViaDeps(
+  capture: ETradeCaptureDeps,
+  blobDeps: { storage: CaptureBlobStorage; env: CaptureBlobEnv },
+  input: RecordCaptureInput
+): Promise<DataCaptureRecord | null> {
+  return capture.capturePort
+    ? capture.capturePort.recordCapture(blobDeps, input)
+    : recordCapture(capture.sql, blobDeps, input);
+}
+
+/** #2303: the outcome recorder for the deps — port or legacy, as above. */
+function outcomeRecorderForDeps(capture: ETradeCaptureDeps): FetchOutcomeRecorder {
+  return capture.capturePort
+    ? capture.capturePort.createFetchOutcomeRecorder()
+    : createCaptureFetchOutcomeRecorder(capture.sql);
 }
 
 export interface ETradeDataProviderOptions {
@@ -242,7 +278,7 @@ export function createETradeDataProvider(
   const capture = options?.capture;
   const outcomeRecorder =
     options?.outcomeRecorder ??
-    (capture ? createCaptureFetchOutcomeRecorder(capture.sql) : undefined);
+    (capture ? outcomeRecorderForDeps(capture) : undefined);
   return {
     id: "etrade",
     name: "E*TRADE",
@@ -281,8 +317,8 @@ export function createETradeDataProvider(
         rawPayload = result.raw;
         rawKind = "provider-response";
       }
-      await recordCapture(
-        capture.sql,
+      await recordCaptureViaDeps(
+        capture,
         { storage: capture.blobStorage, env: capture.env },
         {
           providerId: "etrade",
@@ -354,7 +390,7 @@ export function createETradeDataProvider(
       if (chain === null) {
         // A completed fetch with no payload: an audit row records the
         // attempt (status no_payload); no raw is fabricated for it.
-        await recordCapture(capture.sql, blobDeps, {
+        await recordCaptureViaDeps(capture, blobDeps, {
           providerId: "etrade",
           capability: "optionsChains",
           requestParams: request,
@@ -375,7 +411,7 @@ export function createETradeDataProvider(
         rawPayload = chain.raw;
         rawKind = "provider-response";
       }
-      await recordCapture(capture.sql, blobDeps, {
+      await recordCaptureViaDeps(capture, blobDeps, {
         providerId: "etrade",
         capability: "optionsChains",
         requestParams: request,
@@ -435,7 +471,7 @@ export function createETradeDataProvider(
         // it is what is captured, labeled "provider-result" — the
         // run still leaves its audit row, never a fabricated wire
         // payload.
-        await recordCapture(capture.sql, blobDeps, {
+        await recordCaptureViaDeps(capture, blobDeps, {
           providerId: "etrade",
           capability: "quotes",
           requestParams: { symbols },
@@ -451,7 +487,7 @@ export function createETradeDataProvider(
       }
       for (const batch of wireBatches) {
         const batchSymbols = new Set(batch.symbols);
-        await recordCapture(capture.sql, blobDeps, {
+        await recordCaptureViaDeps(capture, blobDeps, {
           providerId: "etrade",
           capability: "quotes",
           requestParams: { symbols: batch.symbols },
@@ -503,8 +539,8 @@ export function createETradeDataProvider(
       // ("provider-result"); an empty result is a completed fetch
       // with no payload — recorded as a no_payload audit row (the
       // chain-null treatment), never dressed up as a stored payload.
-      await recordCapture(
-        capture.sql,
+      await recordCaptureViaDeps(
+        capture,
         { storage: capture.blobStorage, env: capture.env },
         {
           providerId: "etrade",
@@ -653,7 +689,7 @@ function createMarketDataProvider(
   const capture = options?.capture;
   const outcomeRecorder =
     options?.outcomeRecorder ??
-    (capture ? createCaptureFetchOutcomeRecorder(capture.sql) : undefined);
+    (capture ? outcomeRecorderForDeps(capture) : undefined);
   const meta = (
     capability: DataProvider["capabilities"][number],
     requestParams: Record<string, unknown>,
@@ -677,8 +713,8 @@ function createMarketDataProvider(
   ): Promise<void> => {
     if (!capture) return;
     const ctx = resolveRunContext(runContext);
-    await recordCapture(
-      capture.sql,
+    await recordCaptureViaDeps(
+      capture,
       { storage: capture.blobStorage, env: capture.env },
       {
         providerId: id,
@@ -917,7 +953,7 @@ export function createNasdaqDataProvider(
   const capture = options?.capture;
   const outcomeRecorder =
     options?.outcomeRecorder ??
-    (capture ? createCaptureFetchOutcomeRecorder(capture.sql) : undefined);
+    (capture ? outcomeRecorderForDeps(capture) : undefined);
   return {
     id: "nasdaq",
     name: "Nasdaq Listings",
@@ -940,8 +976,8 @@ export function createNasdaqDataProvider(
         () => fetchListings()
       );
       if (capture) {
-        await recordCapture(
-          capture.sql,
+        await recordCaptureViaDeps(
+          capture,
           { storage: capture.blobStorage, env: capture.env },
           {
             providerId: "nasdaq",
@@ -1054,7 +1090,7 @@ export function createPublicDataProvider(
   const capture = options?.capture;
   const outcomeRecorder =
     options?.outcomeRecorder ??
-    (capture ? createCaptureFetchOutcomeRecorder(capture.sql) : undefined);
+    (capture ? outcomeRecorderForDeps(capture) : undefined);
 
   /**
    * E7: run one read (the MCP fetch + its interpretation — for
@@ -1105,8 +1141,8 @@ export function createPublicDataProvider(
   ): Promise<void> {
     if (!capture) return;
     const ctx = resolveRunContext(runContext);
-    await recordCapture(
-      capture.sql,
+    await recordCaptureViaDeps(
+      capture,
       { storage: capture.blobStorage, env: capture.env },
       {
         providerId: "public",
@@ -1134,8 +1170,8 @@ export function createPublicDataProvider(
     // A completed fetch with no payload: an audit row records the
     // attempt (status no_payload); no raw is fabricated for it — the
     // E*TRADE adapter's null-chain treatment.
-    await recordCapture(
-      capture.sql,
+    await recordCaptureViaDeps(
+      capture,
       { storage: capture.blobStorage, env: capture.env },
       {
         providerId: "public",
