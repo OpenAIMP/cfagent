@@ -13,6 +13,12 @@ import {
   attachCorpusProvenance,
   isKnowledgeServingEnabled,
 } from "../services/knowledgeCorpus";
+// Issue #2345 (#1976 step 3a): the payment-ledger and memory
+// tools run on the data layer's ports, composed here from the
+// same handle the factory already receives — the raw
+// mas_transactions / mas_memory statements that used to live
+// in this file (audit V-2/V-3 bypass writers) are retired.
+import { createOrmPorts } from "../data/createOrmPorts";
 
 export interface MASOptions {
   env: Env;
@@ -23,6 +29,7 @@ export interface MASOptions {
 }
 
 export function createMAS({ env, sessionId, requestId, sql, audit }: MASOptions) {
+  const ormPorts = createOrmPorts(sql);
   const searchKnowledge = tool({
     description: "Search the organization's knowledge base using Cloudflare AI Search RAG. Use for factual inquiries, documented product features, release notes, or policies.",
     inputSchema: z.object({
@@ -177,25 +184,24 @@ export function createMAS({ env, sessionId, requestId, sql, audit }: MASOptions)
 
       let inserted = false;
       try {
-        sql.exec(
-          "INSERT OR REPLACE INTO mas_transactions (id, session_id, action, amount, currency, customer, gateway, gateway_ref, status, checkout_url, proposer_did, authorizer_did, proof_signature, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-          draftId,
+        ormPorts.transactions.replace({
+          id: draftId,
           sessionId,
-          input.action,
-          input.amount,
-          input.currency,
-          input.customer,
+          action: input.action,
+          amount: input.amount,
+          currency: input.currency,
+          customer: input.customer,
           gateway,
-          "",
-          "awaiting_confirmation",
-          "",
-          didProof.proposerDid,
-          userDid,
-          didProof.signature,
-          input.note || "Draft created by payments subagent",
-          now,
-          now
-        );
+          gatewayRef: "",
+          status: "awaiting_confirmation",
+          checkoutUrl: "",
+          proposerDid: didProof.proposerDid,
+          authorizerDid: userDid,
+          proofSignature: didProof.signature,
+          note: input.note || "Draft created by payments subagent",
+          createdAt: now,
+          updatedAt: now,
+        });
         inserted = true;
       } catch (err) {
         console.error("Failed to insert transaction draft into SQLite:", err);
@@ -259,10 +265,9 @@ export function createMAS({ env, sessionId, requestId, sql, audit }: MASOptions)
       const now = new Date().toISOString();
 
       if (isPayment) {
-        let existingTx: any = null;
+        let existingTx = null as ReturnType<typeof ormPorts.transactions.findById>;
         try {
-          const rows = Array.from(sql.exec("SELECT * FROM mas_transactions WHERE id = ?", draftId)) as any[];
-          if (rows.length > 0) existingTx = rows[0];
+          existingTx = ormPorts.transactions.findById(draftId);
         } catch {}
 
         const action = existingTx?.action || "charge";
@@ -273,8 +278,8 @@ export function createMAS({ env, sessionId, requestId, sql, audit }: MASOptions)
 
         if (decision === "approved") {
           let gatewayResult: any = null;
-          let checkoutUrl = existingTx?.checkout_url || "";
-          let gatewayRef = existingTx?.gateway_ref || "";
+          let checkoutUrl = existingTx?.checkoutUrl || "";
+          let gatewayRef = existingTx?.gatewayRef || "";
 
           if (action === "charge" || action === "invoice") {
             gatewayResult = await paymentGateway.createCheckout({
@@ -293,7 +298,7 @@ export function createMAS({ env, sessionId, requestId, sql, audit }: MASOptions)
               transactionId: draftId,
               amount,
               gateway,
-              gatewayRef: existingTx?.gateway_ref || "",
+              gatewayRef: existingTx?.gatewayRef || "",
               userLogin: sessionId,
               reason: note,
             });
@@ -301,15 +306,14 @@ export function createMAS({ env, sessionId, requestId, sql, audit }: MASOptions)
           }
 
           try {
-            sql.exec(
-              "UPDATE mas_transactions SET status = 'completed', gateway_ref = ?, checkout_url = ?, authorizer_did = ?, note = ?, updated_at = ? WHERE id = ?",
+            ormPorts.transactions.update(draftId, {
+              status: "completed",
               gatewayRef,
               checkoutUrl,
-              userDid,
-              note || "Approved by human authorizer",
-              now,
-              draftId
-            );
+              authorizerDid: userDid,
+              note: note || "Approved by human authorizer",
+              updatedAt: now,
+            });
           } catch {}
 
           const payload = {
@@ -330,13 +334,12 @@ export function createMAS({ env, sessionId, requestId, sql, audit }: MASOptions)
           return payload;
         } else {
           try {
-            sql.exec(
-              "UPDATE mas_transactions SET status = 'rejected', authorizer_did = ?, note = ?, updated_at = ? WHERE id = ?",
-              userDid,
-              note || "Rejected by human reviewer",
-              now,
-              draftId
-            );
+            ormPorts.transactions.update(draftId, {
+              status: "rejected",
+              authorizerDid: userDid,
+              note: note || "Rejected by human reviewer",
+              updatedAt: now,
+            });
           } catch {}
 
           const payload = {
@@ -383,12 +386,7 @@ export function createMAS({ env, sessionId, requestId, sql, audit }: MASOptions)
     execute: async ({ key, value }) => {
       const normalizedKey = key.trim().toLowerCase();
       const now = new Date().toISOString();
-      sql.exec(
-        "INSERT INTO mas_memory (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
-        normalizedKey,
-        value,
-        now
-      );
+      ormPorts.memory.upsert({ key: normalizedKey, value, updatedAt: now });
       audit("memory.remembered", "memory", { key: normalizedKey, value });
       return { stored: true, key: normalizedKey, value, updatedAt: now };
     },
@@ -400,20 +398,12 @@ export function createMAS({ env, sessionId, requestId, sql, audit }: MASOptions)
       filter: z.string().optional().describe("Optional keyword to filter stored memories"),
     }),
     execute: async ({ filter }) => {
-      let facts: Array<{ key: string; value: string; updated_at: string }> = [];
-      if (filter && filter.trim()) {
-        facts = Array.from(
-          sql.exec(
-            "SELECT key, value, updated_at FROM mas_memory WHERE lower(key) LIKE ? OR lower(value) LIKE ? ORDER BY updated_at DESC LIMIT 50",
-            `%${filter.toLowerCase()}%`,
-            `%${filter.toLowerCase()}%`
-          )
-        ) as Array<{ key: string; value: string; updated_at: string }>;
-      } else {
-        facts = Array.from(
-          sql.exec("SELECT key, value, updated_at FROM mas_memory ORDER BY updated_at DESC LIMIT 50")
-        ) as Array<{ key: string; value: string; updated_at: string }>;
-      }
+      const records =
+        filter && filter.trim()
+          ? ormPorts.memory.search(filter, 50)
+          : ormPorts.memory.listRecent(50);
+      const facts: Array<{ key: string; value: string; updated_at: string }> =
+        records.map((r) => ({ key: r.key, value: r.value, updated_at: r.updatedAt }));
       audit("memory.recalled", "memory", { count: facts.length, filter });
       return { count: facts.length, facts };
     },
