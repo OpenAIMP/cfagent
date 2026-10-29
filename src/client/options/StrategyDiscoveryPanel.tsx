@@ -48,7 +48,7 @@ import { OptionsDataDownloadDropdown } from "./OptionsDataDownloadDropdown";
 import type { TradeOrderContext } from "../trading/tradeOrderContext";
 import "./strategyDiscovery.css";
 import { StrategyLibraryModal, type StrategyInfo } from "./StrategyLibraryModal";
-import { Button, PillGroup, SegmentedControl, Select, Table, TextInput, Modal } from "../components/ui";
+import { Button, FieldShell, PillGroup, SegmentedControl, Select, Table, TextInput, Modal } from "../components/ui";
 
 const SENTIMENT_ITEMS: Array<{
   id: SentimentType;
@@ -1690,8 +1690,7 @@ export function StrategyDiscoveryPanel({
               <form onSubmit={handleSymbolSubmit} className="strat-symbol-bar">
                 <div className="strat-symbol-input-wrap">
                   <span className="strat-search-icon">🔍</span>
-                  <label htmlFor="strat-sym-input">Symbol:</label>
-                  <TextInput
+                  <TextInput label="Symbol:"
                     id="strat-sym-input"
                     type="text"
                     value={symbolInput}
@@ -1827,8 +1826,7 @@ export function StrategyDiscoveryPanel({
             <div className="strat-target-bar">
               <div className="strat-input-pill" title="Tap or edit to customize target price. Defaults to ±1x or ±2x implied move based on sentiment.">
                 <span className="strat-pill-icon">🎯</span>
-                <label>Target:</label>
-                <TextInput
+                <TextInput label="Target:"
                   type="number"
                   step="0.1"
                   value={targetPrice}
@@ -1957,66 +1955,51 @@ export function StrategyDiscoveryPanel({
                   {capturedRequest.dataMode === "calibrated-demo" ? "calibrated-demo chains" : "live chains"}
                 </p>
                 <div className="strat-schedule-confirm-controls">
-                  <label>
-                    Cadence
-                    <Select
-                      value={captureScheduleType}
-                      onChange={(e) => setCaptureScheduleType(e.target.value as typeof captureScheduleType)}
-                      aria-label="Schedule cadence type"
-                    >
-                      <option value="interval">Interval</option>
-                      <option value="cron">Cron (UTC)</option>
-                      <option value="delayed">Delayed (once)</option>
-                      <option value="scheduled">One-shot date</option>
-                    </Select>
-                  </label>
+                  <Select label="Cadence"
+                    value={captureScheduleType}
+                    onChange={(e) => setCaptureScheduleType(e.target.value as typeof captureScheduleType)}
+                    aria-label="Schedule cadence type"
+                  >
+                    <option value="interval">Interval</option>
+                    <option value="cron">Cron (UTC)</option>
+                    <option value="delayed">Delayed (once)</option>
+                    <option value="scheduled">One-shot date</option>
+                  </Select>
                   {captureScheduleType === "interval" && (
-                    <label>
-                      Every (seconds)
-                      <TextInput
-                        type="number"
-                        min={60}
-                        step={60}
-                        value={captureIntervalSeconds}
-                        onChange={(e) => setCaptureIntervalSeconds(Number(e.target.value))}
-                        aria-label="Interval seconds"
-                      />
-                    </label>
+                    <TextInput label="Every (seconds)"
+                      type="number"
+                      min={60}
+                      step={60}
+                      value={captureIntervalSeconds}
+                      onChange={(e) => setCaptureIntervalSeconds(Number(e.target.value))}
+                      aria-label="Interval seconds"
+                    />
                   )}
                   {captureScheduleType === "cron" && (
-                    <label>
-                      Cron (UTC)
-                      <TextInput
-                        type="text"
-                        value={captureCron}
-                        onChange={(e) => setCaptureCron(e.target.value)}
-                        aria-label="Cron expression"
-                      />
-                    </label>
+                    <TextInput label="Cron (UTC)"
+                      type="text"
+                      value={captureCron}
+                      onChange={(e) => setCaptureCron(e.target.value)}
+                      aria-label="Cron expression"
+                    />
                   )}
                   {captureScheduleType === "delayed" && (
-                    <label>
-                      Delay (seconds)
-                      <TextInput
-                        type="number"
-                        min={1}
-                        step={60}
-                        value={captureDelaySeconds}
-                        onChange={(e) => setCaptureDelaySeconds(Number(e.target.value))}
-                        aria-label="Delay seconds"
-                      />
-                    </label>
+                    <TextInput label="Delay (seconds)"
+                      type="number"
+                      min={1}
+                      step={60}
+                      value={captureDelaySeconds}
+                      onChange={(e) => setCaptureDelaySeconds(Number(e.target.value))}
+                      aria-label="Delay seconds"
+                    />
                   )}
                   {captureScheduleType === "scheduled" && (
-                    <label>
-                      Run at
-                      <TextInput
-                        type="datetime-local"
-                        value={captureDate}
-                        onChange={(e) => setCaptureDate(e.target.value)}
-                        aria-label="One-shot date and time"
-                      />
-                    </label>
+                    <TextInput label="Run at"
+                      type="datetime-local"
+                      value={captureDate}
+                      onChange={(e) => setCaptureDate(e.target.value)}
+                      aria-label="One-shot date and time"
+                    />
                   )}
                 </div>
                 {captureError && (
@@ -3502,35 +3485,37 @@ export function StrategyDiscoveryPanel({
               </p>
 
               <div className="strat-roll-field">
-                <label>Select New Expiration Date:</label>
-                <div className="strat-roll-exp-chips">
-                  {expirations.map((exp) => (
-                    <Button
-                      key={exp.date}
-                      type="button"
-                      className={`strat-roll-exp-chip ${exp.date === selectedExpiration.date ? "active" : ""}`}
-                      onClick={() => handleExecuteRoll(exp.dte, exp.date, rollingLeg.strike)}
-                    >
-                      {exp.label} ({exp.dte}d)
-                    </Button>
-                  ))}
-                </div>
+                <FieldShell id="strat-roll-exp" label="Select New Expiration Date:">
+                  <div className="strat-roll-exp-chips">
+                    {expirations.map((exp) => (
+                      <Button
+                        key={exp.date}
+                        type="button"
+                        className={`strat-roll-exp-chip ${exp.date === selectedExpiration.date ? "active" : ""}`}
+                        onClick={() => handleExecuteRoll(exp.dte, exp.date, rollingLeg.strike)}
+                      >
+                        {exp.label} ({exp.dte}d)
+                      </Button>
+                    ))}
+                  </div>
+                </FieldShell>
               </div>
 
               <div className="strat-roll-field">
-                <label>Select New Strike Price:</label>
-                <div className="strat-roll-strikes-grid">
-                  {rulerStrikes.map((k) => (
-                    <Button
-                      key={k}
-                      type="button"
-                      className={`strat-roll-strike-btn ${k === rollingLeg.strike ? "current" : ""}`}
-                      onClick={() => handleExecuteRoll(selectedExpiration.dte, selectedExpiration.date, k)}
-                    >
-                      ${k}
-                    </Button>
-                  ))}
-                </div>
+                <FieldShell id="strat-roll-strikes" label="Select New Strike Price:">
+                  <div className="strat-roll-strikes-grid">
+                    {rulerStrikes.map((k) => (
+                      <Button
+                        key={k}
+                        type="button"
+                        className={`strat-roll-strike-btn ${k === rollingLeg.strike ? "current" : ""}`}
+                        onClick={() => handleExecuteRoll(selectedExpiration.dte, selectedExpiration.date, k)}
+                      >
+                        ${k}
+                      </Button>
+                    ))}
+                  </div>
+                </FieldShell>
               </div>
             </div>
                   </Modal>
@@ -3608,8 +3593,7 @@ export function StrategyDiscoveryPanel({
             </div>
 
             <div className="strat-save-form">
-              <label>Strategy / Trade Name:</label>
-              <TextInput
+              <TextInput label="Strategy / Trade Name:"
                 type="text"
                 value={saveTradeName}
                 onChange={(e) => setSaveTradeName(e.target.value)}
@@ -3617,8 +3601,7 @@ export function StrategyDiscoveryPanel({
                 autoFocus
               />
 
-              <label>Trading Notes & Rationale (Optional):</label>
-              <TextInput multiline
+              <TextInput label="Trading Notes & Rationale (Optional):" multiline
                 value={saveTradeNotes}
                 onChange={(e) => setSaveTradeNotes(e.target.value)}
                 placeholder="Targeting $450 breakout after delivery report. Max loss defined at $250."
