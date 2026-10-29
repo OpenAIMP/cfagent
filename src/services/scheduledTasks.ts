@@ -28,6 +28,7 @@ import {
   type OpportunityStock,
 } from "../trading";
 import { ETradeService } from "./etrade";
+import { ACTIVE_JOB_PAYLOADS_SQL, hasActiveChain } from "./asyncJobGate";
 import {
   isPortfolioContextEnabled,
   settingReadFromSql,
@@ -770,16 +771,9 @@ export class ScheduledTasksService {
       let activeChain = false;
       try {
         const rows = [...(this.platformDeps.sql as any).exec(
-          `SELECT payload_json FROM mas_async_jobs WHERE status NOT IN ('completed', 'failed')`,
+          ACTIVE_JOB_PAYLOADS_SQL,
         )] as Array<Record<string, unknown>>;
-        activeChain = rows.some((row) => {
-          try {
-            const chain = (JSON.parse(String(row.payload_json)) as any)?.chain;
-            return chain?.userLogin === userLogin && chain?.universe === universe;
-          } catch {
-            return false;
-          }
-        });
+        activeChain = hasActiveChain(rows, userLogin, universe);
       } catch {
         // A gate read failure must not wedge submissions: proceed, and
         // the lock probe above remains the primary guard.

@@ -31,6 +31,7 @@ import { assessPortfolioConcentration } from "../services/portfolioConcentration
 import { sizeCandidateAgainstPortfolio, type SizingCandidate } from "../services/positionSizing";
 import { generateHedgeProposals } from "../services/hedgeProposals";
 import { ensureFrameworkQueueIndexes } from "../services/frameworkQueueIndexes";
+import { ensureAsyncJobGateIndexes } from "../services/asyncJobGate";
 import { sharedCorrelationService } from "../services/correlationService";
 import type { ScreenerAgent } from "./screener-agent";
 import type { ResearchAgent } from "./research-agent";
@@ -1067,6 +1068,9 @@ export class OrchestratorAgent extends PortThink {
       )
     `);
     sql.exec("CREATE INDEX IF NOT EXISTS idx_mas_async_jobs_session_created ON mas_async_jobs(session_id, created_at DESC)");
+    // Issue #2280 (slice 2): the already-running gate's seek index. The
+    // table is created just above, so no lazy-creation ordering issue.
+    ensureAsyncJobGateIndexes(sql);
     // Issue #1123: job-graph columns (parent/sub-job tracking) — additive.
     ensureAsyncJobGraphColumns(sql);
     ensureSharedTable(sql, "mas_events");
