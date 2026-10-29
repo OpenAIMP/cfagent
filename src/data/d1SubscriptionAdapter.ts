@@ -230,6 +230,20 @@ export class D1SubscriptionAdapter implements SubscriptionStore {
     return rows.length === 0 ? null : toSubscription(rows[0]);
   }
 
+  async revokeSubscription(subscriptionId: string, nowMs: number): Promise<SubscriptionRecord | null> {
+    const rows = await this.db
+      .select()
+      .from(agentSubscriptions)
+      .where(eq(agentSubscriptions.id, subscriptionId))
+      .limit(1);
+    if (rows.length === 0) return null;
+    await this.db
+      .update(agentSubscriptions)
+      .set({ status: "canceled", canceledAtMs: nowMs, periodEndMs: nowMs, updatedAtMs: nowMs })
+      .where(eq(agentSubscriptions.id, subscriptionId));
+    return { ...toSubscription(rows[0]), status: "canceled", canceledAtMs: nowMs, periodEndMs: nowMs, updatedAtMs: nowMs };
+  }
+
   async cancelUnexpiredSubscriptions(userId: string, nowMs: number): Promise<SubscriptionRecord[]> {
     const rows = await this.db
       .select()
