@@ -91,14 +91,22 @@ import {
 import {
   getCapabilityRoute,
   getProviderConfig,
+  listCapabilityRoutes,
   listProviderConfigs,
   upsertCapabilityRoute,
   upsertProviderConfig,
   clearProviderCredentialRef,
   deleteCapabilityRoutesForProvider,
+  type CapabilityRouteInput,
+  type CapabilityRouteRecord,
+  type ProviderConfigInput,
   type ProviderConfigRecord,
   type ProviderLifecycleState,
 } from "./providerConfigStore";
+import type {
+  ProviderConfigStore,
+  ProviderConfigWrite,
+} from "../../data/providerConfigPorts";
 
 export type ProviderLifecycleAction =
   | "register"
@@ -309,6 +317,65 @@ function isLegal(
 }
 
 /**
+ * The store operations the transition core runs over. Two
+ * bindings exist: the legacy SqlStorage surface (sync functions,
+ * sequential writes — the behaviour this module has always had)
+ * and the ProviderConfigStore port (#2303). The port binding
+ * additionally supplies applyWrites, which switches the two
+ * multi-write actions (configure, deprovision) to a pre-computed
+ * WRITE SET applied as one unit of work through the port's
+ * transaction seam (on the D1 adapter: withTransaction's batch
+ * leg — the aspect's first production use, ADR 0022 D-C). The
+ * sequential path remains the semantics wherever no write-set
+ * seam exists; both paths compute identical end states.
+ */
+type MaybePromise<T> = T | Promise<T>;
+
+interface LifecycleStoreOps {
+  get(id: DataProviderId): MaybePromise<ProviderConfigRecord | null>;
+  list(): MaybePromise<ProviderConfigRecord[]>;
+  upsert(input: ProviderConfigInput): MaybePromise<ProviderConfigRecord>;
+  clearRef(id: DataProviderId): MaybePromise<ProviderConfigRecord | null>;
+  getRoute(
+    capability: DataProviderCapability
+  ): MaybePromise<CapabilityRouteRecord | null>;
+  upsertRoute(input: CapabilityRouteInput): MaybePromise<CapabilityRouteRecord>;
+  listRoutes(): MaybePromise<CapabilityRouteRecord[]>;
+  deleteRoutesFor(
+    providerId: DataProviderId
+  ): MaybePromise<{ deleted: number; gapFillCleared: number }>;
+  /** Present only on the port binding: apply a write set atomically. */
+  applyWrites?(writes: readonly ProviderConfigWrite[]): Promise<void>;
+}
+
+function sqlLifecycleOps(sql: SqlStorage): LifecycleStoreOps {
+  return {
+    get: (id) => getProviderConfig(sql, id),
+    list: () => listProviderConfigs(sql),
+    upsert: (input) => upsertProviderConfig(sql, input),
+    clearRef: (id) => clearProviderCredentialRef(sql, id),
+    getRoute: (capability) => getCapabilityRoute(sql, capability),
+    upsertRoute: (input) => upsertCapabilityRoute(sql, input),
+    listRoutes: () => listCapabilityRoutes(sql),
+    deleteRoutesFor: (id) => deleteCapabilityRoutesForProvider(sql, id),
+  };
+}
+
+function portLifecycleOps(port: ProviderConfigStore): LifecycleStoreOps {
+  return {
+    get: (id) => port.getProviderConfig(id),
+    list: () => port.listProviderConfigs(),
+    upsert: (input) => port.upsertProviderConfig(input),
+    clearRef: (id) => port.clearProviderCredentialRef(id),
+    getRoute: (capability) => port.getCapabilityRoute(capability),
+    upsertRoute: (input) => port.upsertCapabilityRoute(input),
+    listRoutes: () => port.listCapabilityRoutes(),
+    deleteRoutesFor: (id) => port.deleteCapabilityRoutesForProvider(id),
+    applyWrites: (writes) => port.applyConfigWrites(writes),
+  };
+}
+
+/**
  * Perform one lifecycle transition. Returns the record as stored on
  * success; throws ProviderLifecycleError on any rejection (illegal
  * move, unknown provider, invalid credential reference, failed or
@@ -322,8 +389,34 @@ export async function transitionProvider(
   actor: string,
   deps: ProviderTransitionDeps = {}
 ): Promise<ProviderConfigRecord> {
+  return transitionProviderCore(sqlLifecycleOps(sql), providerId, action, actor, deps);
+}
+
+/**
+ * The same transition over the ProviderConfigStore port (#2303):
+ * production wiring passes the D1 adapter, so lifecycle reads and
+ * writes run on D1, and configure/deprovision apply their write
+ * phase as one transactional unit (see LifecycleStoreOps).
+ */
+export async function transitionProviderViaPort(
+  port: ProviderConfigStore,
+  providerId: string,
+  action: ProviderLifecycleAction,
+  actor: string,
+  deps: ProviderTransitionDeps = {}
+): Promise<ProviderConfigRecord> {
+  return transitionProviderCore(portLifecycleOps(port), providerId, action, actor, deps);
+}
+
+async function transitionProviderCore(
+  ops: LifecycleStoreOps,
+  providerId: string,
+  action: ProviderLifecycleAction,
+  actor: string,
+  deps: ProviderTransitionDeps = {}
+): Promise<ProviderConfigRecord> {
   const id = providerId as DataProviderId;
-  const existing = getProviderConfig(sql, id);
+  const existing = await ops.get(id);
   const from = existing?.lifecycleState ?? null;
   const to = targetStateFor(action);
 
@@ -394,11 +487,11 @@ export async function transitionProvider(
     }
     const precedence =
       input.precedence ??
-      listProviderConfigs(sql).reduce((max, c) => Math.max(max, c.precedence), 0) + 1;
+      (await ops.list()).reduce((max, c) => Math.max(max, c.precedence), 0) + 1;
     const config: Record<string, unknown> = {};
     if (input.displayName !== undefined) config.displayName = input.displayName;
     return accept(
-      upsertProviderConfig(sql, {
+      await ops.upsert({
         id,
         adapterKind: input.adapterKind ?? providerId,
         lifecycleState: "registered",
@@ -453,6 +546,7 @@ export async function transitionProvider(
       const routeTierWrites: Array<{
         capability: DataProviderCapability;
         tier: Tier;
+        route: CapabilityRouteRecord;
       }> = [];
       for (const [capabilityRaw, tierRaw] of Object.entries(
         input.routeTiers ?? {}
@@ -474,17 +568,18 @@ export async function transitionProvider(
           );
         }
         const capability = capabilityRaw as DataProviderCapability;
-        const route = getCapabilityRoute(sql, capability);
+        const route = await ops.getRoute(capability);
         if (
-          !route ||
-          (route.primaryProviderId !== id && route.gapFillProviderId !== id)
+          route &&
+          (route.primaryProviderId === id || route.gapFillProviderId === id)
         ) {
+          routeTierWrites.push({ capability, tier: tierRaw, route });
+        } else {
           reject(
             "invalid_route_tier",
             `Provider "${providerId}" does not serve capability "${capability}" as primary or gap-fill; there is no route of this provider to tier.`
           );
         }
-        routeTierWrites.push({ capability, tier: tierRaw });
       }
       const config: Record<string, unknown> = { ...record.config };
       // A new configuration invalidates any earlier verification.
@@ -493,7 +588,42 @@ export async function transitionProvider(
         for (const [k, v] of Object.entries(input.metadata)) config[k] = v;
       }
       if (input.displayName !== undefined) config.displayName = input.displayName;
-      const updated = upsertProviderConfig(sql, {
+
+      if (ops.applyWrites) {
+        // Write-set path (port binding): the config row and every
+        // route-tier row are computed from the reads above and
+        // applied as ONE unit of work. An explicit-null
+        // credentialRef clears the reference inside the same unit
+        // (the sequential path's upsert-then-clear end state).
+        const now = new Date().toISOString();
+        const finalRow: ProviderConfigRecord = {
+          ...record,
+          lifecycleState: "configured",
+          config,
+          credentialRef:
+            input.credentialRef === null
+              ? null
+              : (input.credentialRef ?? record.credentialRef),
+          updatedAt: now,
+        };
+        const writes: ProviderConfigWrite[] = [
+          { kind: "upsertProvider", record: finalRow },
+          ...routeTierWrites.map(
+            (write): ProviderConfigWrite => ({
+              kind: "upsertRoute",
+              record: {
+                ...write.route,
+                minTier: write.tier,
+                updatedAt: now,
+              },
+            })
+          ),
+        ];
+        await ops.applyWrites(writes);
+        return accept((await ops.get(id)) ?? finalRow);
+      }
+
+      const updated = await ops.upsert({
         id,
         adapterKind: record.adapterKind,
         precedence: record.precedence,
@@ -508,15 +638,15 @@ export async function transitionProvider(
       // an explicit null means CLEAR.
       const final =
         input.credentialRef === null
-          ? clearProviderCredentialRef(sql, id) ?? updated
+          ? ((await ops.clearRef(id)) ?? updated)
           : updated;
       // Apply the validated route tiers (slots re-read at apply
       // time; occupancy was proven above and nothing else writes
       // routes during a transition).
       for (const write of routeTierWrites) {
-        const route = getCapabilityRoute(sql, write.capability);
+        const route = await ops.getRoute(write.capability);
         if (route) {
-          upsertCapabilityRoute(sql, {
+          await ops.upsertRoute({
             capability: write.capability,
             primaryProviderId: route.primaryProviderId,
             gapFillProviderId: route.gapFillProviderId,
@@ -558,7 +688,7 @@ export async function transitionProvider(
         } satisfies ProviderVerificationEvidence,
       };
       return accept(
-        upsertProviderConfig(sql, {
+        await ops.upsert({
           id,
           adapterKind: record.adapterKind,
           precedence: record.precedence,
@@ -572,7 +702,7 @@ export async function transitionProvider(
 
     case "enable": {
       return accept(
-        upsertProviderConfig(sql, {
+        await ops.upsert({
           id,
           adapterKind: record.adapterKind,
           precedence: record.precedence,
@@ -586,7 +716,7 @@ export async function transitionProvider(
 
     case "disable": {
       return accept(
-        upsertProviderConfig(sql, {
+        await ops.upsert({
           id,
           adapterKind: record.adapterKind,
           precedence: record.precedence,
@@ -599,10 +729,40 @@ export async function transitionProvider(
     }
 
     case "deprovision": {
-      deleteCapabilityRoutesForProvider(sql, id);
       const config: Record<string, unknown> = { ...record.config };
       delete config.verification;
-      const tombstoned = upsertProviderConfig(sql, {
+      if (ops.applyWrites) {
+        // Write-set path (port binding): route withdrawals, the
+        // tombstone and the credential-ref clear land as ONE unit
+        // of work — a deprovision can no longer half-apply (routes
+        // gone but the record live, or the tombstone retaining a
+        // credential pointer it no longer owns).
+        const now = new Date().toISOString();
+        const writes: ProviderConfigWrite[] = [];
+        for (const route of await ops.listRoutes()) {
+          if (route.primaryProviderId === id) {
+            writes.push({ kind: "deleteRoute", capability: route.capability });
+          } else if (route.gapFillProviderId === id) {
+            writes.push({
+              kind: "upsertRoute",
+              record: { ...route, gapFillProviderId: null, updatedAt: now },
+            });
+          }
+        }
+        const tombstone: ProviderConfigRecord = {
+          ...record,
+          lifecycleState: "deprovisioned",
+          enabled: false,
+          credentialRef: null,
+          config,
+          updatedAt: now,
+        };
+        writes.push({ kind: "upsertProvider", record: tombstone });
+        await ops.applyWrites(writes);
+        return accept((await ops.get(id)) ?? tombstone);
+      }
+      await ops.deleteRoutesFor(id);
+      const tombstoned = await ops.upsert({
         id,
         adapterKind: record.adapterKind,
         precedence: record.precedence,
@@ -611,7 +771,7 @@ export async function transitionProvider(
         credentialRef: record.credentialRef,
         config,
       });
-      const cleared = clearProviderCredentialRef(sql, id) ?? tombstoned;
+      const cleared = (await ops.clearRef(id)) ?? tombstoned;
       return accept(cleared);
     }
   }
