@@ -204,6 +204,14 @@ import {
   resolveQuoteStreamProvenance,
 } from "./config/quoteModes";
 import { resolveSnapIdentity } from "./config/restTwinsModes";
+import { buildDataProviderPorts } from "./data/buildDataProviderPorts";
+import { registerDataProviderPortsBuilder } from "./data/dataProviderPortsProvider";
+
+// #2303 (#1976 step 1): register the data-provider ports
+// builder for the client-bundle-reachable consumers
+// (ETradeService, ETradeTradingPlatform) that cannot import
+// the builder themselves — see dataProviderPortsProvider.ts.
+registerDataProviderPortsBuilder(buildDataProviderPorts);
 import {
   filterLiveFlowItems,
   filterNewsFlowItems,
