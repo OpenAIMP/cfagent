@@ -323,8 +323,26 @@ function cardByTitle(titlePart: string): HTMLElement {
   const card = [...container.querySelectorAll(".schedule-item-card")].find((c) =>
     c.textContent?.includes(titlePart)
   );
-  if (!card) throw new Error(`schedule card "${titlePart}" not found`);
+  if (!card) throw new Error(`schedule row "${titlePart}" not found`);
   return card as HTMLElement;
+}
+
+/** #2329: details render in the one dialog, portaled to document.body. */
+function detailDialog(): HTMLElement {
+  const dialog = document.querySelector(".sched-detail-modal") as HTMLElement | null;
+  if (!dialog) throw new Error("details dialog did not open");
+  return dialog;
+}
+
+/** waitForText reads the render container; a portaled dialog needs its own wait. */
+async function waitForDialogText(text: string, timeoutMs = 6000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const dialog = document.querySelector(".sched-detail-modal");
+    if (dialog?.textContent?.includes(text)) return;
+    await flush(50);
+  }
+  throw new Error(`Timed out waiting for dialog text "${text}".`);
 }
 
 function selectByOptionText(scope: ParentNode, optionText: string): HTMLSelectElement {
@@ -378,13 +396,30 @@ describe("ScheduledOptionsManager — stock/options schedules", () => {
     await waitForText("Stock Market Screen");
     const stockCard = cardByTitle("Stock Market Screen");
     const optionsCard = cardByTitle("Options Market Screen");
-    for (const field of ["userLogin", "trader1", "environment", "TEST", "universe", "maxItems", "trigger", "scheduled"]) {
-      expect(stockCard.textContent).toContain(field);
-      expect(optionsCard.textContent).toContain(field);
+    // #2329: every row states the same owner/environment line...
+    for (const row of [stockCard, optionsCard]) {
+      expect(row.textContent).toContain("trader1");
+      expect(row.textContent).toContain("TEST");
     }
     expect(stockCard.textContent).toContain("LEV_ETF");
-    expect(stockCard.textContent).toContain("29");
-    expect(optionsCard.textContent).toContain("NASDAQ100");
+    expect(stockCard.textContent).toContain("Technology");
+    expect(optionsCard.textContent).toContain("NVDA, AAPL");
+
+    // ...and the one Details dialog names the same fields for both kinds.
+    await click(buttonByText(stockCard, "Details"));
+    const stockDialog = detailDialog();
+    await waitForDialogText("Raw payload");
+    for (const field of ["Schedule ID", "Job", "Callback", "Owner", "Environment", "Trigger", "Universe", "Max items"]) {
+      expect(stockDialog.textContent).toContain(field);
+    }
+    expect(stockDialog.textContent).toContain('"userLogin": "trader1"');
+    expect(stockDialog.textContent).toContain("scheduled");
+    await click(buttonByText(stockDialog, "Close"));
+
+    await click(buttonByText(optionsCard, "Details"));
+    const optionsDialog = detailDialog();
+    await waitForDialogText("NASDAQ100");
+    expect(optionsDialog.textContent).toContain("NASDAQ100");
     // Deliberate registry growth (#126 PR-G): saved-view strategy
     // discovery joined the two screen jobs as a first-class system job.
     expect(Object.keys(SYSTEM_JOBS).sort()).toEqual(
@@ -572,19 +607,20 @@ describe("ScheduledOptionsManager — detail view", () => {
     expect(callsTo(calls, "/api/schedules/sys-market-screen", "GET")).toHaveLength(0);
 
     await click(buttonByText(screenCard, "Details"));
-    await waitForText("Next run:");
+    const dialog = detailDialog();
+    await waitForDialogText("Raw payload");
 
     const detailCalls = callsTo(calls, "/api/schedules/sys-market-screen", "GET");
     expect(detailCalls).toHaveLength(1);
-    expect(screenCard.textContent).toContain(new Date(NEXT_RUN_S * 1000).toLocaleString());
-    expect(screenCard.textContent).toContain("0 14 * * 1-5");
-    expect(screenCard.textContent).toContain("autonomousMarketScreen");
-    expect(screenCard.textContent).toContain('"userLogin"');
-    expect(screenCard.textContent).toContain("sys-market-screen");
+    expect(dialog.textContent).toContain(new Date(NEXT_RUN_S * 1000).toLocaleString());
+    expect(dialog.textContent).toContain("0 14 * * 1-5");
+    expect(dialog.textContent).toContain("autonomousMarketScreen");
+    expect(dialog.textContent).toContain('"userLogin"');
+    expect(dialog.textContent).toContain("sys-market-screen");
 
-    // Toggling again collapses the panel without another fetch.
-    await click(buttonByText(screenCard, "Hide Details"));
-    expect(screenCard.textContent).not.toContain("Next run:");
+    // Closing the dialog keeps the single fetch: no re-read, no guess.
+    await click(buttonByText(dialog, "Close"));
+    expect(document.querySelector(".sched-detail-modal")).toBeNull();
     expect(callsTo(calls, "/api/schedules/sys-market-screen", "GET")).toHaveLength(1);
   });
 });
@@ -660,15 +696,19 @@ describe("ScheduledOptionsManager — strategy discovery schedules (#126 PR-G)",
     expect(container.textContent).toContain("3 Active");
     const card = cardByTitle("Strategy Discovery");
     expect(card.textContent).toContain("Every 240 min");
-    expect(card.textContent).toContain("saved views");
-    expect(card.textContent).toContain("NVDA");
-    expect(card.textContent).toContain("bullish");
-    expect(card.textContent).toContain("$200");
-    expect(card.textContent).toContain("2027-12-18");
-    expect(card.textContent).toContain("MSFT");
+    expect(card.textContent).toContain("2 saved views");
+    expect(card.textContent).toContain("NVDA, MSFT");
     for (const label of ["Trigger Now", "Edit", "Cancel", "Details"]) {
       expect([...card.querySelectorAll("button")].some((b) => b.textContent?.includes(label))).toBe(true);
     }
+    // #2329: each saved view is a row in the one Details dialog.
+    await click(buttonByText(card, "Details"));
+    const dialog = detailDialog();
+    await waitForDialogText("Saved views");
+    expect(dialog.textContent).toContain("bullish");
+    expect(dialog.textContent).toContain("$200");
+    expect(dialog.textContent).toContain("2027-12-18");
+    expect(dialog.textContent).toContain("MSFT");
   });
 
   it("Trigger Now on a discovery card posts the card's saved requests to trigger-discovery only", async () => {
@@ -694,10 +734,11 @@ describe("ScheduledOptionsManager — strategy discovery schedules (#126 PR-G)",
 
     await click(buttonByText(cardByTitle("Strategy Discovery"), "Cancel"));
 
-    // #2283 stream 1: Cancel now opens the confirm Modal (portaled to
-    // document.body) instead of a native confirm().
-    const modal = document.querySelector(".modal-backdrop") as HTMLElement;
-    await click(buttonByText(modal, "Cancel task"));
+    // #2283 stream 1: Cancel opens a Modal instead of a native confirm().
+    // #2329: that dialog is the shared one and names what is cancelled.
+    const modal = document.querySelector(".sched-confirm-modal") as HTMLElement;
+    expect(modal.textContent).toContain("user-discovery-1");
+    await click(buttonByText(modal, "Cancel schedule"));
 
     const cancelCalls = callsTo(calls, "/api/schedules/cancel", "POST");
     expect(cancelCalls).toHaveLength(1);
@@ -1041,12 +1082,16 @@ describe("ScheduledOptionsManager — profile-derived discovery (#533)", () => {
     await waitForText("Strategy Discovery · Profile-derived");
     await waitForText("Income (v3)");
     const card = cardByTitle("Strategy Discovery · Profile-derived");
-    expect(card.textContent).toContain("input model");
     expect(card.textContent).toContain("Profile-derived");
     expect(card.textContent).toContain("NVDA, MSFT");
     // The profile id resolves to the loaded profile's name + version.
     expect(card.textContent).toContain("Income (v3)");
     expect(card.textContent).not.toContain("saved views");
+    // The canonical model row lives in the one Details dialog.
+    await click(buttonByText(card, "Details"));
+    const dialog = detailDialog();
+    expect(dialog.textContent).toContain("Input model");
+    expect(dialog.textContent).toContain("Profile-derived");
     // The saved-view card next to it keeps its own labelling.
     const savedCard = cardByTitle("Strategy Discovery");
     expect(savedCard.textContent).toContain("saved views");
@@ -1209,11 +1254,13 @@ describe("ScheduledOptionsManager — profile-derived discovery (#533)", () => {
 
     const card = cardByTitle("Strategy Discovery · Profile-derived");
     await click(buttonByText(card, "Details"));
-    await waitForText("Targets derived at run time");
+    await waitForDialogText("Targets derived at run time");
 
     expect(callsTo(calls, "/api/schedules/user-discovery-derived", "GET")).toHaveLength(1);
-    expect(card.textContent).toContain("Profile ID:");
-    expect(card.textContent).toContain("prof-1");
+    const dialog = detailDialog();
+    expect(dialog.textContent).toContain("Profile");
+    expect(dialog.textContent).toContain("Income (v3)");
+    expect(dialog.textContent).toContain('"profileId": "prof-1"');
   });
 });
 
@@ -1340,12 +1387,13 @@ describe("ScheduledOptionsManager — no-view discovery (#534)", () => {
     await renderManager();
     await waitForText("Strategy Discovery · No-view");
     const card = cardByTitle("Strategy Discovery · No-view");
-    expect(card.textContent).toContain("input model");
     expect(card.textContent).toContain("No-view");
     expect(card.textContent).toContain("NVDA, MSFT");
-    expect(card.textContent).toContain("max loss $500");
-    expect(card.textContent).toContain("no thesis, no target");
     expect(card.textContent).not.toContain("saved views");
+    await click(buttonByText(card, "Details"));
+    const dialog = detailDialog();
+    expect(dialog.textContent).toContain("max loss $500");
+    expect(dialog.textContent).toContain("no thesis, no target");
     // The saved-view card next to it keeps its own labelling.
     const savedCard = cardByTitle("Strategy Discovery");
     expect(savedCard.textContent).toContain("saved views");
@@ -1479,11 +1527,12 @@ describe("ScheduledOptionsManager — no-view discovery (#534)", () => {
 
     const card = cardByTitle("Strategy Discovery · No-view");
     await click(buttonByText(card, "Details"));
-    await waitForText("No view on this schedule");
+    await waitForDialogText("No view is stored on this schedule");
 
     expect(callsTo(calls, "/api/schedules/user-discovery-noview", "GET")).toHaveLength(1);
-    expect(card.textContent).toContain("Input model:");
-    expect(card.textContent).toContain("Constraint sets:");
-    expect(card.textContent).toContain("no-view-v1 score model");
+    const dialog = detailDialog();
+    expect(dialog.textContent).toContain("Input model");
+    expect(dialog.textContent).toContain("Constraint sets");
+    expect(dialog.textContent).toContain("no-view-v1 score model");
   });
 });

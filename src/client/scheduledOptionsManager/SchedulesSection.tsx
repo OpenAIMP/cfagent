@@ -1,54 +1,82 @@
 import React from "react";
-import { EmptyState, Button } from "../components/ui";
+import { Button, EmptyState, Table } from "../components/ui";
 import type { ScheduledTaskItem } from "./types";
-import { ScheduleCard, type ScheduleCardProps } from "./ScheduleCard";
+import {
+  buildScheduleRowColumns,
+  scheduleRowClassName,
+  scheduleRowLabel,
+  type ScheduleRowContext,
+  type ScheduleRowHandlers,
+} from "./ScheduleCard";
 
-export interface SchedulesSectionProps extends Omit<ScheduleCardProps, "item"> {
+export interface SchedulesSectionProps extends ScheduleRowContext, ScheduleRowHandlers {
   schedules: ScheduledTaskItem[];
   loading: boolean;
-  fetchSchedules: () => Promise<void>;
   openCreateModal: () => void;
 }
 
-export function SchedulesSection(props: SchedulesSectionProps) {
-  const { schedules, loading, fetchSchedules, openCreateModal, ...cardProps } = props;
-  return (
-      <section className="sched-section-card">
-        <header className="sched-section-header">
-          <h4>
-            <span>⏱️</span> Active Durable Schedules
-            <span className="sched-count-pill">{schedules.length} Active</span>
-          </h4>
-          <Button
-            type="button"
-            className="btn-sched-action-sm"
-            onClick={fetchSchedules}
-            disabled={loading}
-          >
-            {loading ? "Refreshing…" : "↻ Refresh"}
-          </Button>
-        </header>
+/**
+ * Active durable schedules as one table (issue #2329): one row per
+ * schedule, every action on that row. The section owns no data — the
+ * manager fetches the list, and the Details/Edit/Cancel dialogs live
+ * beside this table so a row stays a row.
+ */
+export function SchedulesSection({
+  schedules,
+  loading,
+  openCreateModal,
+  profiles,
+  activeEnv,
+  userLogin,
+  busyKey,
+  onShowDetails,
+  onEdit,
+  onTrigger,
+  onTogglePause,
+  onCancel,
+}: SchedulesSectionProps) {
+  const columns = buildScheduleRowColumns(
+    { profiles, activeEnv, userLogin },
+    { busyKey, onShowDetails, onEdit, onTrigger, onTogglePause, onCancel }
+  );
 
-        {schedules.length === 0 && !loading ? (
-          <EmptyState
-            icon="📅"
-            description="Create a stock screen, options analysis, or saved-view discovery schedule to see it here; legacy app-created jobs are not recreated automatically."
-            title="No active schedules"
-            action={<Button
-              type="button"
-              className="btn-sched-primary"
-              onClick={openCreateModal}
-            >
-              + Create First Schedule
-            </Button>}
-          />
-        ) : (
-          <div className="schedules-grid">
-            {schedules.map((item) => (
-              <ScheduleCard key={item.id} item={item} {...cardProps} />
-            ))}
-          </div>
+  return (
+    <section className="sched-section-card">
+      <header className="sched-section-header">
+        <h4>
+          <span aria-hidden="true">⏱️</span> Active Durable Schedules
+          <span className="sched-count-pill">{schedules.length} Active</span>
+        </h4>
+        {loading && schedules.length > 0 && (
+          <span className="schedule-row-muted">Refreshing…</span>
         )}
-      </section>
+      </header>
+
+      {loading && schedules.length === 0 ? (
+        <p className="sched-table-status">Refreshing schedules…</p>
+      ) : (
+        <Table
+          columns={columns}
+          rows={schedules}
+          rowKey={(item) => item.id}
+          rowClassName={scheduleRowClassName}
+          rowTitle={scheduleRowLabel}
+          caption="Active durable schedules, one row per schedule"
+          containerClassName="sched-table-scroll"
+          empty={
+            <EmptyState
+              icon="📅"
+              title="No active schedules"
+              description="Create a stock screen, options analysis, or saved-view discovery schedule to see it here; legacy app-created jobs are not recreated automatically."
+              action={
+                <Button type="button" variant="accent" onClick={openCreateModal}>
+                  + Create First Schedule
+                </Button>
+              }
+            />
+          }
+        />
+      )}
+    </section>
   );
 }

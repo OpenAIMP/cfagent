@@ -1,81 +1,97 @@
 import React from "react";
-import { Button } from "../components/ui";
+import { Badge, Table, type TableColumn } from "../components/ui";
 import type { OptionsRunSummary } from "./types";
 
 export interface LatestRunsSectionProps {
   latestRuns: OptionsRunSummary[];
   runsLoading: boolean;
   runsError: string | null;
-  fetchLatestRuns: () => Promise<void>;
 }
 
-export function LatestRunsSection({
-  latestRuns,
-  runsLoading,
-  runsError,
-  fetchLatestRuns,
-}: LatestRunsSectionProps) {
+/**
+ * Latest autonomous options runs (#223), one row per run (issue
+ * #2329). This section is read-only: the page's single Refresh control
+ * refetches it, and it polls every 60s so a scheduled fire appears
+ * without a manual refresh.
+ */
+export function LatestRunsSection({ latestRuns, runsLoading, runsError }: LatestRunsSectionProps) {
+  const columns: TableColumn<OptionsRunSummary>[] = [
+    {
+      key: "timestamp",
+      header: "Completed",
+      render: (run) => (
+        <span className="schedule-row-muted">{new Date(run.timestamp).toLocaleString()}</span>
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      render: (run) => (
+        <Badge tone={run.success ? "success" : "danger"} size="xs" dot>
+          {run.success ? "Completed" : "Failed"}
+        </Badge>
+      ),
+    },
+    {
+      key: "symbols",
+      header: "Symbols",
+      render: (run) =>
+        run.symbols && run.symbols.length > 0 ? run.symbols.join(", ") : "Whole universe",
+    },
+    {
+      key: "setups",
+      header: "Actionable setups",
+      align: "right",
+      render: (run) => <strong>{run.withTrades ?? 0}</strong>,
+    },
+    {
+      key: "trigger",
+      header: "Trigger",
+      render: (run) => (
+        <span className="schedule-row-stack">
+          <span className="schedule-row-value">{run.trigger || "scheduled"}</span>
+          {run.thesis && <span className="schedule-row-muted">{run.thesis}</span>}
+        </span>
+      ),
+    },
+    {
+      key: "summary",
+      header: "Summary",
+      render: (run) => (
+        <span className="schedule-row-summary">{run.summary || run.error || "—"}</span>
+      ),
+    },
+  ];
+
   return (
-      <section className="sched-section-card">
-        <header className="sched-section-header">
-          <h4>
-            <span>📈</span> Latest Autonomous Options Runs
-            <span className="sched-count-pill">{latestRuns.length} Runs</span>
-          </h4>
-          <Button
-            type="button"
-            className="btn-sched-action-sm"
-            onClick={fetchLatestRuns}
-            disabled={runsLoading}
-          >
-            {runsLoading ? "Refreshing…" : "↻ Refresh"}
-          </Button>
-        </header>
+    <section className="sched-section-card">
+      <header className="sched-section-header">
+        <h4>
+          <span aria-hidden="true">📈</span> Latest Autonomous Options Runs
+          <span className="sched-count-pill">{latestRuns.length} Runs</span>
+        </h4>
+        {runsLoading && <span className="schedule-row-muted">Refreshing…</span>}
+      </header>
 
-        {runsError ? (
-          <p style={{ margin: "0.4rem 0 0", fontSize: "var(--font-size-caption)", color: "var(--color-danger)" }}>{runsError}</p>
-        ) : null}
+      {runsError ? (
+        <p className="sched-inline-error" role="alert">
+          {runsError}
+        </p>
+      ) : null}
 
-        {latestRuns.length === 0 && !runsLoading ? (
-          <p style={{ margin: "0.4rem 0 0", fontSize: "var(--font-size-body-sm)", color: "var(--color-text-muted)" }}>
-            No options runs recorded yet. A scheduled or manual analysis appears here once it completes.
+      <Table
+        columns={columns}
+        rows={latestRuns}
+        rowKey={(run, index) => `${run.timestamp}-${index}`}
+        caption="Latest autonomous options analysis runs"
+        containerClassName="sched-table-scroll"
+        empty={
+          <p className="sched-table-status">
+            No options runs recorded yet. A scheduled or manual analysis appears here once it
+            completes.
           </p>
-        ) : (
-          <div className="schedules-grid">
-            {latestRuns.map((run, idx) => (
-              <div className="schedule-item-card is-options" key={`${run.timestamp}-${idx}`}>
-                <div className="schedule-card-top">
-                  <span className={`schedule-type-badge ${run.success ? "interval" : "once"}`}>
-                    {run.success ? "completed" : "failed"}
-                  </span>
-                  <span className="schedule-id-snippet" title={run.timestamp}>
-                    {new Date(run.timestamp).toLocaleString()}
-                  </span>
-                </div>
-                <h5 className="schedule-title">
-                  {run.symbols && run.symbols.length > 0 ? run.symbols.join(", ") : "Autonomous options analysis"}
-                </h5>
-                <div className="schedule-payload-details">
-                  <div className="payload-row">
-                    <span className="payload-label">setups:</span>
-                    <span className="payload-value">{run.withTrades ?? 0}</span>
-                  </div>
-                  <div className="payload-row">
-                    <span className="payload-label">trigger:</span>
-                    <span className="payload-value">
-                      {run.trigger || "scheduled"}
-                      {run.thesis ? ` · ${run.thesis}` : ""}
-                    </span>
-                  </div>
-                </div>
-                {run.summary ? <p className="schedule-system-note">{run.summary}</p> : null}
-                {!run.success && run.error ? (
-                  <p style={{ margin: "0.4rem 0 0", fontSize: "var(--font-size-caption)", color: "var(--color-danger)" }}>{run.error}</p>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
+        }
+      />
+    </section>
   );
 }

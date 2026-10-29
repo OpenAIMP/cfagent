@@ -97,7 +97,9 @@ export function DiscoveryFormSections(props: DiscoveryFormSectionsProps) {
                         {discoveryRequests.length > 1 && (
                           <Button
                             type="button"
-                            className="btn-sched-action-sm"
+                            variant="danger"
+                            tone="subtle"
+                            size="sm"
                             onClick={() =>
                               setDiscoveryRequests((prev) => prev.filter((_, i) => i !== idx))
                             }
@@ -241,7 +243,7 @@ export function DiscoveryFormSections(props: DiscoveryFormSectionsProps) {
                   ))}
                   <Button
                     type="button"
-                    className="btn-sched-secondary"
+                    variant="secondary"
                     onClick={() =>
                       setDiscoveryRequests((prev) => [...prev, blankDiscoveryRequestDraft()])
                     }
