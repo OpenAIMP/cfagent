@@ -8,6 +8,7 @@
  * - think_trade_validation (Think Harness)
  * - ai_search_financial_docs (AI Search)
  * - execute_durable_twap (Durable Fibers — TWAP preview planning; places no orders)
+ * - ai_search_agent_search (AiSearchAgent door — the instance through the agent, #2250)
  */
 
 import type { IMcpToolCommand, McpToolContext } from "../patterns/interfaces";
@@ -25,6 +26,14 @@ import { ETradeThinkHarness } from "../services/thinkHarness";
 import { ETradeAISearchService } from "../services/aiSearch";
 import { ETradeDurableFiberService } from "../services/durableFibers";
 import { ETradeService } from "../services/etrade";
+import type {
+  AiSearchAgentErrorToken,
+  AiSearchAgentResultItem,
+  AiSearchAgentSearchOptions,
+  AiSearchAgentSearchResult,
+  AiSearchPath,
+} from "../agents/aiSearchPaths";
+import { AgentErrorCode } from "../aspects/errorCodes";
 
 /**
  * 1. Browser Inspect Page Command
@@ -388,5 +397,159 @@ export class DurableTWAPOrderCommand implements IMcpToolCommand<{
       })),
       fiberId: plan.fiberId,
     };
+  }
+}
+
+/**
+ * 9. AI Search Agent Search Command (issue #2250)
+ *
+ * The orchestrator's chat door onto AiSearchAgent (#2223): until
+ * this command, the agent was reachable over A2A and by direct
+ * method call, but NOT from a chat turn, so there was no way to ask
+ * in chat for a search over the AI Search instance — or over the
+ * generated reports #2246 indexes into it.
+ *
+ * The call is the agent's direct search() (the deterministic RPC
+ * door — retrieval is exact work, not a judgment turn), resolved
+ * through the AI_SEARCH_AGENT Durable Object binding on the fixed
+ * service instance below. The instance is a SERVICE instance: the
+ * agent is stateless search, the same instance the A2A door
+ * addresses (the aisearch resolution carries no instance override,
+ * so its URL name is the instance name). The caller's login is
+ * NEVER the instance name and NEVER read from tool arguments (the
+ * schemas declare no login field): it is the turn's verified
+ * session login, context.sessionId — the carrier every sibling
+ * command uses — threaded as the search's callerLogin argument so
+ * the agent's #2246 discipline serves report-type results only to
+ * their owner. An empty session id passes NO callerLogin, leaving
+ * the agent's safe default in force (report results withheld).
+ *
+ * The binding is declared in wrangler.jsonc but is not on the Env
+ * type (the #2223 posture; the A2A dispatcher reads it the same
+ * way). Its absence answers honestly as not_configured — the tool
+ * never throws for configuration and never fabricates rows.
+ *
+ * Shaping never launders: a degraded agent answer is a degraded
+ * tool answer — the text says so and carries the agent's degraded
+ * note verbatim — and rows pass through with their S2 fields and
+ * provenance exactly as the agent returned them.
+ */
+const AI_SEARCH_AGENT_SERVICE_INSTANCE = "aisearch";
+
+/** Structural minimum of the AiSearchAgent stub this command calls. */
+interface AiSearchAgentStubLike {
+  search(
+    query: string,
+    opts?: AiSearchAgentSearchOptions,
+  ): Promise<AiSearchAgentSearchResult>;
+}
+
+export interface AiSearchAgentToolData {
+  ok: boolean;
+  path?: AiSearchPath;
+  degraded?: string;
+  results: AiSearchAgentResultItem[];
+  code?: AiSearchAgentErrorToken;
+  errorToken?: AgentErrorCode;
+  error?: string;
+  correlationId: string;
+}
+
+export interface AiSearchAgentToolAnswer {
+  text: string;
+  data: AiSearchAgentToolData;
+}
+
+/** Shape one agent search result into the tool's { text, data } answer. */
+function shapeAiSearchAgentAnswer(
+  result: AiSearchAgentSearchResult,
+): AiSearchAgentToolAnswer {
+  const results = result.results ?? [];
+  const data: AiSearchAgentToolData = {
+    ok: result.ok,
+    ...(result.path ? { path: result.path } : {}),
+    ...(result.degraded ? { degraded: result.degraded } : {}),
+    results,
+    ...(result.code ? { code: result.code } : {}),
+    ...(result.errorToken ? { errorToken: result.errorToken } : {}),
+    ...(result.error ? { error: result.error } : {}),
+    correlationId: result.correlationId,
+  };
+  let text: string;
+  if (result.ok) {
+    text = `AiSearchAgent search completed via the ${result.path ?? "unknown"} path: ${results.length} result(s) from the Cloudflare AI Search instance.`;
+  } else {
+    text = `AiSearchAgent search did not serve live results${result.code ? ` (${result.code})` : ""}: ${result.error ?? "unknown error"}`;
+  }
+  if (result.degraded && !text.includes(result.degraded)) {
+    text += ` Degraded: ${result.degraded}`;
+  }
+  return { text, data };
+}
+
+export class AISearchAgentSearchCommand implements IMcpToolCommand<{ query: string; limit?: number }> {
+  readonly name = "ai_search_agent_search";
+  readonly description = "Search the Cloudflare AI Search instance through the AiSearchAgent — the fleet's agent door onto the same instance the SearchHub knowledge surface serves. Searches the knowledge corpus, plus generated reports that have been indexed into the instance (report results are served only to the report's owner, and exist only when report indexing has run). Results are labelled with the serving path and keep their provenance; a degraded answer is returned as degraded — stated in the answer text — never dressed up as live results.";
+  readonly jsonSchema = {
+    type: "object" as const,
+    properties: {
+      query: { type: "string", description: "Natural language query e.g. NVDA data center revenue, PDT margin rules, or the topic of a generated report" },
+      limit: { type: "number", description: "Maximum results to return (default: 5)" },
+    },
+    required: ["query"],
+  };
+  readonly zodSchema = z.object({
+    query: z.string(),
+    limit: z.number().optional(),
+  });
+
+  async execute(input: { query: string; limit?: number }, context: McpToolContext): Promise<AiSearchAgentToolAnswer> {
+    const namespace = (context.env as any)?.AI_SEARCH_AGENT as
+      | DurableObjectNamespace
+      | undefined;
+    if (
+      !namespace ||
+      typeof namespace.get !== "function" ||
+      typeof namespace.idFromName !== "function"
+    ) {
+      const detail =
+        "the AI_SEARCH_AGENT Durable Object binding is not configured in this environment, so the AiSearchAgent cannot be reached";
+      context.audit("ai_search_agent.query", "search", {
+        query: input.query,
+        ok: false,
+        code: "not_configured",
+      });
+      return {
+        text: `AiSearchAgent search did not serve live results (not_configured): ${detail}.`,
+        data: {
+          ok: false,
+          code: "not_configured",
+          errorToken: AgentErrorCode.UNKNOWN_AGENT_ERROR,
+          error: detail,
+          results: [],
+          correlationId: crypto.randomUUID(),
+        },
+      };
+    }
+    const stub = namespace.get(
+      namespace.idFromName(AI_SEARCH_AGENT_SERVICE_INSTANCE),
+    ) as unknown as AiSearchAgentStubLike;
+    const callerLogin =
+      typeof context.sessionId === "string" && context.sessionId.trim()
+        ? context.sessionId
+        : undefined;
+    const result = await stub.search(input.query, {
+      callerLogin,
+      limit: input.limit || 5,
+    });
+    const answer = shapeAiSearchAgentAnswer(result);
+    context.audit("ai_search_agent.query", "search", {
+      query: input.query,
+      ok: result.ok,
+      path: result.path,
+      matches: answer.data.results.length,
+      degraded: Boolean(result.degraded),
+    });
+    return answer;
   }
 }
