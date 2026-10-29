@@ -264,6 +264,7 @@ const HANDLER_FILE: Record<string, string> = {
   "handleMarketDataQuoteResearchRoutes": "marketDataResearch.ts",
   "handleMarketDataCompareScreenRoutes": "marketDataResearch.ts",
   "handleScreenerResearchRoutes": "screenerResearch.ts",
+  "handleMaintenanceRoutes": "maintenance.ts",
   "handleSchedulesRoutes": "schedules.ts"
 };
 
@@ -296,6 +297,7 @@ const EXPECTED_DELEGATIONS = [
   "handleAlpacaMarketDataRoutes",
   "handleMarketDataCompareScreenRoutes",
   "handleScreenerResearchRoutes",
+  "handleMaintenanceRoutes",
   "handleSchedulesRoutes"
 ];
 
@@ -567,6 +569,7 @@ const EXPECTED_INVENTORY = [
   "handleScreenerResearchRoutes :: endsWith(\"/screening/outcomes\")",
   "handleScreenerResearchRoutes :: endsWith(\"/screening/goal-screen\")",
   "handleScreenerResearchRoutes :: endsWith(\"/screening/backtest\")",
+  "handleMaintenanceRoutes :: endsWith(\"/maintenance/clear-table\")",
   "handleSchedulesRoutes :: endsWith(\"/schedules\")",
   "handleSchedulesRoutes :: endsWith(\"/api/schedules\")",
   "handleSchedulesRoutes :: === \"/schedules\"",

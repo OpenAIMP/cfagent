@@ -2568,10 +2568,7 @@ export class OrchestratorAgent extends PortThink {
       env: this.env,
     });
     if (screenerResearchResponse) return screenerResearchResponse;
-    // Issue #2280: maintenance routes (bulk table/queue clears) are handled
-    // by src/agents/routes/maintenance.ts (handleMaintenanceRoutes).
-    // Invoked before the schedules routes; its path does not overlap any
-    // earlier handler, so position is by convention, not necessity.
+    // Issue #2280: maintenance routes run before the schedules routes.
     const maintenanceResponse = await handleMaintenanceRoutes(request, url, path, sessionId, {
       agentCtx: this.ctx,
       audit: (type, agent, payload) => this.audit(type, agent, payload),
