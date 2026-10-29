@@ -41,6 +41,8 @@ const INVENTORY: Record<string, string[]> = {
   "Table.tsx": ["Table"],
   "Skeleton.tsx": ["Skeleton"],
   "PageShell.tsx": ["PageShell", "PageSection"],
+  // #2283 global toast: the single home for transient feedback.
+  "Toast.tsx": ["ToastProvider", "useToast"],
 };
 
 /** Non-primitive files allowed in components/ui (helpers + styles). */

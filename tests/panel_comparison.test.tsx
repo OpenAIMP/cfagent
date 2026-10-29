@@ -13,6 +13,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { OptionsResearchPanel } from "../src/client/options/OptionsResearchPanel";
+import { ToastProvider } from "../src/client/components/ui";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -107,7 +108,11 @@ describe("panel three-way comparison", () => {
 
   it("posts the panel request to the comparison route and renders arms, attrition, and overlap", async () => {
     await act(async () => {
-      root.render(<OptionsResearchPanel activeEnv="TEST" userLogin="alice" />);
+      root.render(
+        <ToastProvider>
+          <OptionsResearchPanel activeEnv="TEST" userLogin="alice" />
+        </ToastProvider>
+      );
     });
     await switchToCustomTab(container);
     const symbolInput = container.querySelector('input[placeholder="Ticker"]') as HTMLInputElement;
@@ -137,7 +142,11 @@ describe("panel three-way comparison", () => {
 
   it("reads ledger outcomes back by run id", async () => {
     await act(async () => {
-      root.render(<OptionsResearchPanel activeEnv="TEST" userLogin="alice" />);
+      root.render(
+        <ToastProvider>
+          <OptionsResearchPanel activeEnv="TEST" userLogin="alice" />
+        </ToastProvider>
+      );
     });
     await switchToCustomTab(container);
     setInputValue(container.querySelector('input[placeholder="Ticker"]') as HTMLInputElement, "NVDA");

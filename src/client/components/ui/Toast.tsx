@@ -184,7 +184,11 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
     <ToastContext.Provider value={api}>
       {children}
-      {createPortal(
+      {/* SSR-safe: no document exists during server rendering, and the
+          viewport has nothing to show until a toast is fired in a
+          browser. The context + children render regardless. */}
+      {typeof document !== "undefined" &&
+        createPortal(
         <div
           className="ui-toast-viewport"
           aria-label="Notifications"
