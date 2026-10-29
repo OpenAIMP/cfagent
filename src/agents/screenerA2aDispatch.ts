@@ -1,0 +1,456 @@
+/**
+ * Issue #2223 (final slice) — ScreenerAgent A2A dispatch.
+ *
+ * Serves the screener card's operations for real, following the
+ * TradingAgent template and the payments dispatch shape: extract
+ * the operation from the body, dispatch (never throws), wrap the
+ * result in an outcome with a mandatory human-readable text part.
+ *
+ * Instance discipline (SURVEY §1.3): A2A resolution lands on the
+ * service instance "default" only when a service identity is
+ * configured (src/a2a/resolution.ts). This dispatch completes the
+ * contract: run operations are attributed to getServiceUserLogin(env)
+ * explicitly — a caller-supplied userLogin in the body is overridden,
+ * never trusted — and fail closed (not_configured) when no service
+ * identity exists, instead of letting the class throw on a virgin
+ * instance or attribute the run to nobody. The request's test seam
+ * (yahooDeps) and the scheduled layer's fallback-provenance marker
+ * (providerFallback) are not in the accepted field set: an A2A caller
+ * cannot inject a fetcher or stamp a run as a fallback.
+ *
+ * A completed run whose own record says success:false (e.g. zero
+ * quotes — the class "fails honestly" with success:false + error,
+ * screener-agent.ts) surfaces as a dispatch failure with the record
+ * attached; a partial run (partial qualification) stays a success —
+ * it is a qualified report, never a failure (issue #462).
+ *
+ * The executor has no module-local default: the methods are
+ * ScreenerAgent-bound, so the class injects its bound methods and
+ * the dispatch fails honestly when no executor is configured.
+ */
+import { AGENT_ERROR_CATALOG, AgentErrorCode } from "../aspects/errorCodes";
+import { getServiceUserLogin } from "../security/serviceIdentity";
+import type { Env } from "../types";
+import type { OptionScreenerFilter, StockScreenerFilter } from "../types";
+import type { ScreeningProviderAssetClass } from "../trading";
+import type { ScreenerRunRequest, ScreenerRunResult } from "./screener-agent";
+import type { ScreenerTask } from "../services/screenerTaskLedger";
+import type { ScenarioDefinition } from "../services/goalScenarioEngine";
+import type { GoalDrivenScreenResult } from "../services/goalDrivenScreen";
+
+/**
+ * The operations this dispatch serves. This constant is the
+ * anti-drift source of truth: the screener card's operations must
+ * equal it (pinned in tests/a2a_remaining_handlers_p2223.test.ts).
+ */
+export const SCREENER_A2A_OPERATIONS = [
+  "screener.run_screen",
+  "screener.run_goal_screen",
+  "screener.latest",
+  "screener.history",
+  "screener.list_tasks",
+] as const;
+
+export type ScreenerA2AOperation = (typeof SCREENER_A2A_OPERATIONS)[number];
+
+type ScreenerA2AErrorToken =
+  | "missing_operation"
+  | "unknown_operation"
+  | "invalid_input"
+  | "not_configured"
+  | "internal_error";
+
+/**
+ * Map the local error tokens onto AGENT_ERROR_CATALOG keys (the
+ * slice-1 pattern): request-shape and configuration failures are
+ * ERR_UNKNOWN_AGENT_ERROR; executor failures are
+ * ERR_TOOL_EXECUTION_FAILED. No catalog keys are invented here.
+ */
+const SCREENER_A2A_CATALOG_CODES: Record<ScreenerA2AErrorToken, AgentErrorCode> = {
+  missing_operation: AgentErrorCode.UNKNOWN_AGENT_ERROR,
+  unknown_operation: AgentErrorCode.UNKNOWN_AGENT_ERROR,
+  invalid_input: AgentErrorCode.UNKNOWN_AGENT_ERROR,
+  not_configured: AgentErrorCode.UNKNOWN_AGENT_ERROR,
+  internal_error: AgentErrorCode.TOOL_EXECUTION_FAILED,
+};
+
+/** Resolve a local error token to its AGENT_ERROR_CATALOG token. */
+function screenerErrorCatalogCode(token: ScreenerA2AErrorToken): AgentErrorCode {
+  const code = SCREENER_A2A_CATALOG_CODES[token] ?? AgentErrorCode.UNKNOWN_AGENT_ERROR;
+  // Defensive: the catalog is the authority; never emit a token it
+  // does not define.
+  return AGENT_ERROR_CATALOG[code] ? code : AgentErrorCode.UNKNOWN_AGENT_ERROR;
+}
+
+export interface ScreenerA2ADataResult {
+  ok: boolean;
+  operation?: string;
+  /** Stable local error token when ok is false. */
+  code?: ScreenerA2AErrorToken;
+  /** Stable AGENT_ERROR_CATALOG token when ok is false. */
+  errorToken?: AgentErrorCode;
+  correlationId: string;
+  result?: unknown;
+  error?: string;
+}
+
+/** The goal-screen request shape (the method's inline parameter). */
+export interface ScreenerGoalScreenRequest {
+  scenario: ScenarioDefinition;
+  trigger: "manual" | "scheduled";
+  idempotencyKey: string;
+  userLogin?: string;
+  environment?: "TEST" | "PROD";
+  assetClasses?: ScreeningProviderAssetClass[];
+  symbols?: string[];
+  baseStockFilter?: StockScreenerFilter;
+  baseOptionsFilter?: OptionScreenerFilter;
+  provider?: "yahoo";
+}
+
+/** The ScreenerAgent method surface the dispatch delegates to. */
+export interface ScreenerA2AExecutor {
+  runScreen(req: ScreenerRunRequest): Promise<ScreenerRunResult>;
+  runGoalScreen(
+    req: ScreenerGoalScreenRequest,
+  ): Promise<{ task: ScreenerTask; executed: boolean; result?: GoalDrivenScreenResult }>;
+  getLatest(): Promise<ScreenerRunResult | null>;
+  getHistory(): Promise<ScreenerRunResult[]>;
+  listScreenerTasks(limit?: number): Promise<ScreenerTask[]>;
+}
+
+export interface ScreenerA2ADeps {
+  /**
+   * The bound ScreenerAgent methods, injected by the class. No
+   * module-local default exists; without one the dispatch fails
+   * honestly instead of fabricating a result.
+   */
+  executor?: ScreenerA2AExecutor;
+}
+
+/**
+ * Extract { operation, args } from an A2A request body: either the
+ * JSON-RPC message/send envelope (a data part carrying
+ * { operation, ...args }) or a bare { operation, ...args } object.
+ * Same envelope logic as the other #2223 dispatches (kept local —
+ * no coupling to another agent's module graph).
+ */
+function extractA2AOperation(
+  body: unknown,
+): { operation: string; args: Record<string, unknown> } | null {
+  if (!body || typeof body !== "object") return null;
+  const b = body as Record<string, any>;
+  const parts = b.params?.message?.parts;
+  if (Array.isArray(parts)) {
+    for (const part of parts) {
+      if (part?.kind === "data" && part.data && typeof part.data === "object") {
+        const { operation, ...args } = part.data as Record<string, unknown>;
+        if (typeof operation === "string") return { operation, args };
+      }
+    }
+  }
+  if (typeof b.operation === "string") {
+    const { operation, ...args } = b;
+    return { operation: operation as string, args };
+  }
+  return null;
+}
+
+class ScreenerA2AInputError extends Error {}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function triggerArg(args: Record<string, unknown>, operation: string): "manual" | "scheduled" {
+  const value = args.trigger;
+  if (value === undefined) return "manual";
+  if (value === "manual" || value === "scheduled") return value;
+  throw new ScreenerA2AInputError(
+    `Operation "${operation}" requires "trigger" to be "manual" or "scheduled" when present.`,
+  );
+}
+
+function environmentArg(
+  args: Record<string, unknown>,
+  operation: string,
+): "TEST" | "PROD" | undefined {
+  const value = args.environment;
+  if (value === undefined) return undefined;
+  if (value === "TEST" || value === "PROD") return value;
+  throw new ScreenerA2AInputError(
+    `Operation "${operation}" requires "environment" to be "TEST" or "PROD" when present.`,
+  );
+}
+
+function positiveNumberArg(
+  args: Record<string, unknown>,
+  key: string,
+  operation: string,
+): number | undefined {
+  const value = args[key];
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    throw new ScreenerA2AInputError(
+      `Operation "${operation}" requires "${key}" to be a positive number when present.`,
+    );
+  }
+  return value;
+}
+
+function serviceLoginOrFail(env: Env, operation: string): string {
+  const login = getServiceUserLogin(env);
+  if (!login) {
+    throw new ScreenerA2ANotConfiguredError(
+      `Operation "${operation}" requires a configured service identity (SERVICE_USER_LOGIN): ` +
+        "A2A screen runs are attributed to the service identity and fail closed without one (issue #1185).",
+    );
+  }
+  return login;
+}
+
+class ScreenerA2ANotConfiguredError extends Error {}
+
+async function executeOperation(
+  operation: ScreenerA2AOperation,
+  args: Record<string, unknown>,
+  env: Env,
+  executor: ScreenerA2AExecutor,
+): Promise<{ result: unknown; failureError?: string }> {
+  switch (operation) {
+    case "screener.run_screen": {
+      const userLogin = serviceLoginOrFail(env, operation);
+      const req: ScreenerRunRequest = {
+        trigger: triggerArg(args, operation),
+        userLogin,
+      };
+      if (args.filters !== undefined) {
+        if (!isRecord(args.filters)) {
+          throw new ScreenerA2AInputError(`Operation "${operation}" requires "filters" to be an object when present.`);
+        }
+        req.filters = args.filters as StockScreenerFilter;
+      }
+      if (args.sector !== undefined) {
+        if (typeof args.sector !== "string") {
+          throw new ScreenerA2AInputError(`Operation "${operation}" requires "sector" to be a string when present.`);
+        }
+        req.sector = args.sector;
+      }
+      if (args.universe !== undefined) {
+        if (typeof args.universe !== "string" || args.universe.trim().length === 0) {
+          throw new ScreenerA2AInputError(`Operation "${operation}" requires "universe" to be a non-empty string when present.`);
+        }
+        req.universe = args.universe as ScreenerRunRequest["universe"];
+      }
+      const maxItems = positiveNumberArg(args, "maxItems", operation);
+      if (maxItems !== undefined) req.maxItems = maxItems;
+      const maxSymbols = positiveNumberArg(args, "maxSymbols", operation);
+      if (maxSymbols !== undefined) req.maxSymbols = maxSymbols;
+      if (args.symbols !== undefined) {
+        if (!Array.isArray(args.symbols)) {
+          throw new ScreenerA2AInputError(`Operation "${operation}" requires "symbols" to be an array when present.`);
+        }
+        req.symbols = args.symbols as ScreenerRunRequest["symbols"];
+      }
+      const environment = environmentArg(args, operation);
+      if (environment !== undefined) req.environment = environment;
+      if (args.provider !== undefined) {
+        if (args.provider !== "etrade" && args.provider !== "yahoo") {
+          throw new ScreenerA2AInputError(`Operation "${operation}" requires "provider" to be "etrade" or "yahoo" when present.`);
+        }
+        req.provider = args.provider;
+      }
+      if (args.portfolioContext !== undefined) {
+        if (typeof args.portfolioContext !== "boolean") {
+          throw new ScreenerA2AInputError(`Operation "${operation}" requires "portfolioContext" to be a boolean when present.`);
+        }
+        req.portfolioContext = args.portfolioContext;
+      }
+      const result = await executor.runScreen(req);
+      // The class's own honest-failure shape: success:false + error.
+      // The record stays attached so the caller sees what ran.
+      if (result && result.success === false) {
+        return { result, failureError: result.error ?? "The screen run reported success:false." };
+      }
+      return { result };
+    }
+    case "screener.run_goal_screen": {
+      const userLogin = serviceLoginOrFail(env, operation);
+      if (!isRecord(args.scenario)) {
+        throw new ScreenerA2AInputError(`Operation "${operation}" requires a "scenario" object argument.`);
+      }
+      const idempotencyKey = args.idempotencyKey;
+      if (typeof idempotencyKey !== "string" || idempotencyKey.trim().length === 0) {
+        throw new ScreenerA2AInputError(`Operation "${operation}" requires a non-empty string "idempotencyKey" argument.`);
+      }
+      const req: ScreenerGoalScreenRequest = {
+        scenario: args.scenario as unknown as ScenarioDefinition,
+        trigger: triggerArg(args, operation),
+        idempotencyKey,
+        userLogin,
+      };
+      const environment = environmentArg(args, operation);
+      if (environment !== undefined) req.environment = environment;
+      if (args.assetClasses !== undefined) {
+        if (!Array.isArray(args.assetClasses) || !args.assetClasses.every((v) => typeof v === "string")) {
+          throw new ScreenerA2AInputError(`Operation "${operation}" requires "assetClasses" to be an array of strings when present.`);
+        }
+        req.assetClasses = args.assetClasses as ScreeningProviderAssetClass[];
+      }
+      if (args.symbols !== undefined) {
+        if (!Array.isArray(args.symbols) || !args.symbols.every((v) => typeof v === "string")) {
+          throw new ScreenerA2AInputError(`Operation "${operation}" requires "symbols" to be an array of strings when present.`);
+        }
+        req.symbols = args.symbols as string[];
+      }
+      if (args.baseStockFilter !== undefined) {
+        if (!isRecord(args.baseStockFilter)) {
+          throw new ScreenerA2AInputError(`Operation "${operation}" requires "baseStockFilter" to be an object when present.`);
+        }
+        req.baseStockFilter = args.baseStockFilter as StockScreenerFilter;
+      }
+      if (args.baseOptionsFilter !== undefined) {
+        if (!isRecord(args.baseOptionsFilter)) {
+          throw new ScreenerA2AInputError(`Operation "${operation}" requires "baseOptionsFilter" to be an object when present.`);
+        }
+        req.baseOptionsFilter = args.baseOptionsFilter as OptionScreenerFilter;
+      }
+      if (args.provider !== undefined) {
+        if (args.provider !== "yahoo") {
+          throw new ScreenerA2AInputError(`Operation "${operation}" requires "provider" to be "yahoo" when present (the goal screen's only alternate provider).`);
+        }
+        req.provider = args.provider;
+      }
+      const result = await executor.runGoalScreen(req);
+      return { result };
+    }
+    case "screener.latest":
+      return { result: await executor.getLatest() };
+    case "screener.history":
+      return { result: await executor.getHistory() };
+    case "screener.list_tasks": {
+      const limit = positiveNumberArg(args, "limit", operation);
+      return { result: await executor.listScreenerTasks(limit) };
+    }
+  }
+}
+
+/** Dispatch one A2A body through the screener operations. Never throws. */
+export async function dispatchScreenerA2A(
+  env: Env,
+  body: unknown,
+  deps: ScreenerA2ADeps,
+): Promise<ScreenerA2ADataResult> {
+  const correlationId = crypto.randomUUID();
+  const extracted = extractA2AOperation(body);
+  if (!extracted) {
+    return {
+      ok: false,
+      code: "missing_operation",
+      errorToken: screenerErrorCatalogCode("missing_operation"),
+      correlationId,
+      error: "No A2A operation found in the request body.",
+    };
+  }
+  const { operation, args } = extracted;
+  if (!(SCREENER_A2A_OPERATIONS as readonly string[]).includes(operation)) {
+    return {
+      ok: false,
+      operation,
+      code: "unknown_operation",
+      errorToken: screenerErrorCatalogCode("unknown_operation"),
+      correlationId,
+      error: `Unknown operation: "${operation}".`,
+    };
+  }
+  const op = operation as ScreenerA2AOperation;
+  try {
+    if (!deps.executor) {
+      // The methods live on ScreenerAgent; without the class's
+      // injected executor there is no honest way to serve this.
+      throw new Error("Screener executor is not configured for this dispatch context.");
+    }
+    const { result, failureError } = await executeOperation(op, args, env, deps.executor);
+    if (failureError !== undefined) {
+      return {
+        ok: false,
+        operation,
+        code: "internal_error",
+        errorToken: screenerErrorCatalogCode("internal_error"),
+        correlationId,
+        result,
+        error: failureError,
+      };
+    }
+    return { ok: true, operation, correlationId, result };
+  } catch (err) {
+    if (err instanceof ScreenerA2AInputError) {
+      return {
+        ok: false,
+        operation,
+        code: "invalid_input",
+        errorToken: screenerErrorCatalogCode("invalid_input"),
+        correlationId,
+        error: err.message,
+      };
+    }
+    if (err instanceof ScreenerA2ANotConfiguredError) {
+      return {
+        ok: false,
+        operation,
+        code: "not_configured",
+        errorToken: screenerErrorCatalogCode("not_configured"),
+        correlationId,
+        error: err.message,
+      };
+    }
+    return {
+      ok: false,
+      operation,
+      code: "internal_error",
+      errorToken: screenerErrorCatalogCode("internal_error"),
+      correlationId,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+export interface ScreenerA2AOutcome {
+  text: string;
+  data: ScreenerA2ADataResult;
+}
+
+function successText(data: ScreenerA2ADataResult): string {
+  const result = data.result as Record<string, unknown> | null;
+  switch (data.operation) {
+    case "screener.run_screen": {
+      const partial = result?.partial ? " (qualified partial: incomplete quote set)" : "";
+      return `screener.run_screen completed: scanned ${typeof result?.totalScanned === "number" ? result.totalScanned : 0} symbol(s), ${typeof result?.matchedCount === "number" ? result.matchedCount : 0} matched${partial}. The run is recorded on the service instance.`;
+    }
+    case "screener.run_goal_screen": {
+      const task = (result?.task ?? {}) as Record<string, unknown>;
+      return `screener.run_goal_screen completed: task ${String(task.id ?? "unknown")} ${result?.executed === false ? "already existed (duplicate delivery suppressed)" : "executed"}.`;
+    }
+    case "screener.latest":
+      return data.result === null
+        ? "screener.latest completed: no screen run has been recorded on the service instance yet."
+        : "screener.latest completed: the most recent screen run on the service instance is attached.";
+    case "screener.history":
+      return `screener.history completed: ${Array.isArray(data.result) ? data.result.length : 0} recorded run(s) on the service instance.`;
+    case "screener.list_tasks":
+      return `screener.list_tasks completed: ${Array.isArray(data.result) ? data.result.length : 0} screener task(s).`;
+    default:
+      return `${data.operation ?? "screener operation"} completed.`;
+  }
+}
+
+/** Wrap a dispatch result in the collected { text, data } outcome. */
+export function screenerA2AOutcome(data: ScreenerA2ADataResult): ScreenerA2AOutcome {
+  if (!data.ok) {
+    return {
+      text: `${data.operation ?? "screener operation"} failed: ${data.error ?? "unknown error"}`,
+      data,
+    };
+  }
+  return { text: successText(data), data };
+}
