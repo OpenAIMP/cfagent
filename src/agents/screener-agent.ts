@@ -1585,7 +1585,7 @@ export class ScreenerAgent extends PortThink {
       outcome.xlsxKey = key;
       outcome.xlsxStatus = "generated";
     } catch (err) {
-      outcome.xlsxError = err instanceof Error ? err.message : String(err);
+      outcome.xlsxError = codedMessage("REPORT_002", err instanceof Error ? err.message : String(err));
       console.error("[ScreenerAgent] Strategy XLSX generation failed:", outcome.xlsxError);
     }
 
@@ -1642,7 +1642,7 @@ export class ScreenerAgent extends PortThink {
       }, reportRetry, { label: "screener-xlsx" });
     } catch (xlsxErr) {
       result.xlsxStatus = "failed";
-      result.xlsxError = xlsxErr instanceof Error ? xlsxErr.message : String(xlsxErr);
+      result.xlsxError = codedMessage("REPORT_002", xlsxErr instanceof Error ? xlsxErr.message : String(xlsxErr));
       console.error("[ScreenerAgent] XLSX generation failed:", result.xlsxError);
     }
 
