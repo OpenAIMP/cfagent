@@ -134,7 +134,8 @@ function mockFetch(opts: {
         json: async () =>
           opts.subscriptionCheckout ?? {
             checkoutRequestId: "sub-cs_1",
-            checkout: { checkoutUrl: "https://checkout.stripe.com/pay/sub_cs_1" },
+            checkoutUrl: "https://checkout.stripe.com/pay/sub_cs_1",
+            checkoutSessionId: "sub_cs_1",
             plan: { id: "p1", name: "Starter", priceUSD: 5, periodDays: 30, includedRuns: 10 },
           },
       } as any;

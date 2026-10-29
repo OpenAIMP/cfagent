@@ -27,10 +27,10 @@ import type { PriceFamily } from "../data/priceCataloguePorts";
 /** Rails the native gate can mint a checkout on. */
 export type CheckoutRail = "stripe" | "x402";
 
-/** Everything a checkout mint needs. Amount is per-checkout: the caller passes the run's catalogue price, never a deployment-wide amount. */
+/** Everything a checkout mint needs. Amount is per-checkout: the caller passes the run's catalogue price (or, for a subscription checkout, the plan price), never a deployment-wide amount. `runRequestId` is the checkout join key: a screener run-request id for run checkouts, the route-minted `sub-` draft id for subscription checkouts. `family` is present for run checkouts and absent for subscription checkouts (a plan has no screener family); no adapter reads it for card — the Stripe adapter charges priceUSD and binds the session via client_reference_id alone. */
 export interface CreateCheckoutInput {
   runRequestId: string;
-  family: PriceFamily;
+  family?: PriceFamily;
   priceUSD: number;
   email: string;
   userId: string;
