@@ -235,6 +235,10 @@ export { OptionsScannerMCP } from "./services/cloudflareWalletsScanner";
 export { BrowserAgent } from "./agents/browserAgent";
 export { SlackAgent } from "./agents/slackAgent";
 export { AiSearchAgent } from "./agents/aiSearchAgent";
+// Issue #2253 — SandboxAgent DO: wrangler binds SANDBOX_AGENT to this
+// class, so it must be exported from the entrypoint (same rule as the
+// #2230 note above).
+export { SandboxAgent } from "./agents/sandbox-agent";
 // Issue #197: wrangler.jsonc binds PAYMENTS_AGENT/SCHEDULED_AGENT as Durable
 // Objects — wrangler requires every bound DO class to be exported from the
 // entrypoint, otherwise `wrangler deploy` fails.
