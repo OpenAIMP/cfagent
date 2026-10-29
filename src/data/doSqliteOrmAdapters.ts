@@ -153,6 +153,7 @@ export const CANONICAL_REPORT_COLUMN_MAP = {
   createdAt: "created_at",
   userLogin: "user_login",
   bodyR2Key: "body_r2_key",
+  fanoutOutcome: "fanout_outcome",
 } as const;
 
 export const WEBHOOK_REPLAY_COLUMN_MAP = {
