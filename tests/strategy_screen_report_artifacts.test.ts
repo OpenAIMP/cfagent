@@ -105,6 +105,13 @@ class CsvFailingStorage extends FakeStorage {
   }
 }
 
+class XlsxFailingStorage extends FakeStorage {
+  async put(key: string, value: unknown): Promise<void> {
+    if (String(key).includes(":xlsx:")) throw new Error("r2 unavailable");
+    return super.put(key, value);
+  }
+}
+
 function makeAgent(storage: FakeStorage): ScreenerAgent {
   return new ScreenerAgent({ storage } as any, {} as any);
 }
@@ -305,6 +312,19 @@ describe("ScreenerAgent strategy report storage (#2162)", () => {
     expect(outcome.pdfError).toContain("r2 unavailable");
     expect(outcome.xlsxStatus).toBe("generated");
     expect(outcome.xlsxKey).toBeTruthy();
+    expect(outcome.csvStatus).toBe("generated");
+    expect(outcome.csvKey).toBeTruthy();
+  });
+
+  it("records a failed workbook from the catalog without losing the CSV or the PDF (#2262)", async () => {
+    const storage = new XlsxFailingStorage();
+    const outcome = await makeAgent(storage).generateAndStoreStrategyReport(input());
+
+    expect(outcome.xlsxStatus).toBe("failed");
+    expect(outcome.xlsxKey).toBeUndefined();
+    expect(outcome.xlsxError).toContain("REPORT_002");
+    expect(outcome.pdfStatus).toBe("generated");
+    expect(outcome.pdfKey).toBeTruthy();
     expect(outcome.csvStatus).toBe("generated");
     expect(outcome.csvKey).toBeTruthy();
   });
