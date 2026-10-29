@@ -32,8 +32,20 @@
  * class is the thin PortThink shell over them, mirroring how slice 1
  * split OrchestratorAgent from its dispatch module.
  *
+ * Issue #2246 adds the agent's indexing door (indexDocument): the
+ * namespace binding's items upload, used by the report pipeline to
+ * index generated reports into this same instance at store time.
+ * That pipeline leg is feature-flagged — env
+ * AI_SEARCH_REPORT_INDEXING_ENABLED ("1"/"true"/"on" = on, absence
+ * = OFF, deliberately not in wrangler.jsonc) — and ships OFF; the
+ * door itself is an explicit call, never a background behaviour.
+ * Report-type results are served only to their owner's login (the
+ * runner's login discipline).
+ *
  * OUT of scope (the #1169 S4-5 bridge, dashboard-gated): runtime
- * provisioning and item upload — this agent only ever searches.
+ * provisioning (no namespace create) and the knowledge-corpus
+ * upload bridge — the only uploads through this agent are report
+ * documents via the #2246 executor.
  */
 
 import { PortThink } from "../actors/thinkAdapter";
@@ -43,8 +55,12 @@ import { z } from "zod";
 import { resolveAiModelName } from "./model";
 import {
   runAiSearchPaths,
+  runAiSearchIndexUpload,
   type AiSearchAgentSearchOptions,
   type AiSearchAgentSearchResult,
+  type AiSearchIndexDeps,
+  type AiSearchIndexDocument,
+  type AiSearchIndexOutcome,
 } from "./aiSearchPaths";
 import {
   dispatchAiSearchA2A,
@@ -117,6 +133,23 @@ export class AiSearchAgent extends PortThink {
     opts: AiSearchAgentSearchOptions = {},
   ): Promise<AiSearchAgentSearchResult> {
     return runAiSearchPaths(this.env, query, opts);
+  }
+
+  /**
+   * Indexing door (issue #2246): upload one document into the AI
+   * Search instance via the namespace binding's items API,
+   * delegating to the path layer's executor. The report pipeline's
+   * store hook calls the same executor (behind
+   * AI_SEARCH_REPORT_INDEXING_ENABLED, default OFF); this method is
+   * the agent-owned door for explicit callers. Never throws; an
+   * unconfigured namespace path is a typed not_configured outcome,
+   * never a fabricated success.
+   */
+  async indexDocument(
+    doc: AiSearchIndexDocument,
+    deps: AiSearchIndexDeps = {},
+  ): Promise<AiSearchIndexOutcome> {
+    return runAiSearchIndexUpload(this.env, doc, deps);
   }
 
   /**
