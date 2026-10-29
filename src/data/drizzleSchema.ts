@@ -485,3 +485,37 @@ export const agentSubscriptionPlans = sqliteTable("agent_subscription_plans", {
   createdAtMs: integer("created_at_ms").notNull(),
   updatedAtMs: integer("updated_at_ms").notNull(),
 });
+
+/**
+ * Q7 audit-policy mechanism (#2183, sub-issue of #2012).
+ * This schema MAPS tables; it does not create them — DDL
+ * authority lives in migration 0016 (src/data/migrationRunner.ts),
+ * and a test pins that this mapping and that DDL agree on
+ * columns. Policy rows are global OPERATOR DATA (the proposed
+ * blocking set, enforcement mode, retention period — all pending
+ * CISO+CDO sign-off); chain rows are tenant-scoped tamper
+ * evidence for audit payloads (the payload itself stays in DO
+ * mas_events; only its hash is chained here).
+ */
+export const agentAuditPolicyActions = sqliteTable("agent_audit_policy_actions", {
+  action: text("action").primaryKey(),
+  blockOnAuditFailure: integer("block_on_audit_failure").notNull(),
+  updatedAtMs: integer("updated_at_ms").notNull(),
+});
+
+export const agentAuditPolicySettings = sqliteTable("agent_audit_policy_settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAtMs: integer("updated_at_ms").notNull(),
+});
+
+export const agentAuditChain = sqliteTable("agent_audit_chain", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull(),
+  sequence: integer("sequence").notNull(),
+  action: text("action").notNull(),
+  payloadHash: text("payload_hash").notNull(),
+  prevHash: text("prev_hash").notNull(),
+  entryHash: text("entry_hash").notNull(),
+  createdAtMs: integer("created_at_ms").notNull(),
+});
