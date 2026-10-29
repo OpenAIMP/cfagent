@@ -42,7 +42,12 @@ import type {
   ProviderConfigRecord,
 } from "./dataProviders/providerConfigStore";
 import { getProviderConfig, listCapabilityRoutes, listProviderConfigs } from "./dataProviders/providerConfigStore";
-import { transitionProvider } from "./dataProviders/lifecycle";
+import {
+  transitionProvider,
+  transitionProviderViaPort,
+} from "./dataProviders/lifecycle";
+import type { ProviderConfigStore } from "../data/providerConfigPorts";
+import type { ProviderCaptureStore } from "../data/providerCapturePorts";
 import { DataProviderRegistry } from "./dataProviders/registry";
 import {
   computeTechnicals,
@@ -114,28 +119,61 @@ export async function resolveYahooHistoryProvider(args: {
   env: Env;
   userLogin: string;
   blobStorage?: CaptureBlobStorage;
+  /**
+   * #2303 (#1976 step 1): the data-layer ports. When supplied,
+   * bootstrap/transitions/route reads run on D1 through the
+   * config port and captures/outcomes land through the capture
+   * port; otherwise the sql path runs unchanged.
+   */
+  configPort?: ProviderConfigStore | null;
+  capturePort?: ProviderCaptureStore | null;
 }): Promise<DataProvider> {
-  bootstrapDataProviders(args.sql);
-  const config = getProviderConfig(args.sql, "yahoo");
+  const configPort = args.configPort ?? null;
+  if (configPort) await configPort.bootstrapDataProviders();
+  else bootstrapDataProviders(args.sql);
+  const config = configPort
+    ? await configPort.getProviderConfig("yahoo")
+    : getProviderConfig(args.sql, "yahoo");
   if (!config || config.lifecycleState !== "enabled" || !config.enabled) {
-    await transitionProvider(args.sql, "yahoo", "verify", args.userLogin, {
+    const verifyDeps = {
       verifier: async () => verifyYahooDataProvider(args.env),
-    });
-    await transitionProvider(args.sql, "yahoo", "enable", args.userLogin, {});
+    };
+    if (configPort) {
+      await transitionProviderViaPort(configPort, "yahoo", "verify", args.userLogin, verifyDeps);
+      await transitionProviderViaPort(configPort, "yahoo", "enable", args.userLogin, {});
+    } else {
+      await transitionProvider(args.sql, "yahoo", "verify", args.userLogin, verifyDeps);
+      await transitionProvider(args.sql, "yahoo", "enable", args.userLogin, {});
+    }
   }
   const registry = new DataProviderRegistry();
   const adapter = createYahooDataProvider(new YahooFinanceProvider(args.env), args.env, {
     ...(args.blobStorage
-      ? { capture: { sql: args.sql, blobStorage: args.blobStorage, env: args.env } }
-      : { outcomeRecorder: createCaptureFetchOutcomeRecorder(args.sql) }),
+      ? {
+          capture: {
+            sql: args.sql,
+            blobStorage: args.blobStorage,
+            env: args.env,
+            ...(args.capturePort ? { capturePort: args.capturePort } : {}),
+          },
+        }
+      : {
+          outcomeRecorder: args.capturePort
+            ? args.capturePort.createFetchOutcomeRecorder()
+            : createCaptureFetchOutcomeRecorder(args.sql),
+        }),
     // Issue #1745: platform Yahoo history runs behind the yahoo breaker.
     breaker: defaultBreakerRegistry().breakerFor("yahoo"),
   });
   registry.register(adapter);
   return yahooBarsProviderFromRoute(
     registry,
-    listProviderConfigs(args.sql),
-    listCapabilityRoutes(args.sql)
+    configPort
+      ? await configPort.listProviderConfigs()
+      : listProviderConfigs(args.sql),
+    configPort
+      ? await configPort.listCapabilityRoutes()
+      : listCapabilityRoutes(args.sql)
   );
 }
 
@@ -212,6 +250,9 @@ export async function resolveYahooHistoryDeps(args: {
   userLogin: string;
   blobStorage?: CaptureBlobStorage;
   runId: string;
+  /** #2303: threaded to resolveYahooHistoryProvider. */
+  configPort?: ProviderConfigStore | null;
+  capturePort?: ProviderCaptureStore | null;
 }): Promise<YahooHistoryDeps | undefined> {
   try {
     const provider = await resolveYahooHistoryProvider(args);
