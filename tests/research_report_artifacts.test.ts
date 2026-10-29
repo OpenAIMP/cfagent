@@ -319,6 +319,7 @@ describe("ResearchAgent research artifact storage (#2167)", () => {
     expect(outcome.xlsxStatus).toBe("failed");
     expect(outcome.xlsxKey).toBeUndefined();
     expect(outcome.xlsxError).toContain("r2 unavailable");
+    expect(outcome.xlsxError).toContain("REPORT_002");
     expect(outcome.csvStatus).toBe("generated");
     expect(outcome.csvKey).toBeTruthy();
   });

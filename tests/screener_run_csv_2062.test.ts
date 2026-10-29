@@ -32,6 +32,13 @@ class FailingStorage extends FakeStorage {
   }
 }
 
+class XlsxFailingStorage extends FakeStorage {
+  async put(key: string, value: unknown): Promise<void> {
+    if (String(key).includes("xlsx")) throw new Error("r2 unavailable");
+    return super.put(key, value);
+  }
+}
+
 function makeAgent(storage: FakeStorage): ScreenerAgent {
   return new ScreenerAgent({ storage } as any, {} as any);
 }
@@ -88,5 +95,26 @@ describe("ScreenerAgent CSV artifact (#2062)", () => {
     expect(run.csvKey).toBeUndefined();
     expect(run.csvError).toContain("blob store down");
     expect(run.csvError).toContain("REPORT_004");
+  });
+
+  it("records a blob-store failure on the XLSX leg from the catalog (#2262)", async () => {
+    const storage = new XlsxFailingStorage();
+    storage.map.set("screener:owner-login", "owner");
+    const agent = makeAgent(storage);
+    // generateScreenerXlsx calls lastPrice/changePercent.toFixed on every
+    // row, so the run rows carry those fields (the shared RUN does not).
+    const run = {
+      ...RUN,
+      allStocks: [
+        { symbol: "NVDA", price: 180, matchScore: 88, lastPrice: 180, changePercent: 1.2 },
+        { symbol: "AMD", price: 210, matchScore: 71, lastPrice: 210, changePercent: -0.5 },
+      ],
+    } as any;
+
+    await expect((agent as any).persistRun(run)).resolves.toBeUndefined();
+    expect(run.xlsxStatus).toBe("failed");
+    expect(run.xlsxKey).toBeUndefined();
+    expect(run.xlsxError).toContain("r2 unavailable");
+    expect(run.xlsxError).toContain("REPORT_002");
   });
 });
