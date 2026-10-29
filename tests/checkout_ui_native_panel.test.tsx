@@ -101,6 +101,21 @@ function mockFetch(opts: {
     if (url.startsWith("/api/payments/agentic/commercial/account")) {
       return { ok: true, status: 200, json: async () => ({ tenantId: "t1", tier: "Free" }) } as any;
     }
+    // #2219: the panel reads the resolved identity (read-only display).
+    if (url === "/api/payments/agentic/commercial/identity") {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          userLogin: "u1",
+          tenantId: "t1",
+          hasAccount: true,
+          tier: "Free",
+          creditsUSD: 0,
+          includedRunsRemaining: 0,
+        }),
+      } as any;
+    }
     if (url.startsWith("/api/payments/agentic/commercial/subscription?")) {
       return {
         ok: true,

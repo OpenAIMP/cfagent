@@ -147,6 +147,11 @@ import {
 import { PaymentGatewayService } from "../../services/payments";
 import type { D1SubscriptionAdapter } from "../../data/d1SubscriptionAdapter";
 import { resolveEffectiveTier } from "../../data/subscriptionPorts";
+import {
+  NO_ACCOUNT_PAID_MESSAGE,
+  resolvePlatformIdentity,
+  toPlatformIdentityView,
+} from "../../services/platformIdentity";
 import { activateSubscription } from "../../services/subscriptionActivation";
 import {
   createLifecycleAdapter,
@@ -737,6 +742,38 @@ export async function handleAgenticPaymentsRoutes(
     }
   }
 
+  // GET /payments/agentic/commercial/identity (#2219, program
+  // #2218 slice 1) — SELF-ONLY read of the caller's platform
+  // identity for the payment screen's read-only display. The
+  // subject is always the verified session login: there is no
+  // userId parameter, so no other user's data can be requested
+  // through this endpoint. Returns tenantId (null when no store
+  // row exists), userLogin, the effective tier, and a coverage
+  // summary (credits, included runs). A missing row is not an
+  // error here — hasAccount false is the display truth.
+  // Callers decide separately: pay-per-run submit fails closed
+  // on it, while subscription checkout/purchase auto-provision
+  // at activation (see those routes).
+  if (path.endsWith("/payments/agentic/commercial/identity") && request.method === "GET") {
+    try {
+      const login = commercialLogin();
+      if (!login) return Response.json({ error: "Unauthorized: verified login required." }, { status: 401 });
+      const store = requireStore();
+      if (store instanceof Response) return store;
+      const subs = requireSubs();
+      if (subs instanceof Response) return subs;
+      const ensured = await ensureStores(store, subs);
+      if (ensured) return ensured;
+      const identity = await resolvePlatformIdentity(
+        { commercial: store, subscriptions: subs },
+        { userId: login, nowMs: Date.now() },
+      );
+      return Response.json(toPlatformIdentityView(identity));
+    } catch (err: any) {
+      return Response.json({ error: err.message || "Failed to read platform identity" }, { status: 503 });
+    }
+  }
+
   // POST /payments/agentic/commercial/account (operator only)
   if (path.endsWith("/payments/agentic/commercial/account") && request.method === "POST") {
     try {
@@ -854,14 +891,18 @@ export async function handleAgenticPaymentsRoutes(
         tenantId?: unknown; screenerCommand?: unknown; email?: unknown;
       };
       const family = body.family;
-      const tenantId = typeof body.tenantId === "string" ? body.tenantId : "";
+      // #2219 fix (session scoped always): a client-supplied
+      // tenantId is untrusted input, never identity — it is not
+      // read anywhere in this route. The run's tenant comes from
+      // the resolved identity (the stored account row for the
+      // verified login) or, on the flag-OFF free path with no
+      // account, from the verified session login itself.
       const email = typeof body.email === "string" ? body.email.trim() : "";
       const trigger = body.trigger === undefined ? "manual" : body.trigger;
       const screenerCommand = body.screenerCommand as { jobId?: unknown } | undefined;
       if (family !== "stock" && family !== "goal" && family !== "options" && family !== "strategy") {
         return Response.json({ error: "family must be stock, goal, options, or strategy." }, { status: 400 });
       }
-      if (!tenantId) return Response.json({ error: "tenantId is required." }, { status: 400 });
       if (!email) return Response.json({ error: "email (checkout contact) is required." }, { status: 400 });
       if (trigger !== "manual" && trigger !== "scheduled") {
         return Response.json({ error: "trigger must be manual or scheduled." }, { status: 400 });
@@ -887,22 +928,57 @@ export async function handleAgenticPaymentsRoutes(
       if (subs instanceof Response) return subs;
       const ensured = await ensureStores(store, subs);
       if (ensured) return ensured;
-      const stored = await store.getAccount(login);
-      if (stored && stored.tenantId !== tenantId) {
-        return Response.json({ error: "Tenant mismatch: run tenant must equal the verified account tenant." }, { status: 403 });
-      }
-      // Effective tier at submission time: a lapsed subscription
-      // stops covering runs even though the stored tier may still
-      // read Subscribed. A subscription-read failure fails CLOSED
-      // here (money path) — no run starts on unverified coverage.
-      let subscriptions: Array<{ periodEndMs: number }>;
+      // #2219: tenant derivation. The resolved identity wins over
+      // any client-supplied tenantId, even on mismatch — there is
+      // no mismatch refusal anymore because the client value is
+      // never trusted in the first place. Resolution failure fails
+      // CLOSED (no run starts on unverified coverage).
+      let identity;
       try {
-        subscriptions = await subs.listSubscriptions(login);
+        identity = await resolvePlatformIdentity(
+          { commercial: store, subscriptions: subs },
+          { userId: login, nowMs: Date.now() },
+        );
       } catch (err: any) {
-        return Response.json({ error: `Subscription state unavailable: ${err.message || "unknown error"}` }, { status: 503 });
+        return Response.json({ error: err.message || "Failed to resolve platform identity" }, { status: 503 });
       }
-      const effectiveTier = resolveEffectiveTier(stored, subscriptions, Date.now());
-      const account = { ...toCommercialAccount(login, stored, email, tenantId), tier: effectiveTier };
+      let monetizationOn: boolean;
+      try {
+        monetizationOn = await createFeatureFlagPort(ctx.env).isEnabled("monetization");
+      } catch {
+        return Response.json({ error: "Monetization state unavailable; no run starts." }, { status: 503 });
+      }
+      let tenantId: string;
+      if (identity.hasAccount) {
+        // Resolved identity wins, unconditionally.
+        tenantId = identity.tenantId as string;
+      } else if (monetizationOn) {
+        // PROPOSED no-account behavior (#2219): a paid path with
+        // no resolved account fails closed, directing the user to
+        // account setup — never an invented account or tenant.
+        return Response.json({ error: NO_ACCOUNT_PAID_MESSAGE }, { status: 403 });
+      } else {
+        // Free path (flag OFF), session scoped always: the scope
+        // label is the verified session login. A client-supplied
+        // tenantId is never read here, in any path — no anonymous
+        // tenant is invented, and no account row is created.
+        tenantId = login;
+      }
+      const account = { ...toCommercialAccount(login, identity.stored, email, tenantId), tier: identity.tier };
+      // #2219 fix (session scoped always): the screener command's
+      // tenant is stamped from the session-derived tenant above,
+      // exactly like userLogin — a client-supplied tenantId inside
+      // screenerCommand (e.g. via the goal-command route, which
+      // only builds a draft command and starts nothing) must never
+      // survive into a run, because the screener workflow projects
+      // under command.tenantId. This stamped command is used by
+      // both the credit-redemption start and the payment workflow
+      // below, so no path starts a run under a caller-chosen tenant.
+      const verifiedCommand = {
+        ...(screenerCommand as Record<string, unknown>),
+        userLogin: login,
+        tenantId,
+      } as WorkflowJobCommand;
 
       // Failure-credit redemption, if one exists for this family.
       const credit = await store.findUnredeemedCredit(login, family);
@@ -925,7 +1001,7 @@ export async function handleAgenticPaymentsRoutes(
           }
         }
         if (redeemed) {
-          const handle = await tryStartScreenerWorkflow(ctx.env, screenerCommand as WorkflowJobCommand);
+          const handle = await tryStartScreenerWorkflow(ctx.env, verifiedCommand);
           if (!handle) {
             // Residual gap, stated plainly: the credit is claimed
             // but no run started. The audit row below is the
@@ -999,7 +1075,7 @@ export async function handleAgenticPaymentsRoutes(
       // conversion and lets the gate below (which reads the
       // same catalogue) fail closed itself; it never guesses
       // a price and never falls back to a code constant.
-      if (effectiveTier !== "Subscribed" || (stored?.includedRuns ?? 0) <= 0) {
+      if (identity.tier !== "Subscribed" || (identity.stored?.includedRuns ?? 0) <= 0) {
         let priceUSD: number | null = null;
         try {
           const catalogue = createPriceCatalogueAdapter(ctx.env as { AGENT_DB?: unknown });
@@ -1008,7 +1084,7 @@ export async function handleAgenticPaymentsRoutes(
           priceUSD = null;
         }
         if (priceUSD !== null) {
-          const commercialCovered = (stored?.creditsUSD ?? 0) >= priceUSD;
+          const commercialCovered = (identity.stored?.creditsUSD ?? 0) >= priceUSD;
           if (!commercialCovered) {
             const flagOn = await createFeatureFlagPort(ctx.env).isEnabled("monetization");
             if (flagOn) {
@@ -1057,12 +1133,11 @@ export async function handleAgenticPaymentsRoutes(
         userId: login,
         email,
         account,
-        // Issue #2137: stamp the screener command's owner from the
-        // verified session login, never from a caller claim. The
-        // command's userLogin is run attribution; authentication is
-        // the session header, and a caller-supplied owner must not
-        // survive into the workflow.
-        screenerCommand: { ...(screenerCommand as Record<string, unknown>), userLogin: login } as WorkflowJobCommand,
+        // Issue #2137 + #2219 fix: the command's owner AND tenant
+        // are stamped from the verified session (see
+        // verifiedCommand above) — a caller-supplied owner or
+        // tenant must not survive into the workflow.
+        screenerCommand: verifiedCommand,
       });
       // Issue #2137 follow-ups: record the submission owner
       // BEFORE starting the workflow, so a record failure fails
@@ -1258,10 +1333,8 @@ export async function handleAgenticPaymentsRoutes(
       if (flag) return flag;
       const body = (await request.json().catch(() => ({}))) as { planId?: unknown; tenantId?: unknown; email?: unknown };
       const planId = typeof body.planId === "string" ? body.planId : "";
-      const tenantId = typeof body.tenantId === "string" ? body.tenantId : "";
       const email = typeof body.email === "string" ? body.email.trim() : "";
       if (!planId) return Response.json({ error: "planId is required." }, { status: 400 });
-      if (!tenantId) return Response.json({ error: "tenantId is required." }, { status: 400 });
       if (!email) return Response.json({ error: "email (checkout contact) is required." }, { status: 400 });
       const store = requireStore();
       if (store instanceof Response) return store;
@@ -1272,10 +1345,26 @@ export async function handleAgenticPaymentsRoutes(
       const plan = await subs.getPlan(planId);
       if (!plan) return Response.json({ error: `No plan ${planId}.` }, { status: 404 });
       if (!plan.active) return Response.json({ error: `Plan ${planId} is not active.` }, { status: 409 });
-      const stored = await store.getAccount(login);
-      if (stored && stored.tenantId !== tenantId) {
-        return Response.json({ error: "Tenant mismatch: subscription tenant must equal the verified account tenant." }, { status: 403 });
+      // #2219 fix: the checkout tenant is the resolved identity's
+      // tenant when an account exists, else the verified session
+      // login itself (personal scope label). A client-supplied
+      // tenantId is ignored, even on mismatch. No row is created
+      // here — checkout only mints; the account row is created at
+      // purchase activation, after verified payment, so a first
+      // purchase needs no operator step.
+      let identity;
+      try {
+        identity = await resolvePlatformIdentity(
+          { commercial: store, subscriptions: subs },
+          { userId: login, nowMs: Date.now() },
+        );
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to resolve platform identity" }, { status: 503 });
       }
+      // #2219 (rebased onto #2198's native card checkout): the tenant
+      // comes from the resolved identity, never the request body; the
+      // mint itself stays the native Stripe checkout.
+      const tenantId = identity.tenantId ?? login;
       const ports = createCheckoutPorts(ctx.env as unknown as {
         STRIPE_SECRET_KEY?: string;
         STRIPE_TEST_SECRET_KEY?: string;
@@ -1329,11 +1418,9 @@ export async function handleAgenticPaymentsRoutes(
       if (flag) return flag;
       const body = (await request.json().catch(() => ({}))) as { planId?: unknown; tenantId?: unknown; checkoutRequestId?: unknown; checkoutSessionId?: unknown };
       const planId = typeof body.planId === "string" ? body.planId : "";
-      const tenantId = typeof body.tenantId === "string" ? body.tenantId : "";
       const checkoutRequestId = typeof body.checkoutRequestId === "string" ? body.checkoutRequestId : "";
       const checkoutSessionId = typeof body.checkoutSessionId === "string" ? body.checkoutSessionId : "";
       if (!planId) return Response.json({ error: "planId is required." }, { status: 400 });
-      if (!tenantId) return Response.json({ error: "tenantId is required." }, { status: 400 });
       if (!checkoutRequestId) return Response.json({ error: "checkoutRequestId is required." }, { status: 400 });
       if (!checkoutRequestId.startsWith("sub-")) {
         return Response.json({ error: "checkoutRequestId must come from the subscription checkout route." }, { status: 400 });
@@ -1348,6 +1435,28 @@ export async function handleAgenticPaymentsRoutes(
       const plan = await subs.getPlan(planId);
       if (!plan) return Response.json({ error: `No plan ${planId}.` }, { status: 404 });
       if (!plan.active) return Response.json({ error: `Plan ${planId} is not active.` }, { status: 409 });
+      // #2219 fix: same derivation as checkout — resolved identity
+      // wins, client tenantId ignored. A missing account does NOT
+      // fail closed here: after payment verification,
+      // activateSubscription creates the account row in the
+      // session-derived tenant (the verified login itself when no
+      // row exists), restoring the pre-slice-1 auto-create
+      // behavior. A first purchase therefore succeeds end-to-end
+      // with no operator step, and a later identity resolution
+      // finds the row. (Pay-per-run submit still fails closed on
+      // no account — that path does not auto-create.) The
+      // verification + activation below stay the native Stripe path
+      // (#2198): the session is re-read and judged paid here.
+      let identity;
+      try {
+        identity = await resolvePlatformIdentity(
+          { commercial: store, subscriptions: subs },
+          { userId: login, nowMs: Date.now() },
+        );
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Failed to resolve platform identity" }, { status: 503 });
+      }
+      const tenantId = identity.tenantId ?? login;
       const ports = createCheckoutPorts(ctx.env as unknown as {
         STRIPE_SECRET_KEY?: string;
         STRIPE_TEST_SECRET_KEY?: string;
