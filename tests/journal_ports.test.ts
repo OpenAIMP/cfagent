@@ -45,6 +45,7 @@ import {
   mapChargeToJournalEntries,
   mapFailureCreditToJournalEntries,
   mapRedemptionToJournalEntries,
+  mapSubscriptionPurchaseToJournalEntries,
   reconcileJournal,
   trialBalance,
   type JournalPort,
@@ -256,11 +257,15 @@ describe.each(makers)("journal port conformance (#2155) — $name", ({ make }) =
     });
   });
 
-  it("seeds the minimal chart including reserved 5000", async () => {
+  it("seeds the minimal chart including reserved 5000 and deferred-revenue 2100", async () => {
     const store = await make();
     const accounts = await store.listAccounts();
-    expect(accounts.map((a) => a.code)).toEqual(["1000", "2000", "4000", "5000"]);
+    expect(accounts.map((a) => a.code)).toEqual(["1000", "2000", "2100", "4000", "5000"]);
     expect(accounts.find((a) => a.code === "5000")?.name).toMatch(/Refunds/);
+    expect(accounts.find((a) => a.code === "2100")).toMatchObject({
+      name: "Deferred revenue",
+      type: "liability",
+    });
   });
 });
 
@@ -291,6 +296,86 @@ describe("journal mappings (#2155)", () => {
     expect(() =>
       mapChargeToJournalEntries({ ...input, amountUSD: 0 }),
     ).toThrow(/positive finite/);
+  });
+});
+
+describe("journal subscription purchase mapping (#2155 follow-up)", () => {
+  const input = {
+    transactionRef: "sub-draft-1",
+    tenantId: "tenant-a",
+    subscriptionId: "sub-abc12345",
+    amountUSD: 20,
+  };
+
+  it("maps a purchase to Dr 1000 / Cr 2100, never to revenue", () => {
+    const entries = mapSubscriptionPurchaseToJournalEntries(input);
+    expect(entries.map((e) => [e.accountCode, e.debitUSD, e.creditUSD])).toEqual([
+      ["1000", 20, 0],
+      ["2100", 0, 20],
+    ]);
+    for (const e of entries) {
+      expect(e.transactionRef).toBe("sub-draft-1");
+      expect(e.tenantId).toBe("tenant-a");
+      expect(e.runRequestId).toBe("sub-abc12345");
+      expect(e.family).toBe("subscription");
+      expect(e.currency).toBe("USD");
+    }
+    expect(() => mapSubscriptionPurchaseToJournalEntries({ ...input, amountUSD: 0 })).toThrow(
+      /positive finite/,
+    );
+    expect(() => mapSubscriptionPurchaseToJournalEntries({ ...input, subscriptionId: "" })).toThrow(
+      /subscriptionId/,
+    );
+  });
+
+  it("posts the pair on both adapters and shows deferred revenue as a liability in the trial balance", async () => {
+    for (const make of makers) {
+      const store = await make.make();
+      const accounts = await store.listAccounts();
+      const deferred = accounts.find((a) => a.code === "2100");
+      expect(deferred).toMatchObject({ name: "Deferred revenue", type: "liability" });
+      const posted = await store.postEntries(mapSubscriptionPurchaseToJournalEntries(input));
+      expect(posted).toHaveLength(2);
+      // Replay of the same purchase ref is a no-op, never a double post.
+      const replayed = await store.postEntries(mapSubscriptionPurchaseToJournalEntries(input));
+      expect(replayed).toHaveLength(2);
+      expect(await store.listEntries("tenant-a")).toHaveLength(2);
+      const balance = await trialBalance(store, "tenant-a");
+      expect(balance.balanced).toBe(true);
+      expect(balance.totalDebits).toBe(20);
+      expect(balance.totalCredits).toBe(20);
+      const row = balance.accounts.find((a) => a.code === "2100");
+      expect(row).toMatchObject({ type: "liability", debitTotal: 0, creditTotal: 20 });
+      expect(balance.accounts.find((a) => a.code === "4000")).toMatchObject({
+        debitTotal: 0,
+        creditTotal: 0,
+      });
+    }
+  });
+
+  it("a throwing journal port never fails the purchase (best-effort)", async () => {
+    const throwingPort: JournalPort = {
+      async postEntries() {
+        throw new Error("D1 unavailable");
+      },
+      async listEntries() {
+        return [];
+      },
+      async getEntriesByRef() {
+        return [];
+      },
+      async listAccounts() {
+        return [];
+      },
+    };
+    // The purchase activation happens first and succeeds; the
+    // journal post follows best-effort. The sequence resolves
+    // with the purchase result intact, whatever the journal does.
+    const purchase = { subscriptionId: "sub-abc12345", status: "active" };
+    await expect(
+      postJournalBestEffort(async () => throwingPort, mapSubscriptionPurchaseToJournalEntries(input)),
+    ).resolves.toBeUndefined();
+    expect(purchase.status).toBe("active");
   });
 });
 

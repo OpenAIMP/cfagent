@@ -116,7 +116,10 @@ import {
   ensureNativeLedgerSchema,
 } from "../../data/createNativeLedgerPorts";
 import { parseNativeRail } from "../../data/nativeLedgerPorts";
-import { mapRedemptionToJournalEntries } from "../../data/journalPorts";
+import {
+  mapRedemptionToJournalEntries,
+  mapSubscriptionPurchaseToJournalEntries,
+} from "../../data/journalPorts";
 import { postJournalBestEffort } from "../../services/journalPosting";
 import type { D1CommercialAdapter } from "../../data/d1CommercialAdapter";
 import { toCommercialAccount } from "../../data/commercialPorts";
@@ -1364,6 +1367,27 @@ export async function handleAgenticPaymentsRoutes(
         stripePaymentIntentId: evidence.paymentIntentId,
         periodEndMs: subscription.periodEndMs,
       });
+      // Issue #2155 follow-up: project the purchase into the D1
+      // journal (Dr 1000 / Cr 2100 — the purchase is deferred
+      // revenue, NOT immediate revenue). BEST-EFFORT, never
+      // thrown: activation already succeeded, so a journal
+      // failure is a loud log + a reconcile flag, never a
+      // failed purchase. Posted only after activation success,
+      // never on any refusal path above (402/403/404/409/503
+      // all return before this point). The RECOGNITION schedule
+      // (deferred → earned over the period) is a follow-up slice
+      // and is deliberately not posted here.
+      await postJournalBestEffort(async () => {
+        const adapter = createJournalAdapter(ctx.env as { AGENT_DB?: unknown });
+        if (!adapter) return null;
+        await ensureJournalSchema(adapter.db);
+        return adapter;
+      }, mapSubscriptionPurchaseToJournalEntries({
+        transactionRef: checkoutRequestId,
+        tenantId,
+        subscriptionId: subscription.id,
+        amountUSD: plan.priceUSD,
+      }));
       const effectiveTier = resolveEffectiveTier(account, [subscription], Date.now());
       return Response.json({ subscription, account, effectiveTier });
     } catch (err: any) {
