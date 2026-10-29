@@ -222,8 +222,13 @@ describe("guardScheduledETradeAuth", () => {
       expect(first.error).toContain("no stored session");
     }
     expect(sendSlackAlert).toHaveBeenCalledTimes(1);
+    // Issue #2216 (#1969 P1): the alert renders FROM the catalog, not
+    // the old hand-built "connection missing" variant.
     expect(String((sendSlackAlert.mock.calls[0] as any[])[0])).toContain(
-      "connection missing"
+      "[AUTH_003] No E*TRADE session is stored for this account. Please connect your account in Settings."
+    );
+    expect(String((sendSlackAlert.mock.calls[0] as any[])[0])).toContain(
+      "scheduled bullish options screen is blocked"
     );
     expect(bridge).toHaveBeenCalledTimes(1);
     const outcome = (bridge.mock.calls[0] as any[])[0];

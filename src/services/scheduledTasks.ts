@@ -19,6 +19,7 @@ import {
   guardScheduledETradeAuth,
   type AuthEpisodeStore,
 } from "./etradeAuthPreflight";
+import type { ScreenerTrace } from "./screenerTrace";
 import { withRetry } from "./resilience";
 import { resolvePipelinePolicy } from "./pipelinePolicy";
 import { DynamicMarketScreener } from "../trading";
@@ -122,6 +123,10 @@ export interface AutonomousOptionsAnalysisOptions {
   environment?: string;
   trigger?: "manual" | "scheduled";
   userLogin?: string;
+  /** Issue #2216: the arming schedule's id, when the caller knows it
+   *  (recorded as run provenance; the SDK callback path supplies none
+   *  — the schedules routes stamp it at arm/trigger time when known). */
+  scheduleId?: string;
   /** Consolidation C4 (#1329): per-record stage-chain config — in
    *  chain mode the run bridges fully (bridge deliver jobs carry the
    *  adopted PDF; direct Slack/email delivery is suppressed so the
@@ -494,7 +499,8 @@ export class ScheduledTasksService {
     userLogin: string,
     environment: string | undefined,
     kind: "stock" | "options",
-    label: string
+    label: string,
+    trace?: ScreenerTrace
   ): Promise<{ blocked: true; error: string; alerted: boolean } | { blocked: false }> {
     const blob = this.platformDeps?.blobStorage as unknown as
       | AuthEpisodeStore
@@ -511,9 +517,25 @@ export class ScheduledTasksService {
       bridge: this.followupScheduler,
       kind,
       label,
+      trace,
     });
     if (res.blocked) {
-      this.audit("etrade.auth_blocked", { userLogin, kind, alerted: res.alerted });
+            // Issue #2216: the audit event carries the trace fields, so the
+      // run is attributable from the audit side too (the guard alert
+      // and the failure legs carry the same trace from the message side).
+      this.audit("etrade.auth_blocked", {
+        userLogin,
+        kind,
+        alerted: res.alerted,
+        ...(trace
+          ? {
+              runId: trace.runId,
+              scheduleId: trace.scheduleId,
+              workflow: trace.workflow,
+              stage: trace.stage,
+          }
+          : {}),
+      });
       return { blocked: true, error: res.error, alerted: res.alerted };
     }
     return { blocked: false };
@@ -844,6 +866,8 @@ export class ScheduledTasksService {
     slackChannel?: string;
     webhookUrl?: string;
     pushToSlack?: boolean;
+    /** Issue #2216: the arming schedule's id, when the caller knows it. */
+    scheduleId?: string;
     filters?: import("../types").StockScreenerFilter;
     /** Issue #1499 (#940-E): id of a stored screener preset whose
      *  criteria filter this run. Resolved at RUN time (below), so
@@ -953,7 +977,17 @@ export class ScheduledTasksService {
           userLogin,
           options.environment,
           "stock",
-          `${options.universe || "NASDAQ100"} stock screen`
+          `${options.universe || "NASDAQ100"} stock screen`,
+          {
+            scheduleId: options.scheduleId,
+            runId: `stock_scanner:${timestamp}:${options.universe || "NASDAQ100"}`,
+            workflow: "autonomousMarketScreen",
+            trigger: options.trigger ?? "scheduled",
+            stage: "auth guard",
+            firedAt: timestamp,
+            runAs: userLogin,
+            universe: options.universe || "NASDAQ100",
+          }
         );
         if (guard.blocked) {
           providerFallback = { from: "etrade", reason: "etrade-auth-dead" };
@@ -1189,6 +1223,8 @@ export class ScheduledTasksService {
     environment?: "TEST" | "PROD";
     trigger?: "manual" | "scheduled";
     emailTo?: string;
+    /** Issue #2216: the arming schedule's id, when the caller knows it. */
+    scheduleId?: string;
     /** Issue #2186: schedule kind for paid routing — absent fails
      *  closed to recurring (coverage-only). No caller sets this yet. */
     scheduleKind?: "one_off" | "recurring";
@@ -1304,7 +1340,16 @@ export class ScheduledTasksService {
           userLogin,
           options.environment,
           "stock",
-          "goal screen"
+          "goal screen",
+          {
+            scheduleId: options.scheduleId,
+            runId: `goal_screen:${timestamp}:${scenario.goalKind}`,
+            workflow: "autonomousGoalScreen",
+            trigger: options.trigger ?? "scheduled",
+            stage: "auth guard",
+            firedAt: timestamp,
+            runAs: userLogin,
+          }
         );
         if (guard.blocked) {
           providerFallback = { from: "etrade", reason: "etrade-auth-dead" };
@@ -1893,7 +1938,18 @@ export class ScheduledTasksService {
           userLogin,
           options.environment,
           "options",
-          "options screen"
+          "options screen",
+          {
+            scheduleId: options.scheduleId,
+            runId: reportRunId,
+            workflow: "autonomousOptionsAnalysis",
+            trigger: options.trigger ?? "scheduled",
+            stage: "auth guard",
+            firedAt: timestamp,
+            runAs: userLogin,
+            universe: options.universe,
+            thesis: targetThesis,
+          }
         );
         if (guard.blocked) {
           if (!guard.alerted) {
