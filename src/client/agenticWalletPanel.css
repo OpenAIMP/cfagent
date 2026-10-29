@@ -14,7 +14,7 @@
 }
 .awp-header h4 {
   margin: 0;
-  font-size: 1.05rem;
+  font-size: var(--font-size-title-sm);
 }
 .awp-refresh {
   margin-left: auto;
@@ -38,7 +38,7 @@
   border: 1px solid var(--color-warning);
   background: var(--color-warning-subtle);
   color: var(--color-warning-text);
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -57,24 +57,24 @@
   flex-wrap: wrap;
 }
 .awp-balance-label {
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--color-text-muted);
 }
 .awp-balance-amount {
-  font-size: 1.7rem;
+  font-size: var(--font-size-display);
   font-weight: 700;
   line-height: 1.1;
 }
 .awp-disclosure {
   margin: 0.5rem 0 0;
-  font-size: 0.83rem;
+  font-size: var(--font-size-body-sm);
   color: var(--color-warning-text);
 }
 .awp-source-line {
   margin: 0.3rem 0 0;
-  font-size: 0.78rem;
+  font-size: var(--font-size-caption);
   color: var(--color-text-muted);
 }
 .awp-grid {
@@ -92,18 +92,18 @@
   background: var(--color-muted);
 }
 .awp-card span {
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--color-text-muted);
 }
 .awp-card strong {
-  font-size: 1.05rem;
+  font-size: var(--font-size-title-sm);
   overflow-wrap: anywhere;
 }
 .awp-meta {
   margin-top: 0.8rem;
-  font-size: 0.8rem;
+  font-size: var(--font-size-body-sm);
   color: var(--color-text-muted);
   overflow-wrap: anywhere;
 }
@@ -116,12 +116,12 @@
   border: 1px solid var(--color-danger);
   border-radius: 10px;
   background: var(--color-danger-subtle);
-  font-size: 0.88rem;
+  font-size: var(--font-size-body);
 }
 .awp-loading,
 .awp-empty {
   margin-top: 0.9rem;
-  font-size: 0.88rem;
+  font-size: var(--font-size-body);
   color: var(--color-text-muted);
 }
 .awp-ledger {
@@ -129,11 +129,11 @@
 }
 .awp-ledger h5 {
   margin: 0 0 0.35rem;
-  font-size: 0.95rem;
+  font-size: var(--font-size-body);
 }
 .awp-ledger-sub {
   margin: 0 0 0.7rem;
-  font-size: 0.8rem;
+  font-size: var(--font-size-body-sm);
   color: var(--color-text-muted);
 }
 .awp-ledger-list {
@@ -156,7 +156,7 @@
   font-weight: 700;
 }
 .awp-entry-direction {
-  font-size: 0.78rem;
+  font-size: var(--font-size-caption);
   color: var(--color-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -166,7 +166,7 @@
   padding: 0.08rem 0.5rem;
   border-radius: 999px;
   border: 1px solid var(--color-border-strong);
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   font-weight: 600;
   white-space: nowrap;
 }
@@ -177,12 +177,12 @@
 }
 .awp-entry-time {
   margin-left: auto;
-  font-size: 0.78rem;
+  font-size: var(--font-size-caption);
   color: var(--color-text-muted);
 }
 .awp-entry-meta {
   margin-top: 0.3rem;
-  font-size: 0.8rem;
+  font-size: var(--font-size-body-sm);
   color: var(--color-text-muted);
   overflow-wrap: anywhere;
 }

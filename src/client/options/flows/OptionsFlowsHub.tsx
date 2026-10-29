@@ -449,7 +449,7 @@ export function OptionsFlowsHub({
       render: (item) => (
         <Button
           className="subnav-btn"
-          style={{ padding: "var(--space-1) var(--space-1-5)", fontSize: "0.72rem", borderColor: "var(--color-warning)", color: "var(--color-warning)" }}
+          style={{ padding: "var(--space-1) var(--space-1-5)", fontSize: "var(--font-size-caption)", borderColor: "var(--color-warning)", color: "var(--color-warning)" }}
           title="Analyze institutional trade risk profile"
           onClick={(e) => {
             e.stopPropagation();
@@ -610,7 +610,7 @@ export function OptionsFlowsHub({
             <CopilotTriggerButton label="✨ Ask Copilot" />
             <div
               title={FLOW_PROVENANCE_NOTICE}
-              style={{ display: "flex", alignItems: "center", gap: "var(--space-1-5)", fontSize: "11px", color: "var(--color-warning)", background: "var(--color-warning-subtle, var(--color-surface-sunken))", padding: "var(--space-1) var(--space-2)", borderRadius: "var(--radius-full, 12px)", border: "1px solid var(--color-warning)", fontWeight: 600 }}
+              style={{ display: "flex", alignItems: "center", gap: "var(--space-1-5)", fontSize: "var(--font-size-micro)", color: "var(--color-warning)", background: "var(--color-warning-subtle, var(--color-surface-sunken))", padding: "var(--space-1) var(--space-2)", borderRadius: "var(--radius-full, 12px)", border: "1px solid var(--color-warning)", fontWeight: 600 }}
             >
               <span>🧪</span>
               <span>{flowProvenance.provenances.includes("generated") ? "MODELLED · INCLUDES GENERATED SAMPLES" : "MODELLED — NOT A TRADE TAPE"}</span>
@@ -619,7 +619,7 @@ export function OptionsFlowsHub({
             <Button
               onClick={() => fetchLiveFlows(filterConfig)}
               disabled={isRefreshing}
-              style={{ display: "flex", alignItems: "center", gap: "var(--space-1)", fontSize: "11px", color: "var(--color-text-muted)", background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-medium)", borderRadius: "var(--radius-sm)", padding: "var(--space-1) var(--space-2)", cursor: isRefreshing ? "wait" : "pointer" }}
+              style={{ display: "flex", alignItems: "center", gap: "var(--space-1)", fontSize: "var(--font-size-micro)", color: "var(--color-text-muted)", background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-medium)", borderRadius: "var(--radius-sm)", padding: "var(--space-1) var(--space-2)", cursor: isRefreshing ? "wait" : "pointer" }}
               title="Refresh modelled options flow estimates"
             >
               {isRefreshing ? "Refreshing..." : "↻ Refresh"}
@@ -689,19 +689,19 @@ export function OptionsFlowsHub({
           {subTab === "summary" && (
             !hasLoadedInitial && isRefreshing ? (
               <div style={{ padding: "calc(var(--space-6) * 2 + var(--space-4)) calc(var(--space-6) + var(--space-2))", textAlign: "center", color: "var(--color-text-muted)" }}>
-                <div style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
+                <div style={{ fontSize: "var(--font-size-title-sm)", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
                   Aggregating Modelled Options Flow Leaderboard...
                 </div>
-                <div style={{ fontSize: "0.85rem" }}>
+                <div style={{ fontSize: "var(--font-size-body)" }}>
                   Calculating net bullish vs bearish dollar volumes from modelled flow estimates derived from option-chain snapshots
                 </div>
               </div>
             ) : summaryData.totalTrades === 0 ? (
               <div style={{ padding: "calc(var(--space-6) * 2 + var(--space-4)) calc(var(--space-6) + var(--space-2))", textAlign: "center", color: "var(--color-text-muted)" }}>
-                <div style={{ fontSize: "1.2rem", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
+                <div style={{ fontSize: "var(--font-size-title)", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
                   No flow estimates available
                 </div>
-                <div style={{ fontSize: "0.85rem" }}>
+                <div style={{ fontSize: "var(--font-size-body)" }}>
                   No option-chain data is currently available to derive flow estimates.
                 </div>
               </div>
@@ -743,19 +743,19 @@ export function OptionsFlowsHub({
               )}
               {!hasLoadedInitial && isRefreshing ? (
                 <div style={{ padding: "calc(var(--space-6) * 2 + var(--space-4)) calc(var(--space-6) + var(--space-2))", textAlign: "center", color: "var(--color-text-muted)" }}>
-                  <div style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
+                  <div style={{ fontSize: "var(--font-size-title-sm)", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
                     Loading Modelled Institutional Options Flow Estimates...
                   </div>
-                  <div style={{ fontSize: "0.85rem" }}>
+                  <div style={{ fontSize: "var(--font-size-body)" }}>
                     Deriving sweep and block estimates from option-chain snapshots — not exchange trade prints
                   </div>
                 </div>
               ) : filteredLiveItems.length === 0 ? (
                 <div style={{ padding: "calc(var(--space-6) * 2) var(--space-4)", textAlign: "center", color: "var(--color-text-muted)" }}>
-                  <div style={{ fontSize: "1.2rem", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
+                  <div style={{ fontSize: "var(--font-size-title)", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
                     No flow estimates available
                   </div>
-                  <div style={{ fontSize: "0.85rem" }}>
+                  <div style={{ fontSize: "var(--font-size-body)" }}>
                     {filterConfig.tickers.length > 0 || filterConfig.minPremium > 0
                       ? "No modelled flow items matching the current filter criteria."
                       : "No option-chain data currently available to derive flow estimates."}
@@ -778,19 +778,19 @@ export function OptionsFlowsHub({
           {subTab === "news" && (
             !hasLoadedInitial && isRefreshing && newsItems.length === 0 ? (
               <div style={{ padding: "calc(var(--space-6) * 2 + var(--space-4)) calc(var(--space-6) + var(--space-2))", textAlign: "center", color: "var(--color-text-muted)" }}>
-                <div style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
+                <div style={{ fontSize: "var(--font-size-title-sm)", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
                   Fetching Live Market News...
                 </div>
-                <div style={{ fontSize: "0.85rem" }}>
+                <div style={{ fontSize: "var(--font-size-body)" }}>
                   Connecting to real-time financial market news feeds
                 </div>
               </div>
             ) : filteredNewsItems.length === 0 ? (
               <div style={{ padding: "calc(var(--space-6) * 2) var(--space-4)", textAlign: "center", color: "var(--color-text-muted)" }}>
-                <div style={{ fontSize: "1.2rem", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
+                <div style={{ fontSize: "var(--font-size-title)", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
                   No live feed available
                 </div>
-                <div style={{ fontSize: "0.85rem" }}>
+                <div style={{ fontSize: "var(--font-size-body)" }}>
                   No live financial news prints currently available from market feeds.
                 </div>
               </div>
@@ -812,19 +812,19 @@ export function OptionsFlowsHub({
           {subTab === "congress" && (
             !hasLoadedInitial && isRefreshing && congressItems.length === 0 ? (
               <div style={{ padding: "calc(var(--space-6) * 2 + var(--space-4)) calc(var(--space-6) + var(--space-2))", textAlign: "center", color: "var(--color-text-muted)" }}>
-                <div style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
+                <div style={{ fontSize: "var(--font-size-title-sm)", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
                   Fetching Congressional Trading Disclosures...
                 </div>
-                <div style={{ fontSize: "0.85rem" }}>
+                <div style={{ fontSize: "var(--font-size-body)" }}>
                   Connecting to real-time congressional member stock disclosure feeds
                 </div>
               </div>
             ) : filteredCongressItems.length === 0 ? (
               <div style={{ padding: "calc(var(--space-6) * 2) var(--space-4)", textAlign: "center", color: "var(--color-text-muted)" }}>
-                <div style={{ fontSize: "1.2rem", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
+                <div style={{ fontSize: "var(--font-size-title)", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
                   No live feed available
                 </div>
-                <div style={{ fontSize: "0.85rem" }}>
+                <div style={{ fontSize: "var(--font-size-body)" }}>
                   No live congressional trading disclosures feed currently available.
                 </div>
               </div>
@@ -844,19 +844,19 @@ export function OptionsFlowsHub({
           {subTab === "insider" && (
             !hasLoadedInitial && isRefreshing && insiderItems.length === 0 ? (
               <div style={{ padding: "calc(var(--space-6) * 2 + var(--space-4)) calc(var(--space-6) + var(--space-2))", textAlign: "center", color: "var(--color-text-muted)" }}>
-                <div style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
+                <div style={{ fontSize: "var(--font-size-title-sm)", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
                   Streaming Live SEC Form 4 Filings...
                 </div>
-                <div style={{ fontSize: "0.85rem" }}>
+                <div style={{ fontSize: "var(--font-size-body)" }}>
                   Connecting directly to SEC EDGAR real-time insider trade disclosures
                 </div>
               </div>
             ) : filteredInsiderItems.length === 0 ? (
               <div style={{ padding: "calc(var(--space-6) * 2) var(--space-4)", textAlign: "center", color: "var(--color-text-muted)" }}>
-                <div style={{ fontSize: "1.2rem", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
+                <div style={{ fontSize: "var(--font-size-title)", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "0.5rem" }}>
                   No live feed available
                 </div>
-                <div style={{ fontSize: "0.85rem" }}>
+                <div style={{ fontSize: "var(--font-size-body)" }}>
                   No live SEC Form 4 insider trading feed currently available.
                 </div>
               </div>

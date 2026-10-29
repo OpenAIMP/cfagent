@@ -25,7 +25,7 @@ export function LiveResultPreview({ liveResult, onPreviewTrade }: LiveResultPrev
             </div>
           </div>
 
-          <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "0.88rem" }}>
+          <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--font-size-body)" }}>
             {liveResult.summary}
           </p>
 
@@ -36,22 +36,22 @@ export function LiveResultPreview({ liveResult, onPreviewTrade }: LiveResultPrev
                 return (
                   <div key={opp.symbol} style={{ background: "var(--color-card)", border: "1px solid var(--color-border-subtle)", borderRadius: "var(--radius-md)", padding: "var(--space-3)" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.35rem" }}>
-                      <strong style={{ color: "var(--color-accent)", fontSize: "0.95rem" }}>{opp.symbol}</strong>
-                      <span style={{ background: "var(--color-accent-subtle)", color: "var(--color-accent)", fontSize: "0.74rem", padding: "var(--space-0-5) var(--space-2)", borderRadius: "var(--radius-xs, 4px)", fontWeight: "bold" }}>
+                      <strong style={{ color: "var(--color-accent)", fontSize: "var(--font-size-body)" }}>{opp.symbol}</strong>
+                      <span style={{ background: "var(--color-accent-subtle)", color: "var(--color-accent)", fontSize: "var(--font-size-caption)", padding: "var(--space-0-5) var(--space-2)", borderRadius: "var(--radius-xs, 4px)", fontWeight: "bold" }}>
                         Score: {opp.score}/100
                       </span>
                     </div>
-                    <p style={{ color: "var(--color-text-primary)", margin: "0 0 0.5rem", fontSize: "0.84rem", fontWeight: 600 }}>
+                    <p style={{ color: "var(--color-text-primary)", margin: "0 0 0.5rem", fontSize: "var(--font-size-body-sm)", fontWeight: 600 }}>
                       {cand?.label || "Options Setup"}
                     </p>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.76rem", color: "var(--color-text-muted)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "var(--font-size-caption)", color: "var(--color-text-muted)" }}>
                       <span>Max Profit: <strong style={{ color: "var(--color-success)" }}>{cand?.maxProfitUnbounded ? "∞" : `$${cand?.maxProfit?.toFixed(2) || "0"}`}</strong></span>
                       <span>Max Loss: <strong style={{ color: "var(--color-danger)" }}>${cand?.maxLoss?.toFixed(2) || "0"}</strong></span>
                     </div>
                     {cand && onPreviewTrade && (
                       <Button
                         type="button"
-                        style={{ marginTop: "0.6rem", width: "100%", padding: "var(--space-1-5)", fontSize: "0.74rem", background: "var(--color-accent-subtle)", border: "1px solid var(--color-border-focus)", color: "var(--color-accent)", borderRadius: "var(--radius-xs, 4px)", cursor: "pointer", fontWeight: 600 }}
+                        style={{ marginTop: "0.6rem", width: "100%", padding: "var(--space-1-5)", fontSize: "var(--font-size-caption)", background: "var(--color-accent-subtle)", border: "1px solid var(--color-border-focus)", color: "var(--color-accent)", borderRadius: "var(--radius-xs, 4px)", cursor: "pointer", fontWeight: 600 }}
                         onClick={() => onPreviewTrade(cand)}
                       >
                         ⚡ Preview in Order Ticket

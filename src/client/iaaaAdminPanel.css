@@ -21,19 +21,19 @@
 }
 
 .iaaa-admin-label {
-  font-size: 0.8rem;
+  font-size: var(--font-size-body-sm);
   opacity: 0.7;
 }
 
 .iaaa-admin-note {
-  font-size: 0.85rem;
+  font-size: var(--font-size-body);
   opacity: 0.8;
 }
 
 .iaaa-admin-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.85rem;
+  font-size: var(--font-size-body);
 }
 
 .iaaa-admin-table th,
@@ -51,7 +51,7 @@
    no per-theme overrides — light, dark, system, and high-contrast
    all come from the tokens. */
 .iaaa-admin-aliases {
-  font-size: 0.8rem;
+  font-size: var(--font-size-body-sm);
   color: var(--color-text-muted);
   margin-top: 0.2rem;
 }

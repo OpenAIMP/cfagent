@@ -1675,7 +1675,7 @@ export function StrategyDiscoveryPanel({
       {activeView === "discovery" && (
         <div className="strat-discovery-view">
           {dataTab === "demo" && (
-            <div style={{ margin: "0 0 12px", padding: "var(--space-2-5) var(--space-3)", borderRadius: 10, background: "var(--color-warning-subtle)", border: "1px solid var(--color-warning-border)", color: "var(--color-warning-text)", fontSize: "0.85rem", fontWeight: 600 }}>
+            <div style={{ margin: "0 0 12px", padding: "var(--space-2-5) var(--space-3)", borderRadius: 10, background: "var(--color-warning-subtle)", border: "1px solid var(--color-warning-border)", color: "var(--color-warning-text)", fontSize: "var(--font-size-body)", fontWeight: 600 }}>
               ⚠ DEMO DATA — the strategies below are built on calibrated (generated) option chains for development/demo. This is not live market data.
             </div>
           )}

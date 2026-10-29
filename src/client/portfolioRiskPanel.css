@@ -13,11 +13,11 @@
 }
 .prp-header h3 {
   margin: 0;
-  font-size: 1.05rem;
+  font-size: var(--font-size-title-sm);
 }
 .prp-asof {
   color: var(--color-text-muted);
-  font-size: 0.8rem;
+  font-size: var(--font-size-body-sm);
 }
 .prp-refresh {
   margin-left: auto;
@@ -43,13 +43,13 @@
   background: var(--color-surface-sunken);
 }
 .prp-card span {
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--color-text-muted);
 }
 .prp-card strong {
-  font-size: 1.05rem;
+  font-size: var(--font-size-title-sm);
 }
 .prp-card em {
   font-style: normal;
@@ -62,18 +62,18 @@
   border-radius: 8px;
   background: var(--color-danger-subtle);
   color: var(--color-danger);
-  font-size: 0.85rem;
+  font-size: var(--font-size-body);
 }
 .prp-muted {
   margin-top: 0.7rem;
   color: var(--color-text-muted);
-  font-size: 0.85rem;
+  font-size: var(--font-size-body);
 }
 .prp-table {
   width: 100%;
   margin-top: 0.8rem;
   border-collapse: collapse;
-  font-size: 0.83rem;
+  font-size: var(--font-size-body-sm);
 }
 .prp-table th,
 .prp-table td {
@@ -92,7 +92,7 @@
 .prp-badge {
   padding: 0.05rem 0.4rem;
   border-radius: 999px;
-  font-size: 0.7rem;
+  font-size: var(--font-size-caption);
   background: var(--color-tag);
   color: var(--color-tag-foreground);
 }
@@ -127,7 +127,7 @@
   flex-wrap: wrap;
 }
 .prp-exec-details {
-  font-size: 0.78rem;
+  font-size: var(--font-size-caption);
   color: var(--color-text-secondary);
   background: var(--color-surface-sunken);
   padding: 0.25rem 0.5rem;
@@ -137,7 +137,7 @@
 }
 .prp-subhead {
   margin-top: 1.4rem;
-  font-size: 0.95rem;
+  font-size: var(--font-size-body);
   font-weight: 600;
   display: flex;
   align-items: center;
@@ -160,12 +160,12 @@
   flex: 1;
 }
 .prp-hedge-main span {
-  font-size: 0.83rem;
+  font-size: var(--font-size-body-sm);
   color: var(--color-text-secondary);
 }
 .prp-hedge-main p {
   margin: 0;
-  font-size: 0.8rem;
+  font-size: var(--font-size-body-sm);
   color: var(--color-text-muted);
 }
 .prp-preview-btn {
@@ -212,7 +212,7 @@
   grid-template-columns: 1fr 160px 52px;
   align-items: center;
   gap: 0.6rem;
-  font-size: 0.83rem;
+  font-size: var(--font-size-body-sm);
 }
 .prp-bar {
   height: 8px;
@@ -230,7 +230,7 @@
   border-radius: 8px;
   background: var(--color-warning-subtle);
   color: var(--color-warning);
-  font-size: 0.85rem;
+  font-size: var(--font-size-body);
 }
 .prp-form-grid {
   display: grid;
@@ -242,7 +242,7 @@
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
-  font-size: 0.78rem;
+  font-size: var(--font-size-caption);
   color: var(--color-text-muted);
 }
 .prp-form-grid input {
@@ -256,7 +256,7 @@
   margin-top: 0.7rem;
 }
 .prp-rationale {
-  font-size: 0.85rem;
+  font-size: var(--font-size-body);
   color: var(--color-text-secondary);
 }
 .prp-collapse {
@@ -265,7 +265,7 @@
   background: none;
   color: inherit;
   font: inherit;
-  font-size: 1.05rem;
+  font-size: var(--font-size-title-sm);
   font-weight: 700;
   cursor: pointer;
 }
@@ -275,7 +275,7 @@
   border: 1px solid var(--color-border-medium);
   background: var(--color-muted);
   color: inherit;
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   cursor: pointer;
   white-space: nowrap;
 }

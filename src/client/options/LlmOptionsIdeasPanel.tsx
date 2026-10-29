@@ -236,7 +236,7 @@ export function LlmOptionsIdeasPanel({ activeEnv, userLogin }: LlmOptionsIdeasPa
                     background: "var(--color-warning-subtle)",
                     border: "1px solid var(--color-warning)",
                     color: "var(--color-warning)",
-                    fontSize: "0.72rem",
+                    fontSize: "var(--font-size-caption)",
                     fontWeight: 700,
                   }}
                   title="Synthetic preview in TEST environment - not live market data"
@@ -252,7 +252,7 @@ export function LlmOptionsIdeasPanel({ activeEnv, userLogin }: LlmOptionsIdeasPa
                     background: "var(--color-surface-sunken)",
                     border: "1px solid var(--color-border-subtle)",
                     color: "var(--color-text-muted)",
-                    fontSize: "0.72rem",
+                    fontSize: "var(--font-size-caption)",
                     fontWeight: 600,
                   }}
                   title="Deterministic fallback ranking synthesized due to upstream model timeout or rate limit"
@@ -268,7 +268,7 @@ export function LlmOptionsIdeasPanel({ activeEnv, userLogin }: LlmOptionsIdeasPa
                     background: "var(--color-success-subtle)",
                     border: "1px solid var(--color-success)",
                     color: "var(--color-success)",
-                    fontSize: "0.72rem",
+                    fontSize: "var(--font-size-caption)",
                     fontWeight: 700,
                   }}
                   title="Accelerated from local options chain cache"

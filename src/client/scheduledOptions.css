@@ -26,7 +26,7 @@
 }
 
 .sched-hero-info h3 {
-  font-size: 1.35rem;
+  font-size: var(--font-size-title);
   font-weight: 700;
   color: var(--color-text-primary);
   margin: 0 0 0.35rem;
@@ -37,7 +37,7 @@
 
 .sched-hero-info p {
   color: var(--color-text-muted);
-  font-size: 0.88rem;
+  font-size: var(--font-size-body);
   line-height: 1.5;
   margin: 0;
   max-width: 720px;
@@ -56,7 +56,7 @@
   border: none;
   border-radius: 8px;
   padding: 0.6rem 1.15rem;
-  font-size: 0.86rem;
+  font-size: var(--font-size-body);
   font-weight: 600;
   cursor: pointer;
   display: inline-flex;
@@ -77,7 +77,7 @@
   color: var(--color-text-secondary);
   border-radius: 8px;
   padding: 0.6rem 1.15rem;
-  font-size: 0.86rem;
+  font-size: var(--font-size-body);
   font-weight: 600;
   cursor: pointer;
   display: inline-flex;
@@ -110,7 +110,7 @@
   justify-content: space-between;
   gap: 1rem;
   flex-wrap: wrap;
-  font-size: 0.82rem;
+  font-size: var(--font-size-body-sm);
   color: var(--color-text-muted);
 }
 
@@ -156,7 +156,7 @@
 }
 
 .sched-section-header h4 {
-  font-size: 1.05rem;
+  font-size: var(--font-size-title-sm);
   font-weight: 600;
   color: var(--color-text-primary);
   margin: 0;
@@ -240,7 +240,7 @@
 }
 
 .schedule-type-badge {
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   font-weight: 700;
   text-transform: uppercase;
   padding: 0.2rem 0.55rem;
@@ -279,7 +279,7 @@
 }
 
 .schedule-system-badge {
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   font-weight: 700;
   text-transform: uppercase;
   padding: 0.2rem 0.55rem;
@@ -292,7 +292,7 @@
 
 .schedule-system-note {
   margin: 0.35rem 0 0;
-  font-size: 0.78rem;
+  font-size: var(--font-size-caption);
   line-height: 1.45;
   color: var(--color-text-muted);
 }
@@ -302,7 +302,7 @@
   border: 1px solid var(--color-danger-border);
   border-radius: 8px;
   padding: 0.7rem 0.85rem;
-  font-size: 0.8rem;
+  font-size: var(--font-size-body-sm);
   line-height: 1.45;
   color: var(--color-text-secondary);
   display: flex;
@@ -316,7 +316,7 @@
   border: 1px solid var(--color-border-subtle);
   border-radius: 6px;
   padding: 0.6rem 0.75rem;
-  font-size: 0.78rem;
+  font-size: var(--font-size-caption);
   color: var(--color-text-secondary);
   display: flex;
   flex-direction: column;
@@ -326,7 +326,7 @@
 .schedule-detail-status {
   margin: 0;
   color: var(--color-text-muted);
-  font-size: 0.78rem;
+  font-size: var(--font-size-caption);
 }
 
 .schedule-detail-id {
@@ -336,7 +336,7 @@
 
 .schedule-detail-payload {
   margin: 0;
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   line-height: 1.4;
   color: var(--color-text-secondary);
   white-space: pre-wrap;
@@ -348,19 +348,19 @@
 .schedule-id-snippet {
   font-family: var(--font-sans);
   font-variant-numeric: tabular-nums;
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   color: var(--color-text-dim);
 }
 
 .schedule-title {
-  font-size: 0.98rem;
+  font-size: var(--font-size-body);
   font-weight: 600;
   color: var(--color-text-primary);
   margin: 0 0 0.25rem;
 }
 
 .schedule-cadence {
-  font-size: 0.8rem;
+  font-size: var(--font-size-body-sm);
   color: var(--color-accent);
   display: flex;
   align-items: center;
@@ -373,7 +373,7 @@
   background: var(--color-surface-sunken);
   border-radius: 6px;
   padding: 0.6rem 0.75rem;
-  font-size: 0.78rem;
+  font-size: var(--font-size-caption);
   color: var(--color-text-secondary);
   display: flex;
   flex-direction: column;
@@ -406,7 +406,7 @@
   color: var(--color-accent);
   border-radius: 3px;
   padding: 0.1rem 0.35rem;
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   font-family: var(--font-sans);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
@@ -419,7 +419,7 @@
 }
 
 .chan-badge {
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   padding: 0.15rem 0.45rem;
   border-radius: 4px;
   font-weight: 600;
@@ -468,7 +468,7 @@
   color: var(--color-text-muted);
   border-radius: 6px;
   padding: 0.35rem 0.7rem;
-  font-size: 0.76rem;
+  font-size: var(--font-size-caption);
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -489,7 +489,7 @@
   color: var(--color-danger);
   border-radius: 6px;
   padding: 0.35rem 0.7rem;
-  font-size: 0.76rem;
+  font-size: var(--font-size-caption);
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -554,7 +554,7 @@
 
 .sched-modal-header p {
   color: var(--color-text-muted);
-  font-size: 0.84rem;
+  font-size: var(--font-size-body-sm);
   margin: 0;
 }
 
@@ -581,7 +581,7 @@
 }
 
 .sched-form-label {
-  font-size: 0.82rem;
+  font-size: var(--font-size-body-sm);
   font-weight: 600;
   color: var(--color-text-secondary);
   display: flex;
@@ -655,12 +655,12 @@
 }
 
 .channel-check-top strong {
-  font-size: 0.85rem;
+  font-size: var(--font-size-body);
   color: var(--color-surface-hover);
 }
 
 .channel-check-desc {
-  font-size: 0.74rem;
+  font-size: var(--font-size-caption);
   color: var(--color-text-dim);
   margin-left: 1.4rem;
 }
@@ -711,7 +711,7 @@
 .dispatch-pill {
   padding: 0.2rem 0.6rem;
   border-radius: 6px;
-  font-size: 0.74rem;
+  font-size: var(--font-size-caption);
   font-weight: 600;
 }
 
@@ -737,7 +737,7 @@
 .sched-audit-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.8rem;
+  font-size: var(--font-size-body-sm);
   color: var(--color-text-secondary);
 }
 
@@ -745,7 +745,7 @@
   text-align: left;
   padding: 0.6rem 0.75rem;
   color: var(--color-text-dim);
-  font-size: 0.72rem;
+  font-size: var(--font-size-caption);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   border-bottom: 1px solid var(--color-border-subtle);
