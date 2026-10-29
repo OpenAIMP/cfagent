@@ -1453,15 +1453,27 @@ implement.
   ruleset's required checks. Treat the gate as active only after
   verifying the live ruleset includes it; if it is missing, report the
   enforcement gap.
-- **No-deletion and deprecation rule (owner direction 2026-10-27, #1894).**
+- **No-deletion and deprecation rule (owner direction 2026-10-27, #1894; rename form owner direction 2026-10-29, #2299).**
   No PR may delete a file — the gate fails any deletion with no label
   bypass (the `allow-test-deletion` label no longer permits deletions).
-  Retire by deprecating in place: keep the file, mark it deprecated,
-  name what superseded it, and remove it from exports/indexes instead
-  of deleting it. Genuine exceptions (removing an accidentally
+  Retire by deprecating, never by deleting: rename the file so the name
+  itself says it can be deleted (`foo.ts` → `foo.deprecated.ts`, same
+  directory, imports updated in the same slice), add a header note naming
+  what superseded it, and record an entry in the single deprecation
+  ledger at `docs/architecture/transition/deprecations.md` (file, date,
+  reason, replacement, consumers at deprecation, deletion condition).
+  Deprecated files are frozen — no new features, refactoring only to
+  migrate consumers off them — and gain no new consumers (no new imports
+  of `*.deprecated.*` files). Deprecated tests keep running until
+  deletion, so coverage is preserved. The earlier in-place form (keep the
+  file, mark it `@deprecated`, remove it from exports/indexes) remains
+  valid for marks already in the codebase until those files are renamed
+  under this rule. Genuine exceptions (removing an accidentally
   committed secret, legal takedown) are owner emergency exceptions:
   the gate stays red and only an owner admin bypass with an exception
-  record merges.
+  record merges. Deletion itself needs zero consumers plus an owner
+  decision plus a gate amendment or exception, and is never part of a
+  program slice.
   - **Test-rename allowance (owner direction 2026-10-27, #1917).**
     A deleted TEST file passes check (i) when an added test file
     preserves every one of its test names — exact match, or fuzzy
@@ -1471,6 +1483,20 @@ implement.
     appears verbatim in the new file. Non-test deletions still fail
     unconditionally. The allowance proves no test title disappeared;
     it does not audit assertion strength.
+  - **Refactoring is the working method (owner direction 2026-10-29, #2299).**
+    Consolidation slices are behavior-preserving refactorings plus
+    consumer migration plus deprecation renames. A rewrite — a change
+    that alters behavior — needs separate owner approval. Refactoring
+    deprecated code is forbidden except to migrate consumers off it.
+  - **Cross-program alignment (owner direction 2026-10-29, #2299).**
+    The deprecation and refactoring rule applies to every program: each
+    program does its deprecation and refactoring inside its own slices,
+    not as a standalone cleanup effort. #2299 owns the P0 ledger, the
+    P1 rules, and the P5 gates; this document owns the rule text.
+- **Single home for rules (owner direction 2026-10-29, #2299).**
+  This document is the one place for all rules unless another place is
+  justified. Issue bodies record proposals and point here; they are not
+  parallel rule homes.
 - **Where agents meet these rules.** These rules are also stated in
   the PR template checklist (seen at PR creation) and in repo
   AGENTS.md, so an agent meets them before tripping the gate — not
