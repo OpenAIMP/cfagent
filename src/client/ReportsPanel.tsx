@@ -15,7 +15,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { apiFetch as fetch } from "./apiFetch";
-import { Button, Checkbox, SegmentedControl, TextInput } from "./components/ui";
+import { Button, Checkbox, Notice, SegmentedControl, TextInput } from "./components/ui";
 import { PendingReviewQueue } from "./PendingReviewQueue";
 import { RegeneratePdfButton } from "./RegeneratePdfButton";
 import { ResearchRunDetail } from "./chat/tabs/ResearchRunDetail";
@@ -304,9 +304,9 @@ export function ReportsPanel() {
                 </a>
               )}
               {!r.reportUrl && (r.pdfStatus || r.pdfError) && (
-                <span className="report-pdf-unavailable">
+                <Notice tone="danger" density="compact" className="report-pdf-unavailable">
                   📄 PDF unavailable{r.pdfError ? ` — ${r.pdfError}` : ""}
-                </span>
+                </Notice>
               )}
               {!r.reportUrl && r.pdfStatus === "failed" && (
                 <RegeneratePdfButton onRegenerated={() => fetchReports()} />
