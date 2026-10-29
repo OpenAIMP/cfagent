@@ -169,9 +169,19 @@ const ORCH = "agents/orchestrator.ts";
  *  wiring its storage/audit/session and NLQ ports into the
  *  dispatch) — measured 2,608 lines / 119,919 B after the
  *  addition, so budget lines rise to 2620 and bytes rise
- *  to 120_500. */
-const BUDGET_LINES = 2620;
-const BUDGET_BYTES = 120_500;
+ *  to 120_500.
+ *  Data foundation step 1 (#2303, #1976 step 1) wires the
+ *  data-provider ports into the class (two adapter type imports
+ *  + the lazy dataProviderPorts() accessor building the provider
+ *  config/capture ports from env, passed into the data-provider
+ *  routes; execution in src/data/) — at budget on its build
+ *  base, but main's #2280 retention/resource work (ORM execQuery
+ *  cursor measurement to the resource sink) regrew the class in
+ *  the same window — measured 2,631 lines / 121,082 B on the
+ *  merged tree, so budget lines rise to 2640 and bytes rise
+ *  to 121_700. */
+const BUDGET_LINES = 2640;
+const BUDGET_BYTES = 121_700;
 
 const count = (haystack: string, needle: string) =>
   haystack.split(needle).length - 1;
