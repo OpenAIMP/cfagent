@@ -102,7 +102,7 @@ export async function generateAndStoreResearchReport(
     artifacts.xlsxStatus = "failed";
     artifacts.xlsxError = codedMessage("REPORT_002", message);
     artifacts.csvStatus = "failed";
-    artifacts.csvError = message;
+    artifacts.csvError = codedMessage("REPORT_004", message);
     console.warn("[OrchestratorAgent] Research workbook generation failed:", message);
   }
 

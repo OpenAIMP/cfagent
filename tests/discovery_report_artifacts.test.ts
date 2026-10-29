@@ -302,6 +302,7 @@ describe("discovery report storage (#2180)", () => {
     });
     expect(outcome.pdfError).toContain("storage");
     expect(outcome.csvError).toContain("storage");
+    expect(outcome.csvError).toContain("REPORT_004");
   });
 
   it("builds a canonical body that carries every key and status", () => {
