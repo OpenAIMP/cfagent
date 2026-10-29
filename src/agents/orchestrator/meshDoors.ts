@@ -56,9 +56,40 @@
  * the turn only the proposal side (the preview-only trade services,
  * whose result is a pending-approval proposal — never a placed
  * order) and the typed reads.
+ *
+ * Batch C (#2351, G1) adds the BrowserAgent and SlackAgent doors
+ * below, under the same discipline. Addressing follows the A2A
+ * resolution precedent (#2223, src/a2a/resolution.ts): both
+ * classes are stateless/env-driven, so each door resolves the
+ * fixed instance its A2A surface name denotes ("browser" /
+ * "slack"). The SlackAgent door exposes only the class's two
+ * outbound domain helpers; Slack ingress (the server forwarders
+ * and the class's own gated onRequest) is S13/G10 and is not
+ * touched, and the approval-ticket operation only POSTS the HITL
+ * ticket — it approves and executes nothing.
+ *
+ * The webhookUrl policy (survey §2.8's open call, decided here):
+ * a chat-turn caller may NOT supply a delivery webhook URL
+ * through these doors. The stub option types carry no webhookUrl
+ * field and the door operations build options field-by-field, so
+ * no caller-supplied URL can reach the services; delivery goes
+ * only where env configuration sends it (the services fall back
+ * to env SLACK_WEBHOOK_URL, and with nothing configured they
+ * return an honest not-delivered result, which the door
+ * propagates verbatim). This is the same delivery-target
+ * discipline the #2223 A2A doors already hold for these agents —
+ * an arbitrary caller-chosen webhook would be an SSRF-shaped
+ * surface, and no new allowlist is invented here.
  */
 
-import type { Env, ETradeOrderDraft } from "../../types";
+import type {
+  Env,
+  ETradeOrderDraft,
+  TransactionSnapData,
+  PreTradeApprovalDraft,
+  BrowserAgentSnapResult,
+  BrowserInspectResult,
+} from "../../types";
 import type { ScheduledGoal, ScheduleTick } from "../../schedule";
 import {
   AGENTIC_SPEND_AGENT_ID,
@@ -555,4 +586,261 @@ export async function getReportAssetViaDoor(
     byteLength: stored.bytes.length,
     bytesBase64: bytesToBase64(stored.bytes),
   };
+}
+
+// ---------------------------------------------------------------------------
+// BrowserAgent door (#2351) — transaction snap, page capture, table
+// scrape. Fixed instance "browser" (A2A parity: the class is
+// stateless, every method delegates to a service built from env,
+// so any instance name behaves identically). Delivery options are
+// typed WITHOUT a webhookUrl field — see the header's policy.
+// ---------------------------------------------------------------------------
+
+export interface BrowserAgentDoorStub {
+  sendTransactionSnapToSlack(
+    tx: TransactionSnapData,
+    options: { channel?: string; caption?: string },
+  ): Promise<BrowserAgentSnapResult>;
+  capturePageSnapshot(
+    url: string,
+    options: { caption?: string; channel?: string },
+  ): Promise<BrowserAgentSnapResult>;
+  scrapeTables(url: string): Promise<BrowserInspectResult>;
+}
+
+const BROWSER_AGENT_INSTANCE = "browser";
+
+export function getBrowserAgentDoor(env: Env): BrowserAgentDoorStub {
+  return resolveStub<BrowserAgentDoorStub>(
+    env.BROWSER_AGENT,
+    BROWSER_AGENT_INSTANCE,
+    "BrowserAgent door",
+  );
+}
+
+/**
+ * The door-local transaction shape: the TransactionSnapData
+ * fields a chat caller may supply. The door builds the
+ * TransactionSnapData field-by-field from it, so nothing else a
+ * caller attaches (an identity field, a delivery URL) can travel
+ * into the agent call.
+ */
+export interface TransactionSnapDoorInput {
+  transactionId: string;
+  symbol: string;
+  action: string;
+  quantity: number;
+  status: string;
+  price?: number;
+  orderType?: string;
+  totalValue?: number;
+  environment?: string;
+  accountKey?: string;
+  commission?: number;
+  timestamp?: string;
+  humanApproved?: boolean;
+  notes?: string;
+  legs?: Array<{
+    action: string;
+    symbol: string;
+    strike?: number;
+    expiry?: string;
+    type?: string;
+  }>;
+}
+
+function buildTransactionSnap(input: TransactionSnapDoorInput): TransactionSnapData {
+  const tx: TransactionSnapData = {
+    transactionId: input.transactionId,
+    symbol: input.symbol,
+    action: input.action,
+    quantity: input.quantity,
+    status: input.status,
+  };
+  if (input.price !== undefined) tx.price = input.price;
+  if (input.orderType !== undefined) tx.orderType = input.orderType;
+  if (input.totalValue !== undefined) tx.totalValue = input.totalValue;
+  if (input.environment !== undefined) tx.environment = input.environment;
+  if (input.accountKey !== undefined) tx.accountKey = input.accountKey;
+  if (input.commission !== undefined) tx.commission = input.commission;
+  if (input.timestamp !== undefined) tx.timestamp = input.timestamp;
+  if (input.humanApproved !== undefined) tx.humanApproved = input.humanApproved;
+  if (input.notes !== undefined) tx.notes = input.notes;
+  if (input.legs !== undefined) tx.legs = input.legs;
+  return tx;
+}
+
+/**
+ * Generate a transaction snap receipt and deliver it to the
+ * configured Slack destination through BrowserAgent. The
+ * agent's result propagates verbatim: a not-delivered outcome
+ * (success: false with its reason) is the honest result, never
+ * converted into a success shape.
+ */
+export async function sendTransactionSnapViaDoor(
+  env: Env,
+  actingLogin: string | undefined | null,
+  input: { transaction: TransactionSnapDoorInput; channel?: string; caption?: string },
+): Promise<BrowserAgentSnapResult> {
+  requireActingLogin(actingLogin);
+  const door = getBrowserAgentDoor(env);
+  const options: { channel?: string; caption?: string } = {};
+  if (input.channel !== undefined) options.channel = input.channel;
+  if (input.caption !== undefined) options.caption = input.caption;
+  return door.sendTransactionSnapToSlack(buildTransactionSnap(input.transaction), options);
+}
+
+/**
+ * Capture a rendered page snapshot through BrowserAgent and
+ * deliver it to the configured Slack destination. Same
+ * verbatim-result discipline as the transaction snap.
+ */
+export async function capturePageSnapshotViaDoor(
+  env: Env,
+  actingLogin: string | undefined | null,
+  input: { url: string; caption?: string; channel?: string },
+): Promise<BrowserAgentSnapResult> {
+  requireActingLogin(actingLogin);
+  const door = getBrowserAgentDoor(env);
+  const options: { caption?: string; channel?: string } = {};
+  if (input.caption !== undefined) options.caption = input.caption;
+  if (input.channel !== undefined) options.channel = input.channel;
+  return door.capturePageSnapshot(input.url, options);
+}
+
+/**
+ * Scrape structured DOM tables from a rendered page through
+ * BrowserAgent. The inspect result propagates verbatim —
+ * including its provenance labelling: when no real Browser
+ * Rendering capture was available, the service marks the
+ * screenshot "placeholder" (#120), and the door returns that
+ * label untouched rather than presenting the image as a capture
+ * of the page.
+ */
+export async function scrapePageTablesViaDoor(
+  env: Env,
+  actingLogin: string | undefined | null,
+  url: string,
+): Promise<BrowserInspectResult> {
+  requireActingLogin(actingLogin);
+  const door = getBrowserAgentDoor(env);
+  return door.scrapeTables(url);
+}
+
+// ---------------------------------------------------------------------------
+// SlackAgent door (#2351) — the class's two outbound domain
+// helpers. Fixed instance "slack" (A2A parity). Slack ingress is
+// NOT part of this door (S13/G10): nothing here parses Slack
+// payloads, and the class's sessionKey fallback is untouched.
+// ---------------------------------------------------------------------------
+
+export interface SlackAgentDoorStub {
+  sendPreTradeApprovalTicket(
+    draft: PreTradeApprovalDraft,
+    options: { channel?: string; threadTs?: string },
+  ): Promise<{ success: boolean; payload: unknown; orderId: string }>;
+  dispatchTransactionSnap(
+    tx: TransactionSnapData,
+    options: { channel?: string; caption?: string },
+  ): Promise<BrowserAgentSnapResult>;
+}
+
+const SLACK_AGENT_INSTANCE = "slack";
+
+export function getSlackAgentDoor(env: Env): SlackAgentDoorStub {
+  return resolveStub<SlackAgentDoorStub>(
+    env.SLACK_AGENT,
+    SLACK_AGENT_INSTANCE,
+    "SlackAgent door",
+  );
+}
+
+/**
+ * The door-local approval-draft shape: the PreTradeApprovalDraft
+ * fields a chat caller may supply (its channel field is
+ * deliberately not one of them — the delivery channel is a door
+ * option, as on the A2A door). The door builds the draft
+ * field-by-field, so no extra caller field travels.
+ */
+export interface PreTradeApprovalDraftDoorInput {
+  orderId: string;
+  symbol: string;
+  action: "BUY" | "SELL" | "BUY_TO_COVER" | "SELL_SHORT";
+  quantity: number;
+  orderType?: "MARKET" | "LIMIT" | "STOP" | "STOP_LIMIT";
+  limitPrice?: number;
+  estimatedPrice?: number | string;
+  estimatedTotal?: number | string;
+  commission?: number | string;
+  proposerDid?: string;
+  expiresAt?: string;
+  notes?: string;
+}
+
+function buildPreTradeApprovalDraft(
+  input: PreTradeApprovalDraftDoorInput,
+): PreTradeApprovalDraft {
+  const draft: PreTradeApprovalDraft = {
+    orderId: input.orderId,
+    symbol: input.symbol,
+    action: input.action,
+    quantity: input.quantity,
+  };
+  if (input.orderType !== undefined) draft.orderType = input.orderType;
+  if (input.limitPrice !== undefined) draft.limitPrice = input.limitPrice;
+  if (input.estimatedPrice !== undefined) draft.estimatedPrice = input.estimatedPrice;
+  if (input.estimatedTotal !== undefined) draft.estimatedTotal = input.estimatedTotal;
+  if (input.commission !== undefined) draft.commission = input.commission;
+  if (input.proposerDid !== undefined) draft.proposerDid = input.proposerDid;
+  if (input.expiresAt !== undefined) draft.expiresAt = input.expiresAt;
+  if (input.notes !== undefined) draft.notes = input.notes;
+  return draft;
+}
+
+/** The approval-ticket service result, as SlackAgent returns it. */
+export interface PreTradeApprovalTicketDoorResult {
+  success: boolean;
+  payload: unknown;
+  orderId: string;
+}
+
+/**
+ * Post a pre-trade approval ticket (the strict HITL gate card)
+ * to the configured Slack destination through SlackAgent. This
+ * door only REQUESTS the human decision: it approves nothing
+ * and executes nothing — the trade stays blocked until a human
+ * authorizes it through the ticket's own flow. The service
+ * result propagates verbatim.
+ */
+export async function sendPreTradeApprovalTicketViaDoor(
+  env: Env,
+  actingLogin: string | undefined | null,
+  input: { draft: PreTradeApprovalDraftDoorInput; channel?: string; threadTs?: string },
+): Promise<PreTradeApprovalTicketDoorResult> {
+  requireActingLogin(actingLogin);
+  const door = getSlackAgentDoor(env);
+  const options: { channel?: string; threadTs?: string } = {};
+  if (input.channel !== undefined) options.channel = input.channel;
+  if (input.threadTs !== undefined) options.threadTs = input.threadTs;
+  return door.sendPreTradeApprovalTicket(buildPreTradeApprovalDraft(input.draft), options);
+}
+
+/**
+ * Dispatch a transaction snap to the configured Slack
+ * destination through SlackAgent (which coordinates BrowserAgent
+ * for the receipt image; its delivery target likewise falls back
+ * to env configuration inside the class). The agent's result
+ * propagates verbatim.
+ */
+export async function dispatchTransactionSnapViaDoor(
+  env: Env,
+  actingLogin: string | undefined | null,
+  input: { transaction: TransactionSnapDoorInput; channel?: string; caption?: string },
+): Promise<BrowserAgentSnapResult> {
+  requireActingLogin(actingLogin);
+  const door = getSlackAgentDoor(env);
+  const options: { channel?: string; caption?: string } = {};
+  if (input.channel !== undefined) options.channel = input.channel;
+  if (input.caption !== undefined) options.caption = input.caption;
+  return door.dispatchTransactionSnap(buildTransactionSnap(input.transaction), options);
 }
