@@ -52,7 +52,7 @@ export function NotificationFields(props: NotificationFieldsProps) {
                       {pushToSlack && (
                         <TextInput
                           type="text"
-                          style={{ marginTop: "0.3rem", padding: "var(--space-1-5) var(--space-2-5)", fontSize: "0.78rem" }}
+                          style={{ marginTop: "0.3rem", padding: "var(--space-1-5) var(--space-2-5)", fontSize: "var(--font-size-caption)" }}
                           value={slackChannel}
                           onChange={(e) => setSlackChannel(e.target.value)}
                           placeholder="Slack Channel (e.g. #trading-desk)"
@@ -75,7 +75,7 @@ export function NotificationFields(props: NotificationFieldsProps) {
                       {Boolean(emailTo) && (
                         <TextInput
                           type="email"
-                          style={{ marginTop: "0.3rem", padding: "var(--space-1-5) var(--space-2-5)", fontSize: "0.78rem" }}
+                          style={{ marginTop: "0.3rem", padding: "var(--space-1-5) var(--space-2-5)", fontSize: "var(--font-size-caption)" }}
                           value={emailTo}
                           onChange={(e) => setEmailTo(e.target.value)}
                           placeholder="Recipient Email (e.g. trader@firm.com)"
@@ -98,7 +98,7 @@ export function NotificationFields(props: NotificationFieldsProps) {
                       {Boolean(webhookUrl) && (
                         <TextInput
                           type="url"
-                          style={{ marginTop: "0.3rem", padding: "var(--space-1-5) var(--space-2-5)", fontSize: "0.78rem" }}
+                          style={{ marginTop: "0.3rem", padding: "var(--space-1-5) var(--space-2-5)", fontSize: "var(--font-size-caption)" }}
                           value={webhookUrl}
                           onChange={(e) => setWebhookUrl(e.target.value)}
                           placeholder="https://..."

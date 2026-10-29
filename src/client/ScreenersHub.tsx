@@ -629,7 +629,7 @@ export function ScreenersHub({
         activeTabId={hubTab}
         onTabChange={handleTabChange}
         rightContent={
-          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", fontSize: "var(--font-size-body-sm)", color: "var(--color-text-muted)" }}>
             <CopilotTriggerButton label="✨ Ask Copilot" />
             {scannedAt && (
               <span>
@@ -686,17 +686,17 @@ export function ScreenersHub({
           <div className="screener-feed-callout" style={{ marginBottom: "1rem" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", marginBottom: "0.5rem", flexWrap: "wrap" }}>
               <span style={{ color: "var(--color-accent)", fontWeight: 700 }}>🤖 Autonomous Screen</span>
-              <span style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
+              <span style={{ fontSize: "var(--font-size-body-sm)", color: "var(--color-text-muted)" }}>
                 Retained run history from the screener agent — newest first, up to 20 runs. Each run is labeled with its real trigger. Panel refreshes every 60 seconds.
               </span>
             </div>
             {autoLoading ? (
               <div role="status" aria-label="Loading latest autonomous run">
-                <div style={{ fontSize: "0.85rem", color: "var(--color-text-muted)", marginBottom: "0.5rem" }}>Loading latest autonomous run…</div>
+                <div style={{ fontSize: "var(--font-size-body)", color: "var(--color-text-muted)", marginBottom: "0.5rem" }}>Loading latest autonomous run…</div>
                 <Skeleton lines={3} />
               </div>
             ) : autoRuns.length === 0 ? (
-              <div style={{ fontSize: "0.85rem", color: "var(--color-text-muted)" }}>
+              <div style={{ fontSize: "var(--font-size-body)", color: "var(--color-text-muted)" }}>
                 No screener runs recorded yet. Runs appear here when a manual or scheduled screen completes.
               </div>
             ) : (
@@ -745,13 +745,13 @@ export function ScreenersHub({
                           cursor: "pointer",
                         }}
                       >
-                        <div style={{ fontWeight: 700, fontSize: "0.9rem", marginBottom: "0.25rem", color: "var(--color-text-primary)" }}>
+                        <div style={{ fontWeight: 700, fontSize: "var(--font-size-body)", marginBottom: "0.25rem", color: "var(--color-text-primary)" }}>
                           {universe.toUpperCase()}
                         </div>
-                        <div style={{ fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.25rem" }}>
+                        <div style={{ fontSize: "var(--font-size-body-sm)", color: "var(--color-text-muted)", marginBottom: "0.25rem" }}>
                           {runs.length} run{runs.length !== 1 ? "s" : ""} retained (up to 20)
                         </div>
-                        <div style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
+                        <div style={{ fontSize: "var(--font-size-body-sm)", color: "var(--color-text-muted)" }}>
                           Last: {new Date(latest.timestamp).toLocaleTimeString()} · {latest.trigger === "manual" ? "Manual" : "Scheduled"} · {latest.totalScanned || 0} scanned · {latest.matchedCount || 0} matched
                         </div>
                         <div style={{
@@ -776,7 +776,7 @@ export function ScreenersHub({
                 {/* Issue #2075: what the counts mean — scanned is symbols
                     evaluated, matched is passed the screen's filters,
                     standout is flagged opportunities. */}
-                <div style={{ fontSize: "0.8rem", color: "var(--color-text-muted)", marginBottom: "0.75rem" }}>
+                <div style={{ fontSize: "var(--font-size-body-sm)", color: "var(--color-text-muted)", marginBottom: "0.75rem" }}>
                   Scanned = symbols evaluated · Matched = passed the screen's filters · Standout = flagged opportunities
                 </div>
                 {/* Issue #125: per-run history — every retained run is
@@ -814,7 +814,7 @@ export function ScreenersHub({
                             : "1px solid var(--color-border-subtle)",
                           background: "var(--color-surface)",
                           cursor: "pointer",
-                          fontSize: "0.8rem",
+                          fontSize: "var(--font-size-body-sm)",
                           color: "var(--color-text-primary)",
                         }}
                       >
@@ -850,7 +850,7 @@ export function ScreenersHub({
                     marginBottom: "0.75rem",
                   }}
                 >
-                  <div style={{ fontWeight: 700, fontSize: "0.9rem", marginBottom: "0.5rem", color: "var(--color-text-primary)" }}>
+                  <div style={{ fontWeight: 700, fontSize: "var(--font-size-body)", marginBottom: "0.5rem", color: "var(--color-text-primary)" }}>
                     {(selectedAutoRun?.universe || "nasdaq100").toUpperCase()} · {selectedAutoRun ? new Date(selectedAutoRun.timestamp).toLocaleString() : "—"}
                   </div>
                   <ScreenerResultsView
@@ -885,7 +885,7 @@ export function ScreenersHub({
                     <span style={{
                       padding: "var(--space-0-5) var(--space-2)",
                       borderRadius: "9999px",
-                      fontSize: "0.7rem",
+                      fontSize: "var(--font-size-caption)",
                       fontWeight: 700,
                       background: "var(--color-success-subtle)",
                       color: "var(--color-success)",
@@ -894,7 +894,7 @@ export function ScreenersHub({
                       ● LIVE REST API
                     </span>
                   </div>
-                  <div className="screener-feed-meta" style={{ fontSize: "0.76rem" }}>
+                  <div className="screener-feed-meta" style={{ fontSize: "var(--font-size-caption)" }}>
                     • <strong>Coverage:</strong> E*TRADE live quotes ({activeEnv}) &middot; <strong>Policy:</strong> E*TRADE-only — if unavailable, the screen fails honestly. No fallback data substituted.
                   </div>
                 </div>
@@ -908,7 +908,7 @@ export function ScreenersHub({
                     <span style={{
                       padding: "var(--space-0-5) var(--space-2)",
                       borderRadius: "9999px",
-                      fontSize: "0.7rem",
+                      fontSize: "var(--font-size-caption)",
                       fontWeight: 700,
                       background: "var(--color-accent-subtle)",
                       color: "var(--color-accent)",
@@ -917,7 +917,7 @@ export function ScreenersHub({
                       ● LIVE YAHOO ENGINE
                     </span>
                   </div>
-                  <div className="screener-feed-meta" style={{ fontSize: "0.76rem" }}>
+                  <div className="screener-feed-meta" style={{ fontSize: "var(--font-size-caption)" }}>
                     • <strong>Coverage:</strong> Free &amp; Open Source fundamental ratios, trailing/forward P/E, PEG, and analyst price targets (no broker credentials required).
                   </div>
                 </div>
@@ -1023,15 +1023,15 @@ export function ScreenersHub({
                   border: "1px solid var(--color-border-subtle)",
                   borderRadius: "8px",
                   marginBottom: "1rem",
-                  fontSize: "0.82rem",
+                  fontSize: "var(--font-size-body-sm)",
                 }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "var(--space-2)" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2-5)" }}>
-                      <span style={{ color: "var(--color-accent)", fontWeight: 700, fontSize: "0.9rem" }}>📡 Feed Source &amp; Data Provenance</span>
+                      <span style={{ color: "var(--color-accent)", fontWeight: 700, fontSize: "var(--font-size-body)" }}>📡 Feed Source &amp; Data Provenance</span>
                       <span style={{
                         padding: "var(--space-1) var(--space-2-5)",
                         borderRadius: "4px",
-                        fontSize: "0.72rem",
+                        fontSize: "var(--font-size-caption)",
                         fontWeight: 700,
                         background: String(rows[0]?.source || "").includes("Curated") ? "var(--color-warning-subtle)" : "var(--color-success-subtle)",
                         color: String(rows[0]?.source || "").includes("Curated") ? "var(--color-warning)" : "var(--color-success)",
@@ -1040,15 +1040,15 @@ export function ScreenersHub({
                         {String(rows[0]?.source || "").includes("Curated") ? "📂 OFFLINE STATIC SNAPSHOT" : "🌐 LIVE REST API FEED (api.nasdaq.com)"}
                       </span>
                     </div>
-                    <div style={{ color: "var(--color-text-muted)", fontSize: "0.76rem" }}>
+                    <div style={{ color: "var(--color-text-muted)", fontSize: "var(--font-size-caption)" }}>
                       Scanned at: <strong style={{ color: "var(--color-text-primary)" }}>{scannedAt || "Just now"}</strong> • Scope: <strong style={{ color: "var(--color-accent)" }}>{exchange} Listings</strong>
                     </div>
                   </div>
 
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "var(--space-2)", padding: "var(--space-2) var(--space-3)", background: "var(--color-card)", border: "1px solid var(--color-border-subtle)", borderRadius: "var(--radius-sm)" }}>
                     <div>
-                      <span style={{ color: "var(--color-text-muted)", display: "block", fontSize: "0.72rem" }}>UPSTREAM API ENDPOINT</span>
-                      <span style={{ color: "var(--color-text-primary)", fontWeight: 600, fontSize: "0.78rem" }}>
+                      <span style={{ color: "var(--color-text-muted)", display: "block", fontSize: "var(--font-size-caption)" }}>UPSTREAM API ENDPOINT</span>
+                      <span style={{ color: "var(--color-text-primary)", fontWeight: 600, fontSize: "var(--font-size-caption)" }}>
                         {String(rows[0]?.source || "").includes("Yahoo")
                           ? "query1.finance.yahoo.com/v8/finance/chart"
                           : String(rows[0]?.source || "").includes("Curated")
@@ -1057,8 +1057,8 @@ export function ScreenersHub({
                       </span>
                     </div>
                     <div>
-                      <span style={{ color: "var(--color-text-muted)", display: "block", fontSize: "0.72rem" }}>EXCHANGE UNIVERSE LOADED</span>
-                      <span style={{ color: "var(--color-text-primary)", fontWeight: 600, fontSize: "0.78rem" }}>
+                      <span style={{ color: "var(--color-text-muted)", display: "block", fontSize: "var(--font-size-caption)" }}>EXCHANGE UNIVERSE LOADED</span>
+                      <span style={{ color: "var(--color-text-primary)", fontWeight: 600, fontSize: "var(--font-size-caption)" }}>
                         {discovery?.sourceCounts ? (
                           `Nasdaq: ${discovery.sourceCounts.nasdaq?.toLocaleString() || 0} • NYSE: ${discovery.sourceCounts.nyse?.toLocaleString() || 0} • AMEX: ${discovery.sourceCounts.amex?.toLocaleString() || 0}`
                         ) : (
@@ -1067,8 +1067,8 @@ export function ScreenersHub({
                       </span>
                     </div>
                     <div>
-                      <span style={{ color: "var(--color-text-muted)", display: "block", fontSize: "0.72rem" }}>EXECUTION BROKER</span>
-                      <span style={{ color: "var(--color-accent)", fontWeight: 600, fontSize: "0.78rem" }}>
+                      <span style={{ color: "var(--color-text-muted)", display: "block", fontSize: "var(--font-size-caption)" }}>EXECUTION BROKER</span>
+                      <span style={{ color: "var(--color-accent)", fontWeight: 600, fontSize: "var(--font-size-caption)" }}>
                         E*TRADE REST API · {activeEnv} (Orders &amp; Previews)
                       </span>
                     </div>
@@ -1093,7 +1093,7 @@ export function ScreenersHub({
                             display: "inline-block",
                             padding: "var(--space-0-5) var(--space-2)",
                             borderRadius: "4px",
-                            fontSize: "0.72rem",
+                            fontSize: "var(--font-size-caption)",
                             fontWeight: 600,
                             background: String(value).includes("Curated") ? "var(--color-warning-subtle)" : "var(--color-accent-subtle)",
                             color: String(value).includes("Curated") ? "var(--color-warning)" : "var(--color-accent)",
@@ -1109,7 +1109,7 @@ export function ScreenersHub({
                             display: "inline-block",
                             padding: "var(--space-0-5) var(--space-2)",
                             borderRadius: "4px",
-                            fontSize: "0.72rem",
+                            fontSize: "var(--font-size-caption)",
                             fontWeight: 600,
                             background: value === "PASS_CONFIRMED" ? "var(--color-success-subtle)" : "var(--color-danger-subtle)",
                             color: value === "PASS_CONFIRMED" ? "var(--color-success)" : "var(--color-danger)",
@@ -1274,10 +1274,10 @@ export function ScreenersHub({
             style={hubTab !== asset ? { display: "none" } : undefined}
           >
             <div className="options-comparison-note" style={{ margin: "1.5rem 0", padding: "var(--space-6)", background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px" }}>
-              <h4 style={{ margin: "0 0 0.5rem", color: "var(--color-text-muted)", fontSize: "1.05rem" }}>
+              <h4 style={{ margin: "0 0 0.5rem", color: "var(--color-text-muted)", fontSize: "var(--font-size-title-sm)" }}>
                 🚧 {SCREENING_ASSET_CLASSES.find((a) => a.id === asset)?.label || "Asset"} Screener · Planned
               </h4>
-              <p style={{ margin: 0, color: "var(--color-text-muted)", fontSize: "0.9rem" }}>
+              <p style={{ margin: 0, color: "var(--color-text-muted)", fontSize: "var(--font-size-body)" }}>
                 This instrument class is a planned extension point. Multi-asset provider adapters are currently in development.
               </p>
             </div>

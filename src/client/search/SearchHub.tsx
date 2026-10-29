@@ -158,7 +158,7 @@ export function SearchHub() {
         </Button>
       </div>
 
-      <div aria-label="Search hub health" style={{ display: "flex", gap: "var(--space-4)", flexWrap: "wrap", marginBottom: "1rem", fontSize: "0.85rem" }}>
+      <div aria-label="Search hub health" style={{ display: "flex", gap: "var(--space-4)", flexWrap: "wrap", marginBottom: "1rem", fontSize: "var(--font-size-body)" }}>
         {TAB_META.map((t) => {
           const h = health[t.id];
           return (

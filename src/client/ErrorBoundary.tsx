@@ -94,12 +94,12 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             {error.name}: {error.message}
           </div>
           {componentStack && (
-            <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 11, margin: "6px 0 0" }}>
+            <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: "var(--font-size-micro)", margin: "6px 0 0" }}>
               {componentStack.trim()}
             </pre>
           )}
           {error.stack && (
-            <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 11, margin: "6px 0 0" }}>
+            <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: "var(--font-size-micro)", margin: "6px 0 0" }}>
               {error.stack}
             </pre>
           )}

@@ -13,7 +13,7 @@
 }
 .ap-header h3 {
   margin: 0;
-  font-size: 1.05rem;
+  font-size: var(--font-size-title-sm);
 }
 .ap-header button {
   margin-left: auto;
@@ -49,7 +49,7 @@
   cursor: default;
 }
 .ap-row-main span {
-  font-size: 0.78rem;
+  font-size: var(--font-size-caption);
   color: var(--color-text-muted);
 }
 .ap-unread {
@@ -69,7 +69,7 @@
   padding: 0.6rem 0.75rem;
   border-radius: 8px;
   background: var(--color-muted);
-  font-size: 0.85rem;
+  font-size: var(--font-size-body);
 }
 .ap-detail p {
   margin: 0.3rem 0 0;
@@ -82,12 +82,12 @@
   border-radius: 8px;
   background: var(--color-danger-subtle);
   color: var(--color-danger-text);
-  font-size: 0.85rem;
+  font-size: var(--font-size-body);
 }
 .ap-muted,
 .ap-note {
   margin-top: 0.6rem;
-  font-size: 0.85rem;
+  font-size: var(--font-size-body);
   color: var(--color-text-muted);
 }
 .ap-form {
@@ -120,7 +120,7 @@
   background: none !important;
   color: inherit;
   font: inherit;
-  font-size: 1.05rem;
+  font-size: var(--font-size-title-sm);
   font-weight: 700;
   cursor: pointer;
 }

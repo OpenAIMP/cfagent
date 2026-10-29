@@ -639,7 +639,7 @@ export function ScanResultsView({ result, runContext, onPreviewTrade, storedRun 
             href={result.reportUrl}
             download
             style={{
-              fontSize: "0.8rem",
+              fontSize: "var(--font-size-body-sm)",
               padding: "var(--space-1-5) var(--space-3)",
               borderRadius: "4px",
               border: "1px solid var(--color-accent)",
@@ -970,7 +970,7 @@ function StrategyCatalogBrowser() {
                         marginRight: "0.3rem",
                         padding: "var(--space-0-5) var(--space-2)",
                         borderRadius: 10,
-                        fontSize: "0.7rem",
+                        fontSize: "var(--font-size-caption)",
                         fontWeight: 600,
                         color: THESIS_COLORS[th] ?? "var(--color-text-muted)",
                         border: `1px solid ${THESIS_COLORS[th] ?? "var(--color-border-medium)"}`,
