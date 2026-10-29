@@ -87,5 +87,6 @@ describe("ScreenerAgent CSV artifact (#2062)", () => {
     expect(run.csvStatus).toBe("failed");
     expect(run.csvKey).toBeUndefined();
     expect(run.csvError).toContain("blob store down");
+    expect(run.csvError).toContain("REPORT_004");
   });
 });
