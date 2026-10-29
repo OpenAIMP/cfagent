@@ -126,7 +126,13 @@ describe("#338 S2 R2 write/read flip", () => {
       ...input,
       body: { title: "Changed", fileName: "changed.xlsx", attachmentBase64: "REVG" },
     });
-    expect(second).toEqual({ reportId: first!.reportId, created: false });
+    // #2347 (§7 disclosed pin update): the store result now also
+    // carries the recorded fan-out outcome — deduped, body in R2.
+    expect(second).toEqual({
+      reportId: first!.reportId,
+      created: false,
+      fanout: expect.objectContaining({ outcome: "deduped", body: "r2" }),
+    });
     expect((bucket as any).put).toHaveBeenCalledTimes(1);
     expect(objects.get(reportBodyR2Key(first!.reportId))).toBe(bodyJson);
     expect(fake.rows).toHaveLength(1);
@@ -176,7 +182,13 @@ describe("#338 S2 R2 write/read flip", () => {
     const a = storeReportAtGeneration(sql, input);
     const b = storeReportAtGeneration(sql, input);
     expect(a?.created).toBe(true);
-    expect(b).toEqual({ reportId: a!.reportId, created: false });
+    // #2347 (§7 disclosed pin update): the store result now also
+    // carries the recorded fan-out outcome — deduped, body inline.
+    expect(b).toEqual({
+      reportId: a!.reportId,
+      created: false,
+      fanout: expect.objectContaining({ outcome: "deduped", body: "inline" }),
+    });
     const hit = getCanonicalReport(sql, a!.reportId);
     expect(hit?.body).toBe(bodyJson);
     expect(hit?.bodyR2Key).toBeNull();
