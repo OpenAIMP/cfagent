@@ -522,6 +522,9 @@ export interface Env {
   KV?: KVNamespace;
   BROWSER_AGENT?: DurableObjectNamespace;
   SLACK_AGENT?: DurableObjectNamespace;
+  // Issue #2253 — SandboxAgent DO (fleet registration; no production
+  // caller yet — bindings first, the #2215 posture).
+  SANDBOX_AGENT?: DurableObjectNamespace;
   TASKS_AGENT?: DurableObjectNamespace;
   MEMORY_AGENT?: DurableObjectNamespace;
   RESEARCH_AGENT?: DurableObjectNamespace;
