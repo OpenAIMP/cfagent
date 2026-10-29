@@ -305,11 +305,20 @@ describe("orchestrator class inventory (#992 standing gate)", () => {
     expect(src("agents/orchestrator/reportDispatch.ts")).toContain(
       "INSERT INTO mas_report_confirmations",
     );
+    // #2337 (#1976 step 2) pin update: the extracted module now
+    // composes the discovery-run / IV stores through the data
+    // layer's composition root instead of constructing the SQL
+    // stores directly — the marker's intent (this module owns
+    // the store composition for its callbacks) is unchanged;
+    // the construction form moved behind the ports.
     expect(src("agents/orchestrator/scheduledCallbacks.ts")).toContain(
-      "new SqlDiscoveryRunStore(",
+      "createOptionsDiscoveryPorts(",
     );
     expect(src("agents/orchestrator/scheduledCallbacks.ts")).toContain(
-      "new SqlIvHistoryStore(",
+      ".discoveryRuns",
+    );
+    expect(src("agents/orchestrator/scheduledCallbacks.ts")).toContain(
+      ".ivHistory",
     );
     expect(src("agents/orchestrator/researchPublish.ts")).toContain(
       "storeReportAtGeneration(",
