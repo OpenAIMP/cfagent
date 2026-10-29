@@ -18,6 +18,11 @@
  */
 
 import { PortThink } from "../actors/thinkAdapter";
+import {
+  dispatchScreenerA2A,
+  screenerA2AOutcome,
+  type ScreenerA2AOutcome,
+} from "./screenerA2aDispatch";
 import { getServiceUserLogin } from "../security/serviceIdentity";
 import { DatabaseORM } from "../orm";
 import { ETradeService } from "../services/etrade";
@@ -486,6 +491,31 @@ export class ScreenerAgent extends PortThink {
   ): Promise<{ running: boolean; startedAt: number | null }> {
     const login = userLogin ?? (await this.userLogin());
     return isScreenRunningLock(this.lockSql(), login, universe || "nasdaq100");
+  }
+
+  /**
+   * Issue #2223 (final slice): A2A door, cfpay signature — the edge
+   * dispatcher (src/a2a) resolves the "screener" name to this class
+   * on the service instance ("default", and only when a service
+   * identity is configured) and calls this with the parsed body +
+   * origin (a Request cannot cross the DO RPC boundary). Thin
+   * delegation to the dispatch module (./screenerA2aDispatch),
+   * which attributes runs to the service identity and fails closed
+   * without one; the bound methods are injected here because they
+   * are class-bound. Returns the collected { text, data } outcome.
+   */
+  async handleA2A(body: unknown, origin: string): Promise<ScreenerA2AOutcome> {
+    void origin; // reserved for per-origin policy (cfpay parity); unused in v1
+    const data = await dispatchScreenerA2A(this.env, body, {
+      executor: {
+        runScreen: (req) => this.runScreen(req),
+        runGoalScreen: (req) => this.runGoalScreen(req),
+        getLatest: () => this.getLatest(),
+        getHistory: () => this.getHistory(),
+        listScreenerTasks: (limit) => this.listScreenerTasks(limit),
+      },
+    });
+    return screenerA2AOutcome(data);
   }
 
   /**
