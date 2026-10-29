@@ -1,0 +1,2 @@
+### Changed
+- UX sweep (#2177, chunk 3): six more files' raw `<label>` elements convert to the system field pattern — StrategyDiscoveryPanel (11), PortfolioRiskPanel (14), ETradeTradingHub (14), ScheduleFormModal (11), ScreenersHub (10), FlowFiltersSidebar (5); raw labels fall 121 → 56. The FlowFiltersSidebar slider rows restack (label, value badge, slider) and their label-row CSS rule is deleted as dead; the ScheduleFormModal symbols field loses a one-off 8px top margin (its parent gap provides the separation).
