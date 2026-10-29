@@ -88,7 +88,7 @@ import {
   type PaymentWorkflowHost,
 } from "../../services/paymentWorkflowSubmission";
 import { createFeatureFlagPort } from "../../features/createFeatureFlagPort";
-import { cfpayA2AOperation, getCfpayConfig } from "../../services/cfpayA2A";
+import { cfpayA2AOperation, cfpaySendEmail, getCfpayConfig } from "../../services/cfpayA2A";
 import {
   FAMILY_PRICES,
   PAYMENT_DISCLOSURE,
@@ -114,6 +114,22 @@ import {
 import type { D1SubscriptionAdapter } from "../../data/d1SubscriptionAdapter";
 import { resolveEffectiveTier } from "../../data/subscriptionPorts";
 import { activateSubscription } from "../../services/subscriptionActivation";
+import {
+  createLifecycleAdapter,
+  ensureLifecycleSchema,
+} from "../../data/createLifecyclePorts";
+import type { D1LifecycleAdapter } from "../../data/d1LifecycleAdapter";
+import {
+  applyUnsubscribe,
+  sendDailyDigest,
+  sendWelcomeBestEffort,
+  signUnsubscribeToken,
+  type EmailSender,
+} from "../../services/lifecycleEmail";
+import {
+  convertReferralCreditsForRun,
+  recordFirstPaidRunEarning,
+} from "../../services/referralCredits";
 import { createWorkflowPorts, type WorkflowEnv } from "../../workflows/createWorkflowPorts";
 import { tryStartScreenerWorkflow } from "../../workflows/screenerWorkflowRoutes";
 import type { WorkflowJobCommand } from "../../workflows/workflowPorts";
@@ -448,6 +464,72 @@ export async function handleAgenticPaymentsRoutes(
     }
     return adapter;
   };
+  // Issue #2208: lifecycle store (referral credits, notification
+  // preferences, digest guard). Same fail-closed shape as the
+  // commercial store: unbound AGENT_DB is a 503, never a silent
+  // fallback — except the welcome send, which is best-effort by
+  // design (see sendWelcomeBestEffort).
+  const requireLifecycle = (): D1LifecycleAdapter | Response => {
+    const adapter = createLifecycleAdapter(ctx.env as { AGENT_DB?: unknown });
+    if (!adapter) {
+      return Response.json({ error: "Lifecycle store unavailable: AGENT_DB is not bound." }, { status: 503 });
+    }
+    return adapter;
+  };
+  const ensureLifecycle = async (
+    lifecycle: D1LifecycleAdapter,
+  ): Promise<Response | null> => {
+    try {
+      await ensureLifecycleSchema(lifecycle.db);
+    } catch (err: any) {
+      return Response.json({ error: `Lifecycle store unavailable: ${err.message || "unknown error"}` }, { status: 503 });
+    }
+    return null;
+  };
+  // Issue #2208: lifecycle mail sender, reusing the existing
+  // delivery paths (cfpay A2A email first, env.EMAIL fallback —
+  // the research-delivery pattern). No new mail transport.
+  const lifecycleSender = (): EmailSender | null => {
+    const cfpay = getCfpayConfig(ctx.env);
+    if (cfpay) {
+      return {
+        send: async ({ to, subject, body }) => {
+          const r = await cfpaySendEmail(cfpay, to, subject, body);
+          return r.ok ? { ok: true } : { ok: false, error: r.error ?? "cfpay email failed" };
+        },
+      };
+    }
+    const emailBinding = (ctx.env as unknown as Record<string, unknown>)["EMAIL"] as
+      | { send?: (input: { from: string; to: string; subject: string; text: string }) => Promise<unknown> }
+      | undefined;
+    if (emailBinding && typeof emailBinding.send === "function") {
+      const localSend = emailBinding.send;
+      return {
+        send: async ({ to, subject, body }) => {
+          try {
+            await localSend({
+              from: "noreply@agent.openaimp.com",
+              to,
+              subject,
+              text: body,
+            });
+            return { ok: true };
+          } catch (err: any) {
+            return { ok: false, error: err?.message ?? "local email send failed" };
+          }
+        },
+      };
+    }
+    return null;
+  };
+  // Issue #2208: unsubscribe-token secret (NAME only — the value
+  // is a worker secret, never in code). Unbound means digests go
+  // out without an unsubscribe link, and the unsubscribe route
+  // fails closed (503).
+  const unsubscribeSecret = (): string | null => {
+    const raw = (ctx.env as unknown as Record<string, unknown>)["LIFECYCLE_UNSUBSCRIBE_SECRET"];
+    return typeof raw === "string" && raw ? raw : null;
+  };
   // Money paths fail CLOSED when the monetization flag is OFF:
   // no checkout is minted and no purchase activates. This mirrors
   // the live-assurance guard (flag OFF → 403).
@@ -727,6 +809,68 @@ export async function handleAgenticPaymentsRoutes(
             amountUSD: credit.amountUSD,
           }));
           return Response.json({ runRequestId, status: "redeemed_started", creditRunId: credit.creditRunId, workflowId: handle.workflowId });
+        }
+      }
+
+      // Issue #2208: referral-credit conversion, AFTER the
+      // failure-credit block and BEFORE the payment workflow.
+      // Ordering (deliberate): existing coverage wins first —
+      // a Subscribed included run, or a commercial credit
+      // balance that already covers the price, spends before
+      // any referral credit is touched. Only when commercial
+      // coverage is short AND the vested referral balance covers
+      // the FULL price does conversion happen: exactly priceUSD
+      // of referral credit is redeemed and topped up into the
+      // commercial account, and the refreshed account is what
+      // the gate below sees — so the run still goes through the
+      // EXISTING gate + consumeCoverage path (paidVia
+      // "credits"), with zero gate changes and no parallel
+      // bypass. A partial referral balance stays untouched (a
+      // partial discount needs gate work, deferred). Flag OFF
+      // skips conversion entirely: with the flag off the run
+      // is free anyway, and converting would burn referral
+      // credit for a free run. A conversion failure fails
+      // CLOSED (503, no payment workflow, no run); the redeem
+      // already happened by the fail-safe ordering in
+      // convertReferralCreditsForRun, and its error names the
+      // earning rows as the operator reconcile signal.
+      if (effectiveTier !== "Subscribed" || (stored?.includedRuns ?? 0) <= 0) {
+        const commercialCovered = (stored?.creditsUSD ?? 0) >= FAMILY_PRICES[family];
+        if (!commercialCovered) {
+          const flagOn = await createFeatureFlagPort(ctx.env).isEnabled("monetization");
+          if (flagOn) {
+            const lifecycle = requireLifecycle();
+            if (lifecycle instanceof Response) return lifecycle;
+            const lifecycleEnsured = await ensureLifecycle(lifecycle);
+            if (lifecycleEnsured) return lifecycleEnsured;
+            const priceUSD = FAMILY_PRICES[family];
+            const referralBalance = await lifecycle.redeemableBalance(login);
+            if (referralBalance >= priceUSD) {
+              try {
+                const converted = await convertReferralCreditsForRun({
+                  lifecycle,
+                  commercial: store,
+                  userId: login,
+                  tenantId,
+                  amountUSD: priceUSD,
+                  runRequestId,
+                });
+                // The gate reads the caller-built account, not a
+                // fresh store read — refresh it from the topped-up
+                // store row, or the gate would miss the conversion.
+                const refreshed = await store.getAccount(login);
+                if (refreshed) account.creditsUSD = refreshed.creditsUSD;
+                ctx.audit("commercial.referral.converted", "payments", {
+                  runRequestId,
+                  userId: login,
+                  redeemedUSD: converted.redeemedUSD,
+                  family,
+                });
+              } catch (err: any) {
+                return Response.json({ error: `Referral conversion failed: ${err.message || "unknown error"}` }, { status: 503 });
+              }
+            }
+          }
         }
       }
 
@@ -1287,6 +1431,239 @@ export async function handleAgenticPaymentsRoutes(
       } catch (err: any) {
         return Response.json({ error: err.message || "Failed to update limit" }, { status: 500 });
       }
+    }
+  }
+
+  // ================================================================
+  // Lifecycle email + referral credits (#2208, sub-issue of #2012;
+  // advances #2021/#2020; source #1076). Session-gated via the
+  // verified x-user-login, like the commercial routes above;
+  // operator-gated where noted. NOT limited-candidate email:
+  // #1076 orders that AFTER subscription + referral credits
+  // exist, so it is follow-up work, not a route here.
+  // ================================================================
+
+  // GET /payments/agentic/commercial/referral/balance?userId= — own balance or operator.
+  if (path.endsWith("/payments/agentic/commercial/referral/balance") && request.method === "GET") {
+    try {
+      const login = commercialLogin();
+      if (!login) return Response.json({ error: "Unauthorized: verified login required." }, { status: 401 });
+      const userId = url.searchParams.get("userId") ?? "";
+      if (!userId) return Response.json({ error: "userId is required." }, { status: 400 });
+      if (!canAccessAccount(login, userId)) return Response.json({ error: "Forbidden." }, { status: 403 });
+      const lifecycle = requireLifecycle();
+      if (lifecycle instanceof Response) return lifecycle;
+      const ensured = await ensureLifecycle(lifecycle);
+      if (ensured) return ensured;
+      const [rules, redeemableUSD, earnings] = await Promise.all([
+        lifecycle.getRules(),
+        lifecycle.redeemableBalance(userId),
+        lifecycle.listEarnings(userId),
+      ]);
+      return Response.json({
+        userId,
+        redeemableUSD,
+        totalEarnedUSD: earnings.reduce((s, e) => s + e.amountUSD, 0),
+        rules: {
+          earnAmountUSD: rules.earnAmountUSD,
+          vestingDelayMs: rules.vestingDelayMs,
+          redemptionScope: rules.redemptionScope,
+        },
+      });
+    } catch (err: any) {
+      return Response.json({ error: err.message || "Failed to read referral balance" }, { status: 500 });
+    }
+  }
+
+  // POST /payments/agentic/commercial/referral/record-earn (operator only).
+  // The earn event: a referred user's first paid run. Idempotent
+  // per referred user; self-referral refused by the port.
+  if (path.endsWith("/payments/agentic/commercial/referral/record-earn") && request.method === "POST") {
+    try {
+      const login = commercialLogin();
+      if (!login) return Response.json({ error: "Unauthorized: verified login required." }, { status: 401 });
+      if (!isStoreOperator(login)) return Response.json({ error: "Forbidden: operator only." }, { status: 403 });
+      const body = (await request.json().catch(() => ({}))) as {
+        referrerUserId?: unknown; referredUserId?: unknown; tenantId?: unknown;
+      };
+      if (typeof body.referrerUserId !== "string" || typeof body.referredUserId !== "string" || typeof body.tenantId !== "string") {
+        return Response.json({ error: "referrerUserId, referredUserId, and tenantId are required." }, { status: 400 });
+      }
+      const lifecycle = requireLifecycle();
+      if (lifecycle instanceof Response) return lifecycle;
+      const ensured = await ensureLifecycle(lifecycle);
+      if (ensured) return ensured;
+      const earning = await recordFirstPaidRunEarning(lifecycle, {
+        referrerUserId: body.referrerUserId,
+        referredUserId: body.referredUserId,
+        tenantId: body.tenantId,
+      });
+      ctx.audit("commercial.referral.earned", "payments", {
+        referrerUserId: earning.referrerUserId,
+        referredUserId: earning.referredUserId,
+        amountUSD: earning.amountUSD,
+      });
+      return Response.json({ earning });
+    } catch (err: any) {
+      return Response.json({ error: err.message || "Failed to record referral earning" }, { status: 500 });
+    }
+  }
+
+  // GET /payments/agentic/commercial/lifecycle/preferences?userId= — own or operator.
+  if (path.endsWith("/payments/agentic/commercial/lifecycle/preferences") && request.method === "GET") {
+    try {
+      const login = commercialLogin();
+      if (!login) return Response.json({ error: "Unauthorized: verified login required." }, { status: 401 });
+      const userId = url.searchParams.get("userId") ?? "";
+      const tenantId = url.searchParams.get("tenantId") ?? "";
+      if (!userId || !tenantId) return Response.json({ error: "userId and tenantId are required." }, { status: 400 });
+      if (!canAccessAccount(login, userId)) return Response.json({ error: "Forbidden." }, { status: 403 });
+      const lifecycle = requireLifecycle();
+      if (lifecycle instanceof Response) return lifecycle;
+      const ensured = await ensureLifecycle(lifecycle);
+      if (ensured) return ensured;
+      return Response.json({ preferences: await lifecycle.getPreferences(userId, tenantId) });
+    } catch (err: any) {
+      return Response.json({ error: err.message || "Failed to read preferences" }, { status: 500 });
+    }
+  }
+
+  // POST /payments/agentic/commercial/lifecycle/preferences — own or operator.
+  // Digest opt-out takes effect on the next send check (same-day).
+  if (path.endsWith("/payments/agentic/commercial/lifecycle/preferences") && request.method === "POST") {
+    try {
+      const login = commercialLogin();
+      if (!login) return Response.json({ error: "Unauthorized: verified login required." }, { status: 401 });
+      const body = (await request.json().catch(() => ({}))) as {
+        userId?: unknown; tenantId?: unknown; digestEnabled?: unknown; welcomeEnabled?: unknown;
+      };
+      if (typeof body.userId !== "string" || typeof body.tenantId !== "string") {
+        return Response.json({ error: "userId and tenantId are required." }, { status: 400 });
+      }
+      if (!canAccessAccount(login, body.userId)) return Response.json({ error: "Forbidden." }, { status: 403 });
+      const lifecycle = requireLifecycle();
+      if (lifecycle instanceof Response) return lifecycle;
+      const ensured = await ensureLifecycle(lifecycle);
+      if (ensured) return ensured;
+      const preferences = await lifecycle.setPreferences({
+        userId: body.userId,
+        tenantId: body.tenantId,
+        digestEnabled: body.digestEnabled,
+        welcomeEnabled: body.welcomeEnabled,
+      });
+      return Response.json({ preferences });
+    } catch (err: any) {
+      return Response.json({ error: err.message || "Failed to write preferences" }, { status: 500 });
+    }
+  }
+
+  // POST /payments/agentic/commercial/lifecycle/welcome — own or operator.
+  // Best-effort by design: a send failure returns 200 with
+  // sent:false, NEVER a 500 — the welcome must never block its
+  // provisioning caller. No provisioning path today carries a
+  // grantee email (grantMembership takes an internal user id
+  // only), so this route is the trigger surface until an
+  // email-bearing provisioning path exists.
+  if (path.endsWith("/payments/agentic/commercial/lifecycle/welcome") && request.method === "POST") {
+    try {
+      const login = commercialLogin();
+      if (!login) return Response.json({ error: "Unauthorized: verified login required." }, { status: 401 });
+      const body = (await request.json().catch(() => ({}))) as {
+        userId?: unknown; email?: unknown; tenantId?: unknown;
+      };
+      if (typeof body.userId !== "string" || typeof body.email !== "string") {
+        return Response.json({ error: "userId and email are required." }, { status: 400 });
+      }
+      if (!canAccessAccount(login, body.userId)) return Response.json({ error: "Forbidden." }, { status: 403 });
+      const sender = lifecycleSender();
+      if (!sender) return Response.json({ sent: false, reason: "no-email-transport" });
+      let preferences;
+      const lifecycle = createLifecycleAdapter(ctx.env as { AGENT_DB?: unknown });
+      if (lifecycle && typeof body.tenantId === "string" && body.tenantId) {
+        try {
+          await ensureLifecycleSchema(lifecycle.db);
+          preferences = await lifecycle.getPreferences(body.userId, body.tenantId);
+        } catch {
+          preferences = undefined;
+        }
+      }
+      const result = await sendWelcomeBestEffort({
+        sender,
+        email: body.email,
+        userId: body.userId,
+        preferences,
+      });
+      return Response.json(result);
+    } catch (err: any) {
+      return Response.json({ sent: false, reason: "send-failed" });
+    }
+  }
+
+  // POST /payments/agentic/commercial/lifecycle/digest/send — own or operator.
+  // The guarded send: opt-in check, per-day guard, skip-on-empty.
+  // A scheduled trigger is follow-up work; this route is the
+  // callable send surface.
+  if (path.endsWith("/payments/agentic/commercial/lifecycle/digest/send") && request.method === "POST") {
+    try {
+      const login = commercialLogin();
+      if (!login) return Response.json({ error: "Unauthorized: verified login required." }, { status: 401 });
+      const body = (await request.json().catch(() => ({}))) as {
+        userId?: unknown; tenantId?: unknown; email?: unknown; items?: unknown;
+      };
+      if (typeof body.userId !== "string" || typeof body.tenantId !== "string" || typeof body.email !== "string") {
+        return Response.json({ error: "userId, tenantId, and email are required." }, { status: 400 });
+      }
+      if (!canAccessAccount(login, body.userId)) return Response.json({ error: "Forbidden." }, { status: 403 });
+      const items = Array.isArray(body.items) ? body.items.filter((i): i is string => typeof i === "string") : [];
+      const lifecycle = requireLifecycle();
+      if (lifecycle instanceof Response) return lifecycle;
+      const ensured = await ensureLifecycle(lifecycle);
+      if (ensured) return ensured;
+      const sender = lifecycleSender();
+      if (!sender) return Response.json({ sent: false, reason: "no-email-transport" });
+      const secret = unsubscribeSecret();
+      const unsubscribeUrl = secret
+        ? `https://agent.openaimp.com/payments/agentic/commercial/lifecycle/unsubscribe?token=${await signUnsubscribeToken(secret, body.userId, body.tenantId)}`
+        : undefined;
+      const result = await sendDailyDigest({
+        store: lifecycle,
+        sender,
+        userId: body.userId,
+        tenantId: body.tenantId,
+        email: body.email,
+        items,
+        unsubscribeUrl,
+      });
+      return Response.json(result);
+    } catch (err: any) {
+      return Response.json({ error: err.message || "Failed to send digest" }, { status: 500 });
+    }
+  }
+
+  // POST /payments/agentic/commercial/lifecycle/unsubscribe — token
+  // is the authentication (no session required: this is the
+  // one-click link). Digest ONLY: a non-digest token is a 400,
+  // and security mail has no unsubscribe path at all.
+  if (path.endsWith("/payments/agentic/commercial/lifecycle/unsubscribe") && request.method === "POST") {
+    try {
+      const body = (await request.json().catch(() => ({}))) as { token?: unknown };
+      if (typeof body.token !== "string" || !body.token) {
+        return Response.json({ error: "token is required." }, { status: 400 });
+      }
+      const secret = unsubscribeSecret();
+      if (!secret) return Response.json({ error: "Unsubscribe is not configured." }, { status: 503 });
+      const lifecycle = requireLifecycle();
+      if (lifecycle instanceof Response) return lifecycle;
+      const ensured = await ensureLifecycle(lifecycle);
+      if (ensured) return ensured;
+      try {
+        const preferences = await applyUnsubscribe(lifecycle, secret, body.token);
+        return Response.json({ preferences });
+      } catch (err: any) {
+        return Response.json({ error: err.message || "Invalid unsubscribe token." }, { status: 400 });
+      }
+    } catch (err: any) {
+      return Response.json({ error: err.message || "Failed to unsubscribe" }, { status: 500 });
     }
   }
 

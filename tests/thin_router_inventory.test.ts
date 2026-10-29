@@ -189,6 +189,14 @@
  * the two search-hub entries and the search nav entry the old
  * branch had dropped at navOrder 23.
  *
+ * Issue #2208 adds seven — the referral balance and
+ * record-earn endpoints plus the lifecycle preferences
+ * (GET + POST), welcome, digest send, and unsubscribe
+ * endpoints (in handleAgenticPaymentsRoutes, after the
+ * auto-approve-limit block) — bringing the pinned array to
+ * 276 entries; the delegation sequence is unchanged (same
+ * handler, same position).
+ *
  * Issue #1169 (S4-1) added one more — POST /trading/reports/index-backfill (in
  * handleReportsRoutes, after the trading/reports webhook handler and before
  * /reports/research/browse) — bringing the pinned array to 263 entries; the
@@ -367,6 +375,13 @@ const EXPECTED_INVENTORY = [
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/ledger/payments\")",
   "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/auto-approve-limit\")",
   "handleAgenticPaymentsRoutes :: includes(\"/payments/agentic/auto-approve-limit\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/referral/balance\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/referral/record-earn\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/lifecycle/preferences\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/lifecycle/preferences\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/lifecycle/welcome\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/lifecycle/digest/send\")",
+  "handleAgenticPaymentsRoutes :: endsWith(\"/payments/agentic/commercial/lifecycle/unsubscribe\")",
   "handlePremiumRoutes :: includes(\"/premium/options-scan\")",
   "handlePremiumRoutes :: includes(\"/premium/market-research\")",
   "handlePremiumRoutes :: includes(\"/premium/stock-signals\")",

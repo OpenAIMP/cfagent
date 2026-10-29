@@ -437,6 +437,72 @@ CREATE INDEX IF NOT EXISTS agent_journal_entries_ref_idx ON agent_journal_entrie
 `,
 };
 
+/**
+ * Migration 0015 — lifecycle email + referral credits (#2208,
+ * sub-issue of #2012; advances #2021/#2020; source #1076).
+ * Numbering: main tops out at 0009; open CBO drafts claim 0010
+ * (#2187/#2188), 0011 (#2189), 0012 (#2194), 0013 (#2200), and
+ * 0014 (both #2206 and #2207 — a collision the parent
+ * sequences), so this slice claims the next free number, 0015.
+ * Merge sequencing: this migration must land AFTER any lower
+ * number it is rebased onto; the version column, not file
+ * order, decides application order.
+ *
+ * Tables are referral-only: agent_referral_earnings is a
+ * SEPARATE balance from the failure-credit claims
+ * (agent_credit_claims) — the two are never joined, and a
+ * referral earning never becomes a failure-credit claim.
+ *
+ * The rule seed below is DATA in the migration, not a code
+ * constant: operators change it via the port's setRules with
+ * no code deploy. Values are PROPOSED pending owner approval:
+ * earn $0.50 on a referred user's first paid run, 7-day vesting
+ * before redemption, pay-per-run redemption only (subscription
+ * application deferred). The monetization flag stays OFF, so no
+ * paid run exists to earn against until activation.
+ */
+export const MIGRATION_0015_LIFECYCLE_REFERRAL: DataMigration = {
+  version: 15,
+  name: "0015_lifecycle_referral",
+  sql: `
+CREATE TABLE IF NOT EXISTS agent_referral_rules (
+  id TEXT PRIMARY KEY,
+  earn_amount_usd REAL NOT NULL,
+  vesting_delay_ms INTEGER NOT NULL,
+  redemption_scope TEXT NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);
+INSERT OR IGNORE INTO agent_referral_rules (id, earn_amount_usd, vesting_delay_ms, redemption_scope, updated_at_ms) VALUES ('default', 0.5, 604800000, 'pay-per-run', 0);
+CREATE TABLE IF NOT EXISTS agent_referral_earnings (
+  id TEXT PRIMARY KEY,
+  referrer_user_id TEXT NOT NULL,
+  referred_user_id TEXT NOT NULL,
+  tenant_id TEXT NOT NULL,
+  amount_usd REAL NOT NULL,
+  redeemed_amount_usd REAL NOT NULL,
+  earned_at_ms INTEGER NOT NULL,
+  vested_at_ms INTEGER NOT NULL,
+  redeemed_by_run_id TEXT,
+  redeemed_at_ms INTEGER
+);
+CREATE UNIQUE INDEX IF NOT EXISTS agent_referral_earnings_referred_idx ON agent_referral_earnings (referred_user_id);
+CREATE INDEX IF NOT EXISTS agent_referral_earnings_referrer_idx ON agent_referral_earnings (referrer_user_id, earned_at_ms);
+CREATE TABLE IF NOT EXISTS agent_notification_preferences (
+  user_id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  digest_enabled INTEGER NOT NULL,
+  welcome_enabled INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS agent_digest_sends (
+  user_id TEXT NOT NULL,
+  day TEXT NOT NULL,
+  sent_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (user_id, day)
+);
+`,
+};
+
 export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0001_AGENT_GOVERNANCE,
   MIGRATION_0002_AGENT_CHAINS_SCHEDULES,
@@ -447,6 +513,7 @@ export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0007_COMMERCIAL_STORE,
   MIGRATION_0008_SUBSCRIPTIONS,
   MIGRATION_0009_JOURNAL,
+  MIGRATION_0015_LIFECYCLE_REFERRAL,
 ];
 
 function splitStatements(sqlText: string): string[] {
