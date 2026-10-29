@@ -16,6 +16,7 @@ import {
   type CommercialStore,
   type CreditClaimRecord,
   type CreditRedemptionRecord,
+  type PaidSubmissionRecord,
   type TenantSettingsRecord,
 } from "./commercialPorts";
 
@@ -24,6 +25,7 @@ export class InMemoryCommercialAdapter implements CommercialStore {
   private tenantSettings = new Map<string, TenantSettingsRecord>();
   private claims = new Map<string, CreditClaimRecord>();
   private redemptions = new Map<string, CreditRedemptionRecord>();
+  private submissions = new Map<string, PaidSubmissionRecord>();
 
   async getAccount(userId: string): Promise<CommercialAccountRecord | null> {
     return this.accounts.get(userId) ?? null;
@@ -132,6 +134,30 @@ export class InMemoryCommercialAdapter implements CommercialStore {
     return matches.length === 0
       ? null
       : { creditRunId: matches[0].creditRunId, amountUSD: matches[0].amountUSD };
+  }
+
+  async recordPaidSubmission(input: {
+    workflowId: string;
+    userId: string;
+    runRequestId: string;
+  }): Promise<PaidSubmissionRecord> {
+    if (!input.workflowId || !input.userId || !input.runRequestId) {
+      throw new Error("workflowId, userId, and runRequestId are required.");
+    }
+    const existing = this.submissions.get(input.workflowId);
+    if (existing) return existing;
+    const record: PaidSubmissionRecord = {
+      workflowId: input.workflowId,
+      userId: input.userId,
+      runRequestId: input.runRequestId,
+      createdAtMs: Date.now(),
+    };
+    this.submissions.set(record.workflowId, record);
+    return record;
+  }
+
+  async getPaidSubmission(workflowId: string): Promise<PaidSubmissionRecord | null> {
+    return this.submissions.get(workflowId) ?? null;
   }
 
   async redeemCredit(creditRunId: string, redeemedByRunId: string): Promise<CreditRedemptionRecord> {
