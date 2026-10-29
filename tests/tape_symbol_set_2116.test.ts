@@ -28,7 +28,7 @@ describe("tape set resolution (#2116)", () => {
   it("defaults to the hardcoded tape set with no selection", () => {
     expect(resolveTapeSymbols(null)).toEqual(TAPE_PRESETS.default);
     expect(resolveTapeSymbols({ kind: "default" })).toEqual(TAPE_PRESETS.default);
-    expect(TAPE_PRESETS.default).toHaveLength(10);
+    expect(TAPE_PRESETS.default).toHaveLength(13);
   });
 
   it("resolves each preset from existing sets only", () => {
