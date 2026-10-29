@@ -480,6 +480,49 @@ CREATE TABLE IF NOT EXISTS agent_price_catalogue (
 };
 
 /**
+ * Native ledger (#2192, sub-issue of #2012, umbrella #2146).
+ * DDL authority for the native ledger table lives here; the
+ * Drizzle mapping in drizzleSchema.ts must agree (pinned by
+ * test). Migration number 0012 is KEPT from the superseded
+ * PRs #2194/#2234 and was verified free on current main at
+ * rebuild time (2026-10-29, main 3d90dfb2: migrations
+ * 0001-0011 and 0015 are on main; 0012 is free on main).
+ * The UNIQUE index on (session_id, action) is
+ * the dedupe backstop: the adapters read-before-write, and
+ * the unique index makes a racing second write a no-op
+ * instead of a duplicate row.
+ */
+export const MIGRATION_0012_NATIVE_LEDGER: DataMigration = {
+  version: 12,
+  name: "0012_native_ledger",
+  sql: `
+CREATE TABLE IF NOT EXISTS agent_native_ledger_rows (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  action TEXT NOT NULL,
+  amount_usd REAL NOT NULL,
+  currency TEXT NOT NULL,
+  customer TEXT NOT NULL,
+  gateway TEXT NOT NULL,
+  gateway_ref TEXT NOT NULL,
+  status TEXT NOT NULL,
+  checkout_url TEXT NOT NULL,
+  proposer_did TEXT NOT NULL,
+  proof_signature TEXT NOT NULL,
+  note TEXT NOT NULL,
+  tenant_id TEXT NOT NULL,
+  family TEXT NOT NULL,
+  run_request_id TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS agent_native_ledger_rows_session_action_idx ON agent_native_ledger_rows (session_id, action);
+CREATE INDEX IF NOT EXISTS agent_native_ledger_rows_tenant_idx ON agent_native_ledger_rows (tenant_id);
+CREATE INDEX IF NOT EXISTS agent_native_ledger_rows_run_idx ON agent_native_ledger_rows (run_request_id);
+`,
+};
+
+/**
  * Migration 0015 — lifecycle email + referral credits (#2208,
  * sub-issue of #2012; advances #2021/#2020; source #1076).
  * Numbering (rebuild onto current main): main tops out at 0011;
@@ -556,6 +599,7 @@ export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0009_JOURNAL,
   MIGRATION_0010_PAID_SUBMISSIONS,
   MIGRATION_0011_PRICE_CATALOGUE,
+  MIGRATION_0012_NATIVE_LEDGER,
   MIGRATION_0015_LIFECYCLE_REFERRAL,
 ];
 
