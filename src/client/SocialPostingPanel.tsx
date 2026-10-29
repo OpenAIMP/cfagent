@@ -163,7 +163,7 @@ export function SocialPostingPanel({ active = true }: { active?: boolean }) {
 
   return (
     <PageShell
-      title="Social posting"
+      title="Social Posting"
       scopeNote={`Today: ${date} · manual runs only — triggering never enables the daily schedule.`}
       loading={loading}
     >
@@ -175,7 +175,7 @@ export function SocialPostingPanel({ active = true }: { active?: boolean }) {
             value={activeTab}
             onChange={handleTabChange}
             idBase="social"
-            ariaLabel="Social posting sections"
+            ariaLabel="Social Posting sections"
           />
           {visitedTabs.has("brief") && (
             <TabPanel idBase="social" tabId="brief" active={activeTab === "brief"} retain>
