@@ -77,10 +77,24 @@ import {
   nasdaqUniverseRouteBundle,
   resolveYahooHistoryDeps,
   transitionProvider,
+  transitionProviderViaPort,
   verifyNasdaqDataProvider,
   verifyYahooDataProvider,
   yahooQuoteProviderFromRoute,
+  type CapabilityRouteRecord,
+  type ProviderConfigRecord,
+  type ProviderLifecycleAction,
+  type ProviderTransitionDeps,
 } from "../trading";
+import type { SqlStorage } from "../orm";
+import type { Env } from "../types";
+import { buildDataProviderPorts } from "../data/buildDataProviderPorts";
+import type { D1ProviderConfigAdapter } from "../data/d1ProviderConfigAdapter";
+import type { D1ProviderCaptureAdapter } from "../data/d1ProviderCaptureAdapter";
+import type {
+  CaptureBlobStorage,
+  ProviderCaptureStore,
+} from "../data/providerCapturePorts";
 import type { NasdaqStockListing } from "../services/nasdaqListings";
 import {
   DEFAULT_STALE_AFTER_MS,
@@ -278,6 +292,87 @@ const OPTIONS_CSV_LATEST_KEY = "options:latest.csv";
 
 export class ScreenerAgent extends PortThink {
   private orm: DatabaseORM | null = null;
+
+  /**
+   * #2303 (#1976 step 1): the data-provider platform ports,
+   * built lazily from env (AGENT_DB) and schema-ensured once
+   * per instance. The platform* helpers below run each platform
+   * store interaction through the ports when they are bound
+   * (production) and through the legacy DO store otherwise —
+   * reads and writes always use the SAME side within a block,
+   * so route resolution never reads a store the bootstrap did
+   * not write.
+   */
+  private dataProviderPortsPromise?: Promise<{
+    config: D1ProviderConfigAdapter | null;
+    captures: D1ProviderCaptureAdapter | null;
+  }>;
+
+  private dataProviderPorts(): Promise<{
+    config: D1ProviderConfigAdapter | null;
+    captures: D1ProviderCaptureAdapter | null;
+  }> {
+    if (!this.dataProviderPortsPromise) {
+      this.dataProviderPortsPromise = buildDataProviderPorts(this.env);
+    }
+    return this.dataProviderPortsPromise;
+  }
+
+  private async platformBootstrap(): Promise<void> {
+    const { config } = await this.dataProviderPorts();
+    if (config) await config.bootstrapDataProviders();
+    else bootstrapDataProviders(this.ctx.storage.sql);
+  }
+
+  private async platformConfig(
+    id: "etrade" | "public" | "yahoo" | "nasdaq" | "alpaca"
+  ): Promise<ProviderConfigRecord | null> {
+    const { config } = await this.dataProviderPorts();
+    return config
+      ? config.getProviderConfig(id)
+      : getProviderConfig(this.ctx.storage.sql, id);
+  }
+
+  private async platformConfigs(): Promise<ProviderConfigRecord[]> {
+    const { config } = await this.dataProviderPorts();
+    return config
+      ? config.listProviderConfigs()
+      : listProviderConfigs(this.ctx.storage.sql);
+  }
+
+  private async platformRoutes(): Promise<CapabilityRouteRecord[]> {
+    const { config } = await this.dataProviderPorts();
+    return config
+      ? config.listCapabilityRoutes()
+      : listCapabilityRoutes(this.ctx.storage.sql);
+  }
+
+  private async platformTransition(
+    id: string,
+    action: ProviderLifecycleAction,
+    actor: string,
+    deps: ProviderTransitionDeps
+  ): Promise<ProviderConfigRecord> {
+    const { config } = await this.dataProviderPorts();
+    return config
+      ? transitionProviderViaPort(config, id, action, actor, deps)
+      : transitionProvider(this.ctx.storage.sql, id, action, actor, deps);
+  }
+
+  private async platformCaptureDeps(): Promise<{
+    sql: SqlStorage;
+    blobStorage: CaptureBlobStorage;
+    env: Env;
+    capturePort?: ProviderCaptureStore;
+  }> {
+    const { captures } = await this.dataProviderPorts();
+    return {
+      sql: this.ctx.storage.sql,
+      blobStorage: this.ctx.storage,
+      env: this.env,
+      ...(captures ? { capturePort: captures } : {}),
+    };
+  }
 
   private getOrm(): DatabaseORM {
     if (!this.orm) {
@@ -698,28 +793,24 @@ export class ScreenerAgent extends PortThink {
       const universeDef = UNIVERSES[universe];
       let symbols = req.symbols;
       if (!symbols && universe !== "ALL") {
-        bootstrapDataProviders(this.ctx.storage.sql);
+        await this.platformBootstrap();
         platformRunId ??= crypto.randomUUID();
-        const nasdaqConfig = getProviderConfig(this.ctx.storage.sql, "nasdaq");
+        const nasdaqConfig = await this.platformConfig("nasdaq");
         if (!nasdaqConfig || nasdaqConfig.lifecycleState !== "enabled" || !nasdaqConfig.enabled) {
-          await transitionProvider(this.ctx.storage.sql, "nasdaq", "verify", userLogin, {
+          await this.platformTransition("nasdaq", "verify", userLogin, {
             verifier: async () => verifyNasdaqDataProvider(),
           });
-          await transitionProvider(this.ctx.storage.sql, "nasdaq", "enable", userLogin, {});
+          await this.platformTransition("nasdaq", "enable", userLogin, {});
         }
         const nasdaqRegistry = new DataProviderRegistry();
         const nasdaqAdapter = createNasdaqDataProvider(undefined, {
-          capture: {
-            sql: this.ctx.storage.sql,
-            blobStorage: this.ctx.storage,
-            env: this.env,
-          },
+          capture: await this.platformCaptureDeps(),
         });
         nasdaqRegistry.register(nasdaqAdapter);
         const nasdaqProvider = nasdaqUniverseProviderFromRoute(
           nasdaqRegistry,
-          listProviderConfigs(this.ctx.storage.sql),
-          listCapabilityRoutes(this.ctx.storage.sql)
+          await this.platformConfigs(),
+          await this.platformRoutes()
         );
         const nasdaqUniverseDeps = bindNasdaqUniverseDeps(nasdaqProvider, {
           runId: platformRunId,
@@ -755,22 +846,18 @@ export class ScreenerAgent extends PortThink {
       // type paths out of this module; only the barrel is imported.)
       let platformQuoteDeps: ReturnType<typeof bindEtradeQuoteDeps> | undefined;
       if (etrade) {
-        bootstrapDataProviders(this.ctx.storage.sql);
+        await this.platformBootstrap();
         platformRunId ??= crypto.randomUUID();
         const etradeAdapter = createETradeDataProvider(etrade, {
-          capture: {
-            sql: this.ctx.storage.sql,
-            blobStorage: this.ctx.storage,
-            env: this.env,
-          },
+          capture: await this.platformCaptureDeps(),
           trace: quoteTrace,
         });
         const etradeRegistry = new DataProviderRegistry();
         etradeRegistry.register(etradeAdapter);
         const etradeProvider = etradeQuoteProviderFromRoute(
           etradeRegistry,
-          listProviderConfigs(this.ctx.storage.sql),
-          listCapabilityRoutes(this.ctx.storage.sql)
+          await this.platformConfigs(),
+          await this.platformRoutes()
         );
         platformQuoteDeps = bindEtradeQuoteDeps(etradeProvider, {
           runId: platformRunId,
@@ -790,22 +877,18 @@ export class ScreenerAgent extends PortThink {
       // req.yahooDeps seam stays as a test override.
       let platformYahooDeps: ReturnType<typeof bindYahooScreenerDeps> | undefined;
       if (provider === "yahoo" && !req.yahooDeps) {
-        bootstrapDataProviders(this.ctx.storage.sql);
+        await this.platformBootstrap();
         platformRunId ??= crypto.randomUUID();
-        const yahooConfig = getProviderConfig(this.ctx.storage.sql, "yahoo");
+        const yahooConfig = await this.platformConfig("yahoo");
         if (!yahooConfig || yahooConfig.lifecycleState !== "enabled" || !yahooConfig.enabled) {
-          await transitionProvider(this.ctx.storage.sql, "yahoo", "verify", userLogin, {
+          await this.platformTransition("yahoo", "verify", userLogin, {
             verifier: async () => verifyYahooDataProvider(this.env),
           });
-          await transitionProvider(this.ctx.storage.sql, "yahoo", "enable", userLogin, {});
+          await this.platformTransition("yahoo", "enable", userLogin, {});
         }
         const yahooRegistry = new DataProviderRegistry();
         const yahooAdapter = createYahooDataProvider(new YahooFinanceProvider(this.env), this.env, {
-          capture: {
-            sql: this.ctx.storage.sql,
-            blobStorage: this.ctx.storage,
-            env: this.env,
-          },
+          capture: await this.platformCaptureDeps(),
           // Issue #1745: pipeline Yahoo quotes run behind the yahoo
           // breaker (stale-cache fallback on trip).
           breaker: defaultBreakerRegistry().breakerFor("yahoo"),
@@ -813,8 +896,8 @@ export class ScreenerAgent extends PortThink {
         yahooRegistry.register(yahooAdapter);
         const yahooProvider = yahooQuoteProviderFromRoute(
           yahooRegistry,
-          listProviderConfigs(this.ctx.storage.sql),
-          listCapabilityRoutes(this.ctx.storage.sql)
+          await this.platformConfigs(),
+          await this.platformRoutes()
         );
         platformYahooDeps = bindYahooScreenerDeps(yahooProvider, {
           runId: platformRunId,
@@ -835,12 +918,15 @@ export class ScreenerAgent extends PortThink {
       // + heartbeat beat intact) and every symbol gets honest null
       // technicals — the screen itself never fails on history
       // resolution. See resolveYahooHistoryDeps.
+      const platformPorts = await this.dataProviderPorts();
       const platformHistoryDeps = (await resolveYahooHistoryDeps({
         sql: this.ctx.storage.sql,
         env: this.env,
         userLogin,
         blobStorage: this.ctx.storage,
         runId: platformRunId,
+        ...(platformPorts.config ? { configPort: platformPorts.config } : {}),
+        ...(platformPorts.captures ? { capturePort: platformPorts.captures } : {}),
       })) ?? { fetchBars: async () => null };
       // Provider-scoped acquisition (#261, #1007). Symbols come from
       // the listings directory (membership, not market data) for both
@@ -1105,22 +1191,18 @@ export class ScreenerAgent extends PortThink {
     if (req.provider === "yahoo") {
       let yahooDeps = req.yahooDeps;
       if (!yahooDeps) {
-        bootstrapDataProviders(this.ctx.storage.sql);
+        await this.platformBootstrap();
         const platformRunId = crypto.randomUUID();
-        const yahooConfig = getProviderConfig(this.ctx.storage.sql, "yahoo");
+        const yahooConfig = await this.platformConfig("yahoo");
         if (!yahooConfig || yahooConfig.lifecycleState !== "enabled" || !yahooConfig.enabled) {
-          await transitionProvider(this.ctx.storage.sql, "yahoo", "verify", userLogin, {
+          await this.platformTransition("yahoo", "verify", userLogin, {
             verifier: async () => verifyYahooDataProvider(this.env),
           });
-          await transitionProvider(this.ctx.storage.sql, "yahoo", "enable", userLogin, {});
+          await this.platformTransition("yahoo", "enable", userLogin, {});
         }
         const yahooRegistry = new DataProviderRegistry();
         const yahooAdapter = createYahooDataProvider(new YahooFinanceProvider(this.env), this.env, {
-          capture: {
-            sql: this.ctx.storage.sql,
-            blobStorage: this.ctx.storage,
-            env: this.env,
-          },
+          capture: await this.platformCaptureDeps(),
           // Issue #1745: pipeline Yahoo quotes run behind the yahoo
           // breaker (stale-cache fallback on trip).
           breaker: defaultBreakerRegistry().breakerFor("yahoo"),
@@ -1128,8 +1210,8 @@ export class ScreenerAgent extends PortThink {
         yahooRegistry.register(yahooAdapter);
         const yahooProvider = yahooQuoteProviderFromRoute(
           yahooRegistry,
-          listProviderConfigs(this.ctx.storage.sql),
-          listCapabilityRoutes(this.ctx.storage.sql)
+          await this.platformConfigs(),
+          await this.platformRoutes()
         );
         yahooDeps = bindYahooScreenerDeps(yahooProvider, {
           runId: platformRunId,
@@ -1146,12 +1228,15 @@ export class ScreenerAgent extends PortThink {
     let goalUniverseDeps: import("../trading").NasdaqUniverseDeps | undefined;
     let goalBundle: Awaited<ReturnType<typeof nasdaqUniverseRouteBundle>> | undefined;
     try {
+      const goalPorts = await this.dataProviderPorts();
       goalBundle = await nasdaqUniverseRouteBundle({
         sql: this.ctx.storage.sql,
         storage: this.ctx.storage,
         env: this.env,
         userLogin,
         runId: req.idempotencyKey,
+        ...(goalPorts.config ? { configPort: goalPorts.config } : {}),
+        ...(goalPorts.captures ? { capturePort: goalPorts.captures } : {}),
       });
       const goalNasdaqProvider = nasdaqUniverseProviderFromRoute(
         goalBundle.registry,
@@ -1196,23 +1281,33 @@ export class ScreenerAgent extends PortThink {
             resolveYahooHistoryDeps: gatherResolveHistory,
           } = await import("../trading");
           const { createObservabilitySink } = await import("../observability/createObservabilityPorts");
-          gatherBootstrap(this.ctx.storage.sql);
+          // #2303: the gather's platform reads/writes run through
+          // the ports when bound (same store discipline as the
+          // screen blocks); the sql fallbacks are unchanged.
+          const gatherPorts = await this.dataProviderPorts();
+          if (gatherPorts.config) await gatherPorts.config.bootstrapDataProviders();
+          else gatherBootstrap(this.ctx.storage.sql);
+          const gatherCaptureDeps = await this.platformCaptureDeps();
           const gatherRegistry = new GatherRegistry();
           gatherRegistry.register(
             gatherEtradeAdapter(etrade, {
-              capture: { sql: this.ctx.storage.sql, blobStorage: this.ctx.storage, env: this.env },
+              capture: gatherCaptureDeps,
             })
           );
           gatherRegistry.register(
             gatherYahooAdapter(new YahooFinanceProvider(this.env), this.env, {
-              capture: { sql: this.ctx.storage.sql, blobStorage: this.ctx.storage, env: this.env },
+              capture: gatherCaptureDeps,
               breaker: defaultBreakerRegistry().breakerFor("yahoo"),
             })
           );
           const { primary: gatherPrimary, gapFill: gatherGapFill } = gatherQuotesFromRoute(
             gatherRegistry,
-            gatherListConfigs(this.ctx.storage.sql),
-            gatherListRoutes(this.ctx.storage.sql)
+            gatherPorts.config
+              ? await gatherPorts.config.listProviderConfigs()
+              : gatherListConfigs(this.ctx.storage.sql),
+            gatherPorts.config
+              ? await gatherPorts.config.listCapabilityRoutes()
+              : gatherListRoutes(this.ctx.storage.sql)
           );
           const gatherRunContext = {
             runId: req.idempotencyKey,
@@ -1229,11 +1324,15 @@ export class ScreenerAgent extends PortThink {
             userLogin,
             blobStorage: this.ctx.storage,
             runId: req.idempotencyKey,
+            ...(gatherPorts.config ? { configPort: gatherPorts.config } : {}),
+            ...(gatherPorts.captures ? { capturePort: gatherPorts.captures } : {}),
           });
           gatherEnrichment = createGoalGatherEnrichment({
             sql: this.ctx.storage.sql,
             blobStorage: this.ctx.storage,
             blobEnv: this.env,
+            ...(gatherPorts.captures ? { capturePort: gatherPorts.captures } : {}),
+            ...(gatherPorts.config ? { configPort: gatherPorts.config } : {}),
             tenantId: "default",
             userLogin,
             runId: req.idempotencyKey,
