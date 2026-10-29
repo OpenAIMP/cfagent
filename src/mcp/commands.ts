@@ -13,6 +13,7 @@
 
 import { z } from "zod";
 import type { IMcpToolCommand, McpToolContext } from "../patterns/interfaces";
+import { computeMarketplaceRevenueSummary } from "../data/marketplacePorts";
 import {
   createProductionMcpPermissionPort,
   declareToolScope,
@@ -1121,9 +1122,14 @@ export class ManageCategoriesCommand implements IMcpToolCommand<{
   async execute(input: any, context: McpToolContext) {
     const action = input.action;
     const mode = resolveCommandMode(context, "categories", input.mode);
+    // #2345: categories live behind the marketplace ports
+    // (D1 when AGENT_DB is bound, the instance's own table
+    // when not) — the facade's sync repository is no longer
+    // the serving path for this table.
+    const categoriesRepo = (await context.orm.marketplacePorts(context.env)).categories;
 
     if (action === "list") {
-      const categories = context.orm.categories.findMany(categoryListOptions());
+      const categories = await categoriesRepo.findMany(categoryListOptions());
       return { count: categories.length, categories };
     }
 
@@ -1132,9 +1138,9 @@ export class ManageCategoriesCommand implements IMcpToolCommand<{
       if (!name) throw new Error("Category name is required for create");
       const slug = categoryCreateSlug(name, input.slug, mode);
       const id = categoryCreateId(slug, name, input.id, mode);
-      const values = categoryCreateValues(name, input, mode, context.orm.categories.count());
+      const values = categoryCreateValues(name, input, mode, await categoriesRepo.count());
       const now = new Date().toISOString();
-      const category = context.orm.categories.create({
+      const category = await categoriesRepo.create({
         id,
         name,
         slug,
@@ -1148,7 +1154,7 @@ export class ManageCategoriesCommand implements IMcpToolCommand<{
 
     if (action === "update") {
       if (!input.id) throw new Error("Category id is required for update");
-      const existing = context.orm.categories.findById(input.id);
+      const existing = await categoriesRepo.findById(input.id);
       if (mode === "route" && !existing) throw new Error(`Category ${input.id} not found`);
       const patch = existing
         ? categoryUpdatePatch(existing, input, mode)
@@ -1157,7 +1163,7 @@ export class ManageCategoriesCommand implements IMcpToolCommand<{
             input,
             mode
           );
-      const updated = context.orm.categories.update(input.id, {
+      const updated = await categoriesRepo.update(input.id, {
         ...patch,
         updatedAt: new Date().toISOString(),
       });
@@ -1174,7 +1180,7 @@ export class ManageCategoriesCommand implements IMcpToolCommand<{
         if (mode === "route") return { success: true };
         throw new Error("Category id is required for delete");
       }
-      const deleted = context.orm.categories.delete(input.id);
+      const deleted = await categoriesRepo.delete(input.id);
       context.audit("category.deleted", "orchestrator", { id: input.id });
       return { success: true, deleted, id: input.id };
     }
@@ -1229,10 +1235,12 @@ export class ManageReferralsCommand implements IMcpToolCommand<{
   async execute(input: any, context: McpToolContext) {
     const action = input.action;
     const mode = resolveCommandMode(context, "referrals", input.mode);
+    // #2345: referrals live behind the marketplace ports.
+    const referralsRepo = (await context.orm.marketplacePorts(context.env)).referrals;
 
     if (action === "list") {
       const options = referralListOptions(mode);
-      const referrals = context.orm.referrals.findMany(options);
+      const referrals = await referralsRepo.findMany(options);
       return { count: referrals.length, referrals };
     }
 
@@ -1242,7 +1250,7 @@ export class ManageReferralsCommand implements IMcpToolCommand<{
       if (!title || !url) throw new Error("title and url are required for referral creation");
 
       const defaults = referralCreateValues(input, mode);
-      const referral = context.orm.referrals.create({
+      const referral = await referralsRepo.create({
         id: `ref_${crypto.randomUUID().slice(0, 8)}`,
         userLogin: context.sessionId,
         title,
@@ -1264,12 +1272,12 @@ export class ManageReferralsCommand implements IMcpToolCommand<{
         if (mode === "route") return { success: true };
         throw new Error("Referral id is required for track_click");
       }
-      const current = context.orm.referrals.findById(input.id);
+      const current = await referralsRepo.findById(input.id);
       if (!current) {
         if (mode === "route") return { success: true };
         throw new Error(`Referral ${input.id} not found`);
       }
-      const updated = context.orm.referrals.update(input.id, { clicks: (current.clicks || 0) + 1 });
+      const updated = await referralsRepo.update(input.id, { clicks: (current.clicks || 0) + 1 });
       if (mode === "route") return { success: true };
       return { success: true, clicks: updated?.clicks || 1 };
     }
@@ -1279,7 +1287,7 @@ export class ManageReferralsCommand implements IMcpToolCommand<{
         if (mode === "route") return { success: true };
         throw new Error("Referral id is required for delete");
       }
-      const deleted = context.orm.referrals.delete(input.id);
+      const deleted = await referralsRepo.delete(input.id);
       context.audit("referral.deleted", "orchestrator", { id: input.id });
       return { success: true, deleted, id: input.id };
     }
@@ -1355,9 +1363,11 @@ export class ManageExternalAdsCommand implements IMcpToolCommand<{
   async execute(input: any, context: McpToolContext) {
     const action = input.action;
     const mode = resolveCommandMode(context, "externalAds", input.mode);
+    // #2345: external ads live behind the marketplace ports.
+    const externalAdsRepo = (await context.orm.marketplacePorts(context.env)).externalAds;
 
     if (action === "list") {
-      const ads = context.orm.externalAds.findMany(externalAdListOptions(mode));
+      const ads = await externalAdsRepo.findMany(externalAdListOptions(mode));
       return { count: ads.length, ads };
     }
 
@@ -1367,7 +1377,7 @@ export class ManageExternalAdsCommand implements IMcpToolCommand<{
       if (!title || !targetUrl) throw new Error("title and targetUrl are required for external ad creation");
 
       const values = externalAdCreateValues(title, input, mode);
-      const ad = context.orm.externalAds.create({
+      const ad = await externalAdsRepo.create({
         id: externalAdCreateId(input.network, mode),
         title,
         targetUrl,
@@ -1383,9 +1393,9 @@ export class ManageExternalAdsCommand implements IMcpToolCommand<{
       // verbatim throw; route mode applies the route field set.
       if (mode === "mcp") throw new Error("Unsupported action: update");
       if (!input.id) throw new Error("Ad id is required for update");
-      const existing = context.orm.externalAds.findById(input.id);
+      const existing = await externalAdsRepo.findById(input.id);
       if (!existing) throw new Error(`Ad ${input.id} not found`);
-      const updated = context.orm.externalAds.update(input.id, externalAdUpdatePatch(existing, input));
+      const updated = await externalAdsRepo.update(input.id, externalAdUpdatePatch(existing, input));
       if (updated) {
         context.audit("external_ad.updated", "orchestrator", { id: updated.id, title: updated.title });
       }
@@ -1399,13 +1409,13 @@ export class ManageExternalAdsCommand implements IMcpToolCommand<{
         if (mode === "route") return { success: false };
         throw new Error("Ad id is required for impression recording");
       }
-      const ad = context.orm.externalAds.findById(input.id);
+      const ad = await externalAdsRepo.findById(input.id);
       if (!ad) {
         if (mode === "route") return { success: false };
         throw new Error(`Ad ${input.id} not found`);
       }
       const newImp = (ad.impressions || 0) + 1;
-      const updated = context.orm.externalAds.update(input.id, {
+      const updated = await externalAdsRepo.update(input.id, {
         impressions: newImp,
         earnings: externalAdImpressionEarnings(ad.earnings || 0, ad.cpmRate, mode),
       });
@@ -1417,13 +1427,13 @@ export class ManageExternalAdsCommand implements IMcpToolCommand<{
         if (mode === "route") return { success: false };
         throw new Error("Ad id is required for click recording");
       }
-      const ad = context.orm.externalAds.findById(input.id);
+      const ad = await externalAdsRepo.findById(input.id);
       if (!ad) {
         if (mode === "route") return { success: false };
         throw new Error(`Ad ${input.id} not found`);
       }
       const newClicks = (ad.clicks || 0) + 1;
-      const updated = context.orm.externalAds.update(input.id, {
+      const updated = await externalAdsRepo.update(input.id, {
         clicks: newClicks,
         earnings: externalAdClickEarnings(ad.earnings || 0, ad.cpcRate, mode),
       });
@@ -1450,8 +1460,10 @@ export class GetRevenueSummaryCommand implements IMcpToolCommand<{}> {
   readonly zodSchema = z.object({});
 
   async execute(_input: any, context: McpToolContext) {
-    const summary = context.orm.getRevenueSummary();
-    return summary;
+    // #2345: the summary computes over the marketplace ports
+    // (fleet counters when D1-bound) + the DO-resident ledger.
+    const mp = await context.orm.marketplacePorts(context.env);
+    return computeMarketplaceRevenueSummary(mp, context.orm.transactions);
   }
 }
 
@@ -1524,7 +1536,9 @@ export class ManageSessionMemoryCommand implements IMcpToolCommand<{
     }
 
     if (action === "clear") {
-      (context.orm as any).sql.exec("DELETE FROM mas_memory");
+      // #2345: the whole-table delete is the memory port's
+      // clear() now — the (orm as any).sql bypass is retired.
+      context.orm.memory.clear();
       return { success: true, cleared: true };
     }
 
