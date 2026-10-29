@@ -345,39 +345,45 @@ describe("external ads command: both modes (money)", () => {
   });
 });
 
-/** Minimal mas_referrals SQL fake for the raw-SQL referrals routes. */
-const makeReferralSql = () => {
+/** In-memory ReferralPort fake for the referrals routes (#2345: the
+ * routes serve referrals through the port, not raw SQL). Rows are
+ * port records; findMany honours the orderBy/limit options the
+ * route passes, mirroring the retired SQL fake's semantics. */
+const makeReferralPorts = () => {
   const rows: any[] = [];
-  return {
+  const referrals = {
     rows,
-    exec: vi.fn((query: string, ...params: any[]) => {
-      if (query.startsWith("INSERT INTO mas_referrals")) {
-        const [id, session_id, title, url, category, reward_text, created_at] = params;
-        rows.push({ id, session_id, title, url, category, reward_text, clicks: 0, signups: 0, created_at });
-        return [];
-      }
-      if (query.includes("FROM mas_referrals ORDER BY created_at DESC")) {
-        return [...rows].sort((a, b) => (a.created_at < b.created_at ? 1 : -1)).slice(0, 100);
-      }
-      if (query.includes("FROM mas_referrals ORDER BY clicks DESC")) {
-        return [...rows].sort((a, b) => b.clicks - a.clicks);
-      }
-      if (query.startsWith("SELECT id, clicks FROM mas_referrals")) {
-        return rows.filter((x) => x.id === params[0]).map((x) => ({ id: x.id, clicks: x.clicks }));
-      }
-      if (query.startsWith("UPDATE mas_referrals SET clicks")) {
-        const r = rows.find((x) => x.id === params[0]);
-        if (r) r.clicks += 1;
-        return [];
-      }
-      if (query.startsWith("DELETE FROM mas_referrals")) {
-        const i = rows.findIndex((x) => x.id === params[0]);
-        if (i >= 0) rows.splice(i, 1);
-        return [];
-      }
-      return [];
+    findMany: vi.fn(async (options: any = {}) => {
+      let out = [...rows];
+      const orderBy = String(options.orderBy ?? "");
+      if (orderBy.includes("created_at")) out.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+      if (orderBy.includes("clicks")) out.sort((a, b) => b.clicks - a.clicks);
+      if (typeof options.limit === "number") out = out.slice(0, options.limit);
+      return out;
+    }),
+    findById: vi.fn(async (id: string) => rows.find((x) => x.id === id) ?? null),
+    create: vi.fn(async (rec: any) => { rows.push(rec); return rec; }),
+    update: vi.fn(async (id: string, patch: any) => {
+      const r = rows.find((x) => x.id === id);
+      if (!r) return null;
+      Object.assign(r, patch);
+      return r;
+    }),
+    delete: vi.fn(async (id: string) => {
+      const i = rows.findIndex((x) => x.id === id);
+      if (i < 0) return false;
+      rows.splice(i, 1);
+      return true;
+    }),
+    count: vi.fn(async () => rows.length),
+    incrementCounter: vi.fn(async (id: string, counter: string, delta: number) => {
+      const r = rows.find((x) => x.id === id);
+      if (!r) return null;
+      r[counter] += delta;
+      return r[counter];
     }),
   };
+  return referrals;
 };
 
 const routeCtx = (overrides: Record<string, any> = {}, sql?: any) => {
@@ -396,14 +402,34 @@ const routeCtx = (overrides: Record<string, any> = {}, sql?: any) => {
     update: vi.fn((id: string, patch: any) => ({ id, ...patch })),
     create: vi.fn((rec: any) => rec),
   };
-  const orm: any = { categories, externalAds, getRevenueSummary: vi.fn(() => ({ total: 0 })) };
+  const referrals = makeReferralPorts();
+  const ads: any = {
+    findMany: vi.fn(async () => []),
+    findById: vi.fn(async () => null),
+    create: vi.fn(async (rec: any) => rec),
+    update: vi.fn(async (id: string, patch: any) => ({ id, ...patch })),
+    delete: vi.fn(async () => false),
+    count: vi.fn(async () => 0),
+    incrementCounter: vi.fn(async () => null),
+    incrementAllImpressions: vi.fn(async () => undefined),
+  };
+  const orm: any = {
+    categories,
+    externalAds,
+    transactions: { findMany: vi.fn(() => []) },
+    getRevenueSummary: vi.fn(() => ({ total: 0 })),
+    // #2345: the routes resolve the marketplace ports through
+    // the facade's builder; the stub serves the same stub
+    // repositories as the ports.
+    marketplacePorts: vi.fn(async () => ({ categories, externalAds, ads, referrals })),
+  };
   const ctx = {
     getOrm: () => orm,
     ensureTables: () => sql ?? ({ exec: vi.fn(() => []) } as any),
     audit,
     ...overrides,
   } as AdsRevenueReferralsRouteContext;
-  return { ctx, audit, orm, sql };
+  return { ctx, audit, orm, sql, referrals };
 };
 
 describe("routes: mode resolution on the REST surface", () => {
@@ -516,13 +542,12 @@ describe("routes: mode resolution on the REST surface", () => {
   });
 
   it("referrals routes: default list is created_at DESC capped; mcp mode list is clicks DESC; click silent vs count", async () => {
-    const sql = makeReferralSql();
-    const { ctx } = routeCtx({}, sql);
-    // Seed with distinct created_at values so the created_at DESC
+    const { ctx, referrals } = routeCtx();
+    // Seed with distinct createdAt values so the created_at DESC
     // order is deterministic (live creates share a millisecond).
-    sql.rows.push(
-      { id: "ref_low", session_id: "sess-1", title: "Low", url: "https://l.example", category: "AI & Dev Tools", reward_text: "Community referral reward", clicks: 0, signups: 0, created_at: "2026-01-01T00:00:00.000Z" },
-      { id: "ref_high", session_id: "sess-1", title: "High", url: "https://h.example", category: "AI & Dev Tools", reward_text: "Community referral reward", clicks: 5, signups: 0, created_at: "2026-01-02T00:00:00.000Z" }
+    referrals.rows.push(
+      { id: "ref_low", userLogin: "sess-1", title: "Low", url: "https://l.example", category: "AI & Dev Tools", rewardText: "Community referral reward", clicks: 0, signups: 0, createdAt: "2026-01-01T00:00:00.000Z" },
+      { id: "ref_high", userLogin: "sess-1", title: "High", url: "https://h.example", category: "AI & Dev Tools", rewardText: "Community referral reward", clicks: 5, signups: 0, createdAt: "2026-01-02T00:00:00.000Z" }
     );
     const created = await handleReferralsAdsRoutes(
       req("POST", "/referrals", { title: "New", url: "https://n.example" }),
@@ -563,6 +588,13 @@ describe("routes: mode resolution on the REST surface", () => {
   });
 
   it("GET /revenue still passes the single summary through unchanged (C-4 pin)", async () => {
+    // #2345 adaptation: the summary's DEFINITION moved from the
+    // facade's getRevenueSummary() to the shared
+    // computeMarketplaceRevenueSummary over the ports (the
+    // stub's fake { total: 0 } was never a real summary shape);
+    // the pin still asserts the route passes the one computed
+    // summary object through unmolested — here, the all-zero
+    // summary of the empty stub ports.
     const { ctx } = routeCtx();
     const res = await handleAdsRevenueReferralsRoutes(
       req("GET", "/revenue"),
@@ -571,6 +603,16 @@ describe("routes: mode resolution on the REST surface", () => {
       "sess-1",
       ctx
     );
-    expect(await res!.json()).toEqual({ total: 0 });
+    expect(await res!.json()).toEqual({
+      grossRevenue: 0,
+      adNetworkRevenue: 0,
+      marketplaceRevenue: 0,
+      paymentPlatformFees: 0,
+      referralPayouts: 0,
+      netRevenue: 0,
+      totalImpressions: 0,
+      totalAdClicks: 0,
+      averageRPM: 18.5,
+    });
   });
 });
