@@ -31,10 +31,10 @@ export function NotificationFields(props: NotificationFieldsProps) {
   // that hid this section is gone.
   return (
                 <div className="sched-form-group">
-                  <label className="sched-form-label">
+                  <div className="sched-form-label">
                     Omnichannel Notification Dispatch
                     <span className="hint">Push reports and alerts automatically over Slack, Email (via cfpay A2A), and Webhooks</span>
-                  </label>
+                  </div>
 
                   <div className="channels-checkbox-grid">
                     {/* Slack */}
