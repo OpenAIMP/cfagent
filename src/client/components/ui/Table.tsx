@@ -29,6 +29,8 @@ export interface TableProps<T> {
   onRowClick?: (row: T) => void;
   /** title for every row's <tr> (string or per-row function). */
   rowTitle?: string | ((row: T) => string);
+  /** Keep the header cells stuck to the top of the scroll container. */
+  stickyHeader?: boolean;
 }
 
 /**
@@ -48,6 +50,7 @@ export function Table<T>({
   containerClassName = "",
   onRowClick,
   rowTitle,
+  stickyHeader = false,
 }: TableProps<T>) {
   if (rows.length === 0 && empty) return <>{empty}</>;
   return (
@@ -61,7 +64,7 @@ export function Table<T>({
                 key={col.key}
                 scope="col"
                 aria-sort={col.ariaSort}
-                className={`${col.headerClassName ?? ""} ${col.align ? `align-${col.align}` : ""}`.trim() || undefined}
+                className={`${col.headerClassName ?? ""} ${stickyHeader ? "sticky-head" : ""} ${col.align ? `align-${col.align}` : ""}`.trim() || undefined}
               >
                 {col.header}
               </th>
