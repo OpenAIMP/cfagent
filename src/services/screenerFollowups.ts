@@ -20,6 +20,10 @@
 import type { AsyncJobChannel, AsyncJobSubmission, StageChainConfig } from "../types";
 import type { OptionsPartialQualification } from "../trading";
 import {
+  formatTraceBlock,
+  type ScreenerTrace,
+} from "./screenerTrace";
+import {
   absoluteReportUrl,
   optionsReportUrl,
   screenerReportUrl,
@@ -150,6 +154,10 @@ export interface ScreenerRunOutcome {
    *  config channels + per-task overrides (legacy). */
   deliveryChannels?: AsyncJobChannel[];
   error?: string;
+  /** Issue #2216: the run's human-readable trace, rendered onto every
+   *  outbound message for the run (failure legs, delivery legs) so a
+   *  single message attributes its schedule, run, workflow, and stage. */
+  trace?: ScreenerTrace;
 }
 
 export interface ScreenerChannelConfig {
@@ -489,10 +497,14 @@ export function formatLifecycleNotification(
         return formatDegradedCoverageNotice(outcome.partial!, kindLabel, scope);
       }
       return `✅ Screen completed\n${formatFollowupDeliveryText(outcome)}`;
-    case "failed":
+    case "failed": {
       // Issue #1252 (#1173 R4): run failures carry the catalog code
       // (SCREEN_001) in the notification, as in the job record.
-      return `❌ [SCREEN_001] ${kindLabel}${scopeText} failed${outcome.error ? `\nError: ${outcome.error}` : ""}`;
+      // Issue #2216: when the outcome carries a trace, the failure leg
+      // appends the trace block; untraced outcomes render byte-identical.
+      const traceBlock = formatTraceBlock(outcome.trace);
+      return `❌ [SCREEN_001] ${kindLabel}${scopeText} failed${outcome.error ? `\nError: ${outcome.error}` : ""}${traceBlock ? `\n${traceBlock}` : ""}`;
+    }
     case "delivered":
       return `📬 Report delivered${detail ? ` ${detail}` : ""} — ${kindLabel}${scopeText}${outcome.reportUrl ? `\n📄 Report: ${outcome.reportUrl}` : ""}`;
   }
