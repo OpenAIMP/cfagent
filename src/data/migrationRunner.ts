@@ -523,6 +523,29 @@ CREATE INDEX IF NOT EXISTS agent_native_ledger_rows_run_idx ON agent_native_ledg
 };
 
 /**
+ * Migration 0013 — native subscription payment ids (#2198,
+ * sub-issue of #2012, slice 2 of #2146). Number claimed
+ * deliberately, not next-in-line: 0010 is claimed by #2187/#2188,
+ * 0011 by the price catalogue (#2189, in this stack), and 0012 by
+ * the native-ledger draft — so this slice claims 0013 to avoid a
+ * merge-sequencing collision. Portable subset (same rules as
+ * migrations 0001-0011): DDL only, no params, no dialect date
+ * functions, no RETURNING. Both columns are nullable: pre-native
+ * (cfpay-era) subscription rows have no Stripe ids, and the
+ * replay guard stays the UNIQUE index on provider_payment_ref,
+ * unchanged. The Drizzle mapping in drizzleSchema.ts must agree
+ * with this DDL.
+ */
+export const MIGRATION_0013_SUBSCRIPTION_STRIPE_IDS: DataMigration = {
+  version: 13,
+  name: "0013_subscription_stripe_ids",
+  sql: `
+ALTER TABLE agent_subscriptions ADD COLUMN stripe_session_id TEXT;
+ALTER TABLE agent_subscriptions ADD COLUMN stripe_payment_intent_id TEXT;
+`,
+};
+
+/**
  * Migration 0015 — lifecycle email + referral credits (#2208,
  * sub-issue of #2012; advances #2021/#2020; source #1076).
  * Numbering (rebuild onto current main): main tops out at 0011;
@@ -641,6 +664,7 @@ export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0010_PAID_SUBMISSIONS,
   MIGRATION_0011_PRICE_CATALOGUE,
   MIGRATION_0012_NATIVE_LEDGER,
+  MIGRATION_0013_SUBSCRIPTION_STRIPE_IDS,
   MIGRATION_0015_LIFECYCLE_REFERRAL,
   MIGRATION_0016_AUDIT_POLICY,
 ];
