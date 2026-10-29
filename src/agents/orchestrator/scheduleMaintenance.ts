@@ -9,7 +9,7 @@
 
 import type { AgentContext, Schedule, ScheduleOptions } from "agents";
 import type { AgentName } from "../../types";
-import { SqlPausedScheduleStore } from "../../services/scheduleManagement";
+import { createOptionsDiscoveryPorts } from "../../data/createOptionsDiscoveryPorts";
 import { buildSchedulePayload } from "../../trading";
 
 /** The screener identity a scheduled run executes as (stored per DO). */
@@ -124,7 +124,7 @@ export async function ensureStrategyScanSchedule(ctx: ScheduleMaintenanceContext
   });
   if (already) return;
   try {
-    const paused = new SqlPausedScheduleStore(ctx.agentCtx.storage.sql).list();
+    const paused = createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).pausedSchedulesSync.list();
     const pausedForUser = paused.some(
       (r) =>
         r.callback === "autonomousOptionsAnalysis" &&
