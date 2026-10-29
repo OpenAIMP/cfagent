@@ -278,7 +278,7 @@ function GradeBadge({
         padding: "var(--space-0-5) var(--space-1-5)",
         borderRadius: "4px",
         fontWeight: 700,
-        fontSize: "0.8rem",
+        fontSize: "var(--font-size-body-sm)",
         color: gradeColor(grade),
         border: `1px solid ${gradeColor(grade)}`,
       }}
@@ -413,7 +413,7 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
             href={reportUrl}
             download
             style={{
-              fontSize: "0.8rem",
+              fontSize: "var(--font-size-body-sm)",
               padding: "var(--space-1-5) var(--space-3)",
               borderRadius: "4px",
               border: "1px solid var(--color-accent)",
@@ -430,7 +430,7 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
             download
             className="screener-download-xlsx"
             style={{
-              fontSize: "0.8rem",
+              fontSize: "var(--font-size-body-sm)",
               padding: "var(--space-1-5) var(--space-3)",
               borderRadius: "4px",
               border: "1px solid var(--color-accent)",
@@ -446,7 +446,7 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
           <span
             title={result.pdfError || "PDF generation failed"}
             style={{
-              fontSize: "0.8rem",
+              fontSize: "var(--font-size-body-sm)",
               padding: "var(--space-1-5) var(--space-3)",
               borderRadius: "4px",
               border: "1px solid var(--color-danger)",
@@ -464,7 +464,7 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
           <span
             title="PDF report was not generated for this run"
             style={{
-              fontSize: "0.8rem",
+              fontSize: "var(--font-size-body-sm)",
               padding: "var(--space-1-5) var(--space-3)",
               borderRadius: "4px",
               border: "1px dashed var(--color-border-subtle)",
@@ -479,7 +479,7 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
           </span>
         )}
       </div>
-      <div style={{ fontSize: "0.85rem", marginBottom: "0.5rem" }}>
+      <div style={{ fontSize: "var(--font-size-body)", marginBottom: "0.5rem" }}>
         {/* Issue #421: no sector claim when none was selected ("ALL"). */}
         <strong>{triggerLabel}</strong>
         {result.sector && result.sector !== "ALL" && (
@@ -499,7 +499,7 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
       {result.success && result.partial && (
         <div
           style={{
-            fontSize: "0.85rem",
+            fontSize: "var(--font-size-body)",
             color: "var(--color-warning-text)",
             padding: "var(--space-3)",
             border: "1px solid var(--color-warning-border)",
@@ -517,7 +517,7 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
       {result.quoteTrace && (
         <details
           style={{
-            fontSize: "0.85rem",
+            fontSize: "var(--font-size-body)",
             border: "1px solid var(--color-border-subtle)",
             borderRadius: "4px",
             padding: "var(--space-3)",
@@ -538,7 +538,7 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
               </span>
             )}
           </summary>
-          <div style={{ marginTop: "0.5rem", fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
+          <div style={{ marginTop: "0.5rem", fontSize: "var(--font-size-body-sm)", color: "var(--color-text-muted)" }}>
             {result.quoteTrace.quotesReceived === 0 && (
               <div style={{ marginBottom: "0.4rem", color: "var(--color-warning)" }}>
                 ℹ️ 0 quotes received — Live quotes are unavailable outside market hours or when the exchange feed is closed.
@@ -562,7 +562,7 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
       {!result.success ? (
         <div
           style={{
-            fontSize: "0.85rem",
+            fontSize: "var(--font-size-body)",
             color: "var(--color-danger)",
             padding: "var(--space-3)",
             border: "1px solid var(--color-danger)",
@@ -594,7 +594,7 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
                 rowKey={(o) => o.symbol}
               />
           ) : (
-            <div style={{ fontSize: "0.85rem", color: "var(--color-text-muted)" }}>
+            <div style={{ fontSize: "var(--font-size-body)", color: "var(--color-text-muted)" }}>
               No standout opportunities in this run.
             </div>
           )}
@@ -603,7 +603,7 @@ export function ScreenerResultsView({ result }: { result: ScreenerResultData }) 
             <details style={{ marginTop: "0.75rem" }}>
               <summary
                 style={{
-                  fontSize: "0.85rem",
+                  fontSize: "var(--font-size-body)",
                   cursor: "pointer",
                   color: "var(--color-accent)",
                 }}

@@ -92,7 +92,7 @@ export function RunDetailView({ run, confirmations, confirmationsLoading }: RunD
             {run.matchedCount} matched of {run.totalScanned} scanned
           </span>
         </div>
-        <div style={{ fontSize: "0.85rem", color: "var(--color-text-muted)", marginTop: "0.25rem" }}>
+        <div style={{ fontSize: "var(--font-size-body)", color: "var(--color-text-muted)", marginTop: "0.25rem" }}>
           {(run.universe || "nasdaq100").toUpperCase()} · {run.sector} · {run.trigger || "scheduled"} ·{" "}
           {new Date(run.timestamp).toLocaleString()}
         </div>
@@ -178,9 +178,9 @@ export function RunDetailView({ run, confirmations, confirmationsLoading }: RunD
                     {confirmationLabel(c.status)}
                   </Badge>
                   <span style={{ fontWeight: 600 }}>{c.kind}</span>
-                  <span style={{ fontSize: "0.85rem", color: "var(--color-text-muted)" }}>{c.detail}</span>
+                  <span style={{ fontSize: "var(--font-size-body)", color: "var(--color-text-muted)" }}>{c.detail}</span>
                 </div>
-                <div style={{ fontSize: "0.85rem", color: "var(--color-text-muted)", marginTop: "0.25rem" }}>
+                <div style={{ fontSize: "var(--font-size-body)", color: "var(--color-text-muted)", marginTop: "0.25rem" }}>
                   Created {new Date(c.createdAt).toLocaleString()}
                   {c.decidedAt ? ` · decided ${new Date(c.decidedAt).toLocaleString()}` : ""}
                   {c.decidedBy ? ` by ${c.decidedBy}` : ""}

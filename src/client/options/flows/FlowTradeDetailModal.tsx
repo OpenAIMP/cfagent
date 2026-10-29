@@ -147,7 +147,7 @@ export function FlowTradeDetailModal({
               {trade.sentiment.charAt(0).toUpperCase() + trade.sentiment.slice(1)}
             </div>
             {trade.sentimentReasoning && (
-              <div className="flow-metric-sub" style={{ fontSize: "0.68rem", opacity: 0.85 }}>
+              <div className="flow-metric-sub" style={{ fontSize: "var(--font-size-micro)", opacity: 0.85 }}>
                 {trade.confidenceScore ? `${trade.confidenceScore}% conv.` : "Rule Evaluated"}
               </div>
             )}

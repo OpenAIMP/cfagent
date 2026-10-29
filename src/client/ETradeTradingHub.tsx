@@ -1347,7 +1347,7 @@ export function ETradeTradingHub({
       {/* OAuth PIN Verification Modal */}
       {showPinModal && (
         <Modal open size="none" panelClassName="etrade-pin-modal" title="Authorize E*TRADE Application" onClose={() => setShowPinModal(false)}>
-              <p style={{ margin: "0 0 1rem 0", color: "var(--color-text-secondary)", fontSize: "0.88rem", lineHeight: "1.4" }}>
+              <p style={{ margin: "0 0 1rem 0", color: "var(--color-text-secondary)", fontSize: "var(--font-size-body)", lineHeight: "1.4" }}>
                 An E*TRADE authorization window has opened in a new tab. Log in, authorize application access, and enter the verification PIN provided by E*TRADE.
               </p>
               <div className="step-instruction">
@@ -1377,7 +1377,7 @@ export function ETradeTradingHub({
                   onChange={(e) => setOauthPin(e.target.value)}
                   autoFocus
                 />
-                {oauthMsg && <div style={{ color: "var(--color-danger)", fontSize: "0.82rem", marginBottom: "0.75rem" }}>⚠️ {oauthMsg}</div>}
+                {oauthMsg && <div style={{ color: "var(--color-danger)", fontSize: "var(--font-size-body-sm)", marginBottom: "0.75rem" }}>⚠️ {oauthMsg}</div>}
                 <div className="modal-btn-row">
                   <Button
                     type="submit"
@@ -1462,7 +1462,7 @@ export function ETradeTradingHub({
               {activeDraft.previewNotes && (
                 <div className="attest-item" style={{ gridColumn: "1 / -1", background: "var(--color-warning-subtle)", padding: "var(--space-1-5) var(--space-2-5)", borderRadius: "6px", border: "1px solid var(--color-warning)" }}>
                   <span className="attest-label" style={{ color: "var(--color-warning)" }}>⚠️ Broker Notice:</span>
-                  <span style={{ fontSize: "0.8rem", color: "var(--color-text-secondary)" }}>{activeDraft.previewNotes}</span>
+                  <span style={{ fontSize: "var(--font-size-body-sm)", color: "var(--color-text-secondary)" }}>{activeDraft.previewNotes}</span>
                 </div>
               )}
               <div className="attest-item">
@@ -1506,7 +1506,7 @@ export function ETradeTradingHub({
               )}
               <Button variant="primary"
                 type="button"
-                style={{ padding: "var(--space-2-5) var(--space-4)", fontSize: "0.85rem" }}
+                style={{ padding: "var(--space-2-5) var(--space-4)", fontSize: "var(--font-size-body)" }}
                 onClick={() => {
                   const price = activeDraft.limitPrice || activeDraft.estimatedPrice || 100;
                   setRiskSubject({
@@ -1875,28 +1875,28 @@ export function ETradeTradingHub({
                   const bidPrice = orderQuote.bid > 0 ? orderQuote.bid : orderQuote.lastPrice;
                   if ((orderAction === "BUY" || orderAction === "BUY_TO_COVER") && askPrice > 0 && parsedLimit > askPrice * 1.05) {
                     return (
-                      <div className="limit-warning-box" role="alert" style={{ background: "var(--color-warning-subtle)", color: "var(--color-warning)", padding: "var(--space-2) var(--space-3)", borderRadius: "6px", fontSize: "0.8rem", marginTop: "-0.5rem", marginBottom: "0.75rem", border: "1px solid var(--color-warning)" }}>
+                      <div className="limit-warning-box" role="alert" style={{ background: "var(--color-warning-subtle)", color: "var(--color-warning)", padding: "var(--space-2) var(--space-3)", borderRadius: "6px", fontSize: "var(--font-size-body-sm)", marginTop: "-0.5rem", marginBottom: "0.75rem", border: "1px solid var(--color-warning)" }}>
                         ⚠️ <strong>Limit Price Alert:</strong> Proposed Buy Limit (${parsedLimit.toFixed(2)}) is &gt;5% above current ask (${askPrice.toFixed(2)}). As a buy limit, this order may execute immediately at prevailing market prices.
                       </div>
                     );
                   }
                   if ((orderAction === "BUY" || orderAction === "BUY_TO_COVER") && askPrice > 0 && parsedLimit < askPrice * 0.7) {
                     return (
-                      <div className="limit-warning-box" role="alert" style={{ background: "var(--color-danger-subtle)", color: "var(--color-danger)", padding: "var(--space-2) var(--space-3)", borderRadius: "6px", fontSize: "0.8rem", marginTop: "-0.5rem", marginBottom: "0.75rem", border: "1px solid var(--color-danger)" }}>
+                      <div className="limit-warning-box" role="alert" style={{ background: "var(--color-danger-subtle)", color: "var(--color-danger)", padding: "var(--space-2) var(--space-3)", borderRadius: "6px", fontSize: "var(--font-size-body-sm)", marginTop: "-0.5rem", marginBottom: "0.75rem", border: "1px solid var(--color-danger)" }}>
                         ⚠️ <strong>Pricing Collar Alert:</strong> Proposed Buy Limit (${parsedLimit.toFixed(2)}) is {Math.round((1 - parsedLimit / askPrice) * 100)}% below current ask (${askPrice.toFixed(2)}). Broker collar rules may reject orders that diverge excessively from prevailing NBBO quotes.
                       </div>
                     );
                   }
                   if ((orderAction === "SELL" || orderAction === "SELL_SHORT") && bidPrice > 0 && parsedLimit < bidPrice * 0.95) {
                     return (
-                      <div className="limit-warning-box" role="alert" style={{ background: "var(--color-warning-subtle)", color: "var(--color-warning)", padding: "var(--space-2) var(--space-3)", borderRadius: "6px", fontSize: "0.8rem", marginTop: "-0.5rem", marginBottom: "0.75rem", border: "1px solid var(--color-warning)" }}>
+                      <div className="limit-warning-box" role="alert" style={{ background: "var(--color-warning-subtle)", color: "var(--color-warning)", padding: "var(--space-2) var(--space-3)", borderRadius: "6px", fontSize: "var(--font-size-body-sm)", marginTop: "-0.5rem", marginBottom: "0.75rem", border: "1px solid var(--color-warning)" }}>
                         ⚠️ <strong>Limit Price Alert:</strong> Proposed Sell Limit (${parsedLimit.toFixed(2)}) is &gt;5% below current bid (${bidPrice.toFixed(2)}). As a sell limit, this order may execute immediately below prevailing value.
                       </div>
                     );
                   }
                   if ((orderAction === "SELL" || orderAction === "SELL_SHORT") && bidPrice > 0 && parsedLimit > bidPrice * 1.3) {
                     return (
-                      <div className="limit-warning-box" role="alert" style={{ background: "var(--color-danger-subtle)", color: "var(--color-danger)", padding: "var(--space-2) var(--space-3)", borderRadius: "6px", fontSize: "0.8rem", marginTop: "-0.5rem", marginBottom: "0.75rem", border: "1px solid var(--color-danger)" }}>
+                      <div className="limit-warning-box" role="alert" style={{ background: "var(--color-danger-subtle)", color: "var(--color-danger)", padding: "var(--space-2) var(--space-3)", borderRadius: "6px", fontSize: "var(--font-size-body-sm)", marginTop: "-0.5rem", marginBottom: "0.75rem", border: "1px solid var(--color-danger)" }}>
                         ⚠️ <strong>Pricing Collar Alert:</strong> Proposed Sell Limit (${parsedLimit.toFixed(2)}) is {Math.round((parsedLimit / bidPrice - 1) * 100)}% above current bid (${bidPrice.toFixed(2)}). Broker collar rules may reject orders that diverge excessively from prevailing NBBO quotes.
                       </div>
                     );
@@ -2010,7 +2010,7 @@ export function ETradeTradingHub({
                   </Button>
                   <Button variant="primary"
                     type="button"
-                    style={{ padding: "var(--space-3) var(--space-4)", fontSize: "0.85rem" }}
+                    style={{ padding: "var(--space-3) var(--space-4)", fontSize: "var(--font-size-body)" }}
                     disabled={!orderSymbol.trim()}
                     onClick={() => {
                       const estPrice = orderType === "LIMIT" ? parseFloat(orderLimitPrice || "0") : (orderQuote?.lastPrice || 100);
@@ -2260,7 +2260,7 @@ export function ETradeTradingHub({
                 variant="secondary"
                 size="sm"
                 key={id}
-                style={{ padding: "var(--space-1-5) var(--space-3)", borderRadius: 999, border: "1px solid var(--color-border-medium)", background: "var(--color-muted)", color: "inherit", cursor: "pointer", fontSize: "0.82rem" }}
+                style={{ padding: "var(--space-1-5) var(--space-3)", borderRadius: 999, border: "1px solid var(--color-border-medium)", background: "var(--color-muted)", color: "inherit", cursor: "pointer", fontSize: "var(--font-size-body-sm)" }}
                 onClick={() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" })}
               >
                 {label}
@@ -2394,7 +2394,7 @@ export function ETradeTradingHub({
                     <p className="warning-desc" style={{ color: "var(--color-text-secondary)" }}>
                       {nlqResult.summary || nlqResult.result?.summary}
                     </p>
-                    <div style={{ fontSize: "0.85rem", color: "var(--color-danger)", marginTop: "0.4rem" }}>
+                    <div style={{ fontSize: "var(--font-size-body)", color: "var(--color-danger)", marginTop: "0.4rem" }}>
                       Trading order shortcuts disabled because one or more candidates failed validation.
                     </div>
                   </div>
@@ -2404,10 +2404,10 @@ export function ETradeTradingHub({
                 {(nlqResult.scanLedger || nlqResult.result?.scanLedger) && (
                   <div className="scan-audit-ledger-box" style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-subtle)", borderRadius: "var(--radius-md)", padding: "var(--space-4)", margin: "1rem 0" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap", gap: "var(--space-2)" }}>
-                      <h5 style={{ margin: 0, fontSize: "0.95rem", color: "var(--color-accent)", display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+                      <h5 style={{ margin: 0, fontSize: "var(--font-size-body)", color: "var(--color-accent)", display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
                         <span>🛡️</span> Market Universe Scan Audit Ledger
                       </h5>
-                      <div style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
+                      <div style={{ fontSize: "var(--font-size-body-sm)", color: "var(--color-text-muted)" }}>
                         Evaluated: <strong style={{ color: "var(--color-text-primary)" }}>{(nlqResult.scanLedger || nlqResult.result?.scanLedger).totalEvaluated}</strong> | 
                         Passed: <strong style={{ color: "var(--color-success)" }}>{(nlqResult.scanLedger || nlqResult.result?.scanLedger).passedCount}</strong> | 
                         Rejected: <strong style={{ color: "var(--color-danger)" }}>{(nlqResult.scanLedger || nlqResult.result?.scanLedger).rejectedCount}</strong>
@@ -2416,7 +2416,7 @@ export function ETradeTradingHub({
 
                     {/* Rejection Details */}
                     {((nlqResult.scanLedger || nlqResult.result?.scanLedger).rejections || []).length > 0 && (
-                      <details style={{ fontSize: "0.8rem", color: "var(--color-text-secondary)", marginTop: "0.5rem" }}>
+                      <details style={{ fontSize: "var(--font-size-body-sm)", color: "var(--color-text-secondary)", marginTop: "0.5rem" }}>
                         <summary style={{ cursor: "pointer", color: "var(--color-danger)" }}>
                           View {((nlqResult.scanLedger || nlqResult.result?.scanLedger).rejections || []).length} Rejection Details (showing first 200)
                         </summary>
@@ -2740,7 +2740,7 @@ export function ETradeTradingHub({
               {slackResult?.response && (
                 <div className="omnichannel-slack-viewer">
                   <div className="omnichannel-slack-user-header">
-                    <span style={{ fontSize: "1.2rem" }}>🤖</span>
+                    <span style={{ fontSize: "var(--font-size-title)" }}>🤖</span>
                     <div>
                       <strong className="slack-bot-name">ETradeAgent</strong>{" "}
                       <span className="slack-app-tag">APP</span>
@@ -2785,7 +2785,7 @@ export function ETradeTradingHub({
                                   borderRadius: "var(--radius-xs, 4px)",
                                   padding: "var(--space-1-5) var(--space-3)",
                                   fontWeight: "bold",
-                                  fontSize: "0.8rem",
+                                  fontSize: "var(--font-size-body-sm)",
                                   cursor: "pointer",
                                 }}
                               >
