@@ -20,6 +20,7 @@ import {
   validateAndTouchWiredSession,
   type WiredSessionStoreDeps,
 } from "../src/security/iaaaEnforcement";
+import { DEFAULT_IDLE_TIMEOUT_MS } from "../src/security/sessionPolicy";
 import {
   logoutAuditTenant,
   requiresStepUpForMint,
@@ -149,15 +150,15 @@ describe("validateAndTouchWiredSession", () => {
     expect(deps.invalidates).toEqual([]);
   });
 
-  it("wired session idle past 30 minutes is rejected and its cache entry invalidated", async () => {
+  it("wired session idle past the configured window is rejected and its cache entry invalidated", async () => {
     const fresh = wiredSession({ lastActivityMs: 1_000_000 });
     const deps = depsFor({ fresh });
-    // 30-minute idle timeout: last activity 1_000_000, now 2_800_000 = exactly deadline.
+    // Configured idle window: last activity 1_000_000, now = exactly deadline.
     const result = await validateAndTouchWiredSession(
       deps,
       wiredSession(),
       "sess-1",
-      2_800_000,
+      1_000_000 + DEFAULT_IDLE_TIMEOUT_MS,
     );
     expect(result).toEqual({ wired: true, session: null });
     expect(deps.persists).toBe(0);

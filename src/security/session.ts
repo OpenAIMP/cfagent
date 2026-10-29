@@ -1,4 +1,5 @@
 import type { Env, SessionData } from "../types";
+import { SESSION_LIMITS } from "../config/sessionLimits";
 import { createStoreKv, type DoNamespaceLike } from "./durableKv";
 import { type KvLike } from "./kvResilience";
 import type {
@@ -6,18 +7,19 @@ import type {
   ResourceUsagePort,
 } from "../telemetry/resourceUsagePorts";
 
-export const SESSION_TTL = 60 * 60 * 24 * 7; // 7 days in seconds
 /**
- * Hard cap on a session's total life, even when activity keeps renewing
- * the 7-day window. Renewal stops here; the session then expires normally.
- * 30 days balances "an active user is not asked to sign in weekly" against
- * a stolen cookie that stays usable forever.
+ * All durations come from config/session-limits.json (see
+ * src/config/sessionLimits.ts). These exports are aliases so callers and
+ * tests keep a named constant; no value is duplicated here.
  */
-export const SESSION_MAX_TTL = 60 * 60 * 24 * 30; // 30 days in seconds
-/** Renew the absolute window when this little of it remains (2 days). */
-export const SESSION_RENEW_WINDOW = 60 * 60 * 24 * 2; // 2 days in seconds
+export const SESSION_TTL = SESSION_LIMITS.absoluteTtlSeconds;
+/** Hard cap on a session's total life, even when activity keeps renewing. */
+export const SESSION_MAX_TTL = SESSION_LIMITS.maxLifetimeSeconds;
+/** Renew the absolute window when this little of it remains. */
+export const SESSION_RENEW_WINDOW = SESSION_LIMITS.renewWindowSeconds;
 export const COOKIE_NAME = "session_id";
-const STATE_MAX_AGE_MS = 10 * 60 * 1000; // 10 minutes
+const STATE_MAX_AGE_MS = SESSION_LIMITS.oauthStateMaxAgeMs;
+const STATE_FUTURE_SKEW_MS = SESSION_LIMITS.oauthStateFutureSkewMs;
 
 export function getSessionId(request: Request): string | null {
   const cookie = request.headers.get("Cookie");
@@ -44,7 +46,7 @@ export function isSessionIdFormat(
 }
 
 export function setSessionCookie(sessionId: string): string {
-  return `${COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${SESSION_TTL}`;
+  return `${COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${SESSION_LIMITS.cookieMaxAgeSeconds}`;
 }
 
 export function clearSessionCookie(): string {
@@ -261,7 +263,11 @@ export async function verifyState(env: Env, state: string): Promise<boolean> {
   if (!random || !timestampStr || !sig) return false;
 
   const timestamp = parseInt(timestampStr, 10);
-  if (isNaN(timestamp) || Date.now() - timestamp > STATE_MAX_AGE_MS || timestamp > Date.now() + 60_000) {
+  if (
+    isNaN(timestamp) ||
+    Date.now() - timestamp > STATE_MAX_AGE_MS ||
+    timestamp > Date.now() + STATE_FUTURE_SKEW_MS
+  ) {
     return false; // State expired or in the future
   }
 
