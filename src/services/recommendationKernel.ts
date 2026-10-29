@@ -36,6 +36,8 @@
  *    orders, and no surface here returns an execution artifact.
  */
 
+import { DoSqliteComparisonLedgerStore } from "../data/doSqliteComparisonLedgerAdapter";
+import type { ComparisonLedgerSqlExecutor } from "../data/comparisonLedgerPorts";
 import { runStageGates, type ChainProvenance, type IdeaStatus, type Outlook } from "./researchGates";
 import { RESEARCH_CONFIG_DEFAULTS, type ResearchConfig } from "./researchConfig";
 import {
@@ -1575,10 +1577,15 @@ export interface ComparisonLedgerSink {
   exec: (query: string, ...args: unknown[]) => unknown;
 }
 
+/**
+ * The ledger statements live in the data layer since #1976
+ * step 4c (#2356): src/data/comparisonLedgerPorts.ts +
+ * doSqliteComparisonLedgerAdapter.ts. These two functions are
+ * the kernel's seam onto that port, kept so runComparison and
+ * existing callers are unchanged.
+ */
 export function ensureComparisonLedgerTable(sql: ComparisonLedgerSink): void {
-  sql.exec(
-    "CREATE TABLE IF NOT EXISTS mas_comparison_arm_outcomes (id TEXT PRIMARY KEY, run_id TEXT NOT NULL, arm TEXT NOT NULL, candidate_id TEXT NOT NULL, structure TEXT NOT NULL, symbol TEXT NOT NULL, status TEXT NOT NULL, provenance TEXT NOT NULL, created_at TEXT NOT NULL)",
-  );
+  new DoSqliteComparisonLedgerStore(sql as ComparisonLedgerSqlExecutor).ensureTable();
 }
 
 export function recordComparisonArmOutcome(
@@ -1589,18 +1596,17 @@ export function recordComparisonArmOutcome(
     typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
       ? crypto.randomUUID()
       : `${input.runId}:${input.arm}:${input.candidate.id}:${Date.now()}`;
-  sql.exec(
-    "INSERT INTO mas_comparison_arm_outcomes (id, run_id, arm, candidate_id, structure, symbol, status, provenance, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  new DoSqliteComparisonLedgerStore(sql as ComparisonLedgerSqlExecutor).recordOutcome({
     id,
-    input.runId,
-    input.arm,
-    input.candidate.id,
-    input.candidate.structure,
-    input.candidate.symbol,
-    input.candidate.status,
-    input.candidate.provenance,
-    new Date().toISOString(),
-  );
+    runId: input.runId,
+    arm: input.arm,
+    candidateId: input.candidate.id,
+    structure: input.candidate.structure,
+    symbol: input.candidate.symbol,
+    status: input.candidate.status,
+    provenance: input.candidate.provenance,
+    createdAt: new Date().toISOString(),
+  });
 }
 
 /**
