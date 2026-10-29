@@ -360,7 +360,10 @@ describe("schedules behavior (extraction #379)", () => {
     const ctx = baseCtx({ getOrm: getOrm as any });
     const res = await handleSchedulesRoutes(req("POST", "/schedules/trigger-retention"), urlOf("/schedules/trigger-retention"), "/schedules/trigger-retention", "s1", ctx);
     expect((res as Response).status).toBe(200);
-    expect(await (res as Response).json()).toEqual({ success: true, deleted: 4, retentionDays: 90 });
+    const body = (await (res as Response).json()) as Record<string, unknown>;
+    // #2294: the pass also reports the outcome-feed prune (0 on an empty table).
+    expect(body).toMatchObject({ success: true, deleted: 4, retentionDays: 90 });
+    expect(typeof body.jobOutcomesPruned).toBe("number");
     expect(runStorageRetention).toHaveBeenCalledWith({ tag: "orm" }, { retentionDays: undefined });
   });
 

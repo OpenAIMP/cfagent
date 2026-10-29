@@ -665,15 +665,26 @@ export async function handleSchedulesRoutes(
         });
         // #2294: the outcome feed had no retention decision at all. Bound it
         // in the same nightly pass so history cannot grow into the read path.
-        const outcomes = pruneJobOutcomes(ctx.agentCtx.storage.sql, {
-          retentionDays: ctx.env.MAS_JOB_OUTCOMES_RETENTION_DAYS,
-        });
+        // Best-effort: a context without raw SQL (tests, older callers) or a
+        // prune failure must never fail the retention pass itself.
+        let jobOutcomes = { deletedByAge: 0, deletedByCap: 0, error: null as string | null };
+        try {
+          const sql = ctx.agentCtx.storage.sql;
+          const pruned = pruneJobOutcomes(sql, {
+            retentionDays: ctx.env.MAS_JOB_OUTCOMES_RETENTION_DAYS,
+          });
+          jobOutcomes = { ...pruned, error: null };
+        } catch (err) {
+          jobOutcomes.error = err instanceof Error ? err.message : String(err);
+          console.warn("[retention] job outcomes prune failed:", jobOutcomes.error);
+        }
         return Response.json({
           success: true,
           ...result,
-          jobOutcomesPruned: outcomes.deletedByAge + outcomes.deletedByCap,
-          jobOutcomesByAge: outcomes.deletedByAge,
-          jobOutcomesByCap: outcomes.deletedByCap,
+          jobOutcomesPruned: jobOutcomes.deletedByAge + jobOutcomes.deletedByCap,
+          jobOutcomesByAge: jobOutcomes.deletedByAge,
+          jobOutcomesByCap: jobOutcomes.deletedByCap,
+          jobOutcomesError: jobOutcomes.error,
         });
       } catch (err: any) {
         return Response.json({ error: err.message || "Failed to run storage retention" }, { status: 500 });
