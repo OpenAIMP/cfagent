@@ -39,7 +39,7 @@ import {
   type ChannelNlqDeps,
   type ChannelPrincipal,
 } from "../../trading";
-import { SqlScanRunStore, SqlStrategyProfileStore } from "../../trading";
+import { createOptionsDiscoveryPorts } from "../../data/createOptionsDiscoveryPorts";
 import { createDiscoveryService } from "../../services/discoveryService";
 import { buildDataProviderPorts } from "../../data/buildDataProviderPorts";
 import { createFitDiscoveryRunner } from "../../services/fitDiscoveryRunner";
@@ -88,8 +88,8 @@ async function buildChannelNlqDeps(
   // through the platform ports when AGENT_DB is bound.
   const dpPorts = await buildDataProviderPorts(ctx.env);
   return {
-    scanRunStore: new SqlScanRunStore(sql),
-    profileStore: new SqlStrategyProfileStore(sql),
+    scanRunStore: createOptionsDiscoveryPorts({ sql, storage: ctx.agentCtx.storage }).scanRuns,
+    profileStore: createOptionsDiscoveryPorts({ sql, storage: ctx.agentCtx.storage }).strategyProfiles,
     schedulingPort: ctx.nlqSchedulingPort(),
     discoveryRunner: createDiscoveryService({ env: ctx.env, userLogin, orm, sql, blobStorage: ctx.agentCtx.storage, ...(dpPorts.config ? { configPort: dpPorts.config } : {}), ...(dpPorts.captures ? { capturePort: dpPorts.captures } : {}) }),
     fitDiscoveryRunner: createFitDiscoveryRunner({ env: ctx.env, userLogin, sql, storage: ctx.agentCtx.storage }),
