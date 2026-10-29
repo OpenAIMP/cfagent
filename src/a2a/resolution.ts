@@ -52,6 +52,7 @@ export const A2A_RESOLUTIONS: Readonly<Record<string, A2AResolution>> = {
   nlq: { binding: "SEARCH_AGENT", instanceName: SHARED_ORCHESTRATOR_INSTANCE },
   payments: { binding: "PAYMENTS_AGENT" },
   scheduled: { binding: "SCHEDULED_AGENT", instanceName: "default" },
+  aisearch: { binding: "AI_SEARCH_AGENT" },
 };
 
 /** Resolve an A2A agent name, or undefined when A2A does not serve it. */
