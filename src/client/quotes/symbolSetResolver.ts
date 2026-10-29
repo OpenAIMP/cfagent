@@ -63,10 +63,16 @@ export function resolveTapeSymbols(
 }
 
 /** Display-fallback metadata for resolved symbols (live ticks override). */
-export function synthesizeTapeMeta(symbols: string[]): { symbol: string; type: "stock" | "crypto" | "etf" }[] {
+export function synthesizeTapeMeta(symbols: string[]): { symbol: string; type: "stock" | "crypto" | "etf" | "index" }[] {
   return symbols.map((symbol) => ({
     symbol,
-    type: symbol.includes("/") ? "crypto" : ["SPY", "QQQ", "DIA"].includes(symbol) ? "etf" : "stock",
+    type: symbol.includes("/")
+      ? "crypto"
+      : ["SPY", "QQQ", "DIA", "IWM"].includes(symbol)
+        ? "etf"
+        : ["^VIX", "^TNX"].includes(symbol)
+          ? "index"
+          : "stock",
   }));
 }
 
