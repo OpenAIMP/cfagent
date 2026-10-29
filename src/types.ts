@@ -2311,7 +2311,19 @@ export type AsyncJobSubmission =
     } & AsyncJobGraphFields)
   | ({
       capability: "mcp.tool";
-      payload: { toolName: string; arguments: Record<string, unknown> };
+      payload: {
+        toolName: string;
+        arguments: Record<string, unknown>;
+        /**
+         * #2341 (Agent Mesh S5): the acting identity the turn
+         * adapter stamped server-side at queue time (never from
+         * tool arguments); the executor threads it into the tool
+         * context's actingLogin carrier. Absent = the queued call
+         * carries no acting identity and identity-gated tools fail
+         * closed at execution.
+         */
+        actingLogin?: string;
+      };
     } & AsyncJobGraphFields)
   | ({
       capability: "nlq.execute";
