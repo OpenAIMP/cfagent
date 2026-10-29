@@ -25,6 +25,24 @@
  * (#2223) instead. All behavior lives in the door module
  * (src/agents/orchestrator/meshDoors.ts); these classes validate
  * input shape, dispatch, and audit.
+ *
+ * Batch B (#2349) adds seven commands over the TradingAgent and
+ * ReportAssetAgent doors, each also declaring exactly one scope:
+ *   - `propose_stock_trade`   (mcp:trade) — create a stock trade
+ *     proposal (preview only; the result is a pending-approval
+ *     proposal, never a placed order).
+ *   - `propose_options_trade` (mcp:trade) — create an options
+ *     trade proposal (preview only).
+ *   - `get_trading_accounts`  (mcp:read)  — the acting user's
+ *     broker accounts through TradingAgent.
+ *   - `get_trading_positions` (mcp:read)  — their positions.
+ *   - `get_trading_quote`     (mcp:read)  — a symbol quote.
+ *   - `list_report_assets`    (mcp:read)  — the acting user's
+ *     report assets (metadata) through ReportAssetAgent.
+ *   - `get_report_asset`      (mcp:read)  — one asset by key.
+ * No command reaches TradingAgent's approval door: there is no
+ * execute/approve/decide command in this family, by design — order
+ * execution stays behind the existing approval door until S9/G4.
  */
 
 import { z } from "zod";
@@ -34,10 +52,22 @@ import {
   triggerScheduledGoalViaDoor,
   checkPaymentBudgetViaDoor,
   getPaymentsOverviewViaDoor,
+  proposeStockTradeViaDoor,
+  proposeOptionsTradeViaDoor,
+  getTradingAccountsViaDoor,
+  getTradingPositionsViaDoor,
+  getTradingQuoteViaDoor,
+  listReportAssetsViaDoor,
+  getReportAssetViaDoor,
   type ScheduledGoalsDoorResult,
   type ScheduledGoalTriggerDoorResult,
   type PaymentBudgetDoorResult,
   type PaymentsOverviewDoorResult,
+  type TradeProposalDoorResult,
+  type StockTradeProposalInput,
+  type OptionsTradeProposalInput,
+  type ReportAssetsDoorResult,
+  type ReportAssetDoorResult,
 } from "../agents/orchestrator/meshDoors";
 
 /* ------------------------------------------------------------------ */
@@ -199,6 +229,298 @@ export class GetPaymentsOverviewCommand implements IMcpToolCommand<{
       actingLogin: actingLogin ?? null,
       todaySpentCents: result.todaySpentCents,
       count: result.recentPayments.length,
+    });
+    return result;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* propose_stock_trade (#2349)                                         */
+/* ------------------------------------------------------------------ */
+
+const tradeActionSchema = z.enum(["BUY", "SELL", "BUY_TO_COVER", "SELL_SHORT"]);
+const tradeOrderTypeSchema = z.enum(["MARKET", "LIMIT", "STOP", "STOP_LIMIT"]);
+
+export class ProposeStockTradeCommand implements IMcpToolCommand<StockTradeProposalInput> {
+  readonly name = "propose_stock_trade";
+  readonly description =
+    "Create a stock trade PROPOSAL through the TradingAgent door: the broker preview for the acting user's own account, returned as a pending-approval proposal. Preview only — this command never places an order; placement happens only through TradingAgent's approval door with an explicit authorizer decision. Requires the chat turn's acting identity.";
+  readonly jsonSchema = {
+    type: "object" as const,
+    properties: {
+      symbol: { type: "string", description: "The stock symbol, e.g. AAPL." },
+      action: { type: "string", description: "BUY, SELL, BUY_TO_COVER, or SELL_SHORT." },
+      quantity: { type: "number", description: "Share quantity (positive)." },
+      orderType: { type: "string", description: "MARKET, LIMIT, STOP, or STOP_LIMIT (optional)." },
+      limitPrice: { type: "number", description: "Limit price for LIMIT/STOP_LIMIT orders (optional)." },
+      stopPrice: { type: "number", description: "Stop price for STOP/STOP_LIMIT orders (optional)." },
+      provider: { type: "string", description: "Broker provider id (optional; the agent's default otherwise)." },
+    },
+    required: ["symbol", "action", "quantity"],
+  };
+  readonly zodSchema = z.object({
+    symbol: z.string().min(1).describe("The stock symbol"),
+    action: tradeActionSchema.describe("BUY, SELL, BUY_TO_COVER, or SELL_SHORT"),
+    quantity: z.number().positive().describe("Share quantity"),
+    orderType: tradeOrderTypeSchema.optional().describe("Order type (optional)"),
+    limitPrice: z.number().positive().optional().describe("Limit price (optional)"),
+    stopPrice: z.number().positive().optional().describe("Stop price (optional)"),
+    provider: z.string().min(1).optional().describe("Broker provider id (optional)"),
+  });
+
+  async execute(
+    input: StockTradeProposalInput,
+    context: McpToolContext,
+  ): Promise<TradeProposalDoorResult> {
+    const actingLogin = context.actingLogin?.();
+    const result = await proposeStockTradeViaDoor(context.env, actingLogin, input);
+    context.audit("propose_stock_trade", "mcp", {
+      actingLogin: actingLogin ?? null,
+      symbol: input.symbol,
+      action: input.action,
+      quantity: input.quantity,
+      status: result.status,
+      orderId: result.proposal?.orderId ?? null,
+    });
+    return result;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* propose_options_trade (#2349)                                       */
+/* ------------------------------------------------------------------ */
+
+const optionLegSchema = z.object({
+  underlyingSymbol: z.string().min(1).describe("The leg's underlying symbol"),
+  securityType: z.literal("OPTN").describe("Leg security type (OPTN)"),
+  side: z.enum(["BUY", "SELL"]).describe("Leg side"),
+  quantity: z.number().positive().describe("Leg quantity"),
+  optionType: z.enum(["CALL", "PUT"]).optional().describe("CALL or PUT (optional)"),
+  strike: z.number().positive().optional().describe("Strike price (optional)"),
+  expirationDate: z.string().optional().describe("Expiration date (optional)"),
+});
+
+export class ProposeOptionsTradeCommand implements IMcpToolCommand<OptionsTradeProposalInput> {
+  readonly name = "propose_options_trade";
+  readonly description =
+    "Create an options trade PROPOSAL through the TradingAgent door: single-leg or multi-leg (spreads) via optionLegs, priced from the strategy net debit when given. Returns the broker preview as a pending-approval proposal. Preview only — this command never places an order; placement happens only through TradingAgent's approval door with an explicit authorizer decision. Requires the chat turn's acting identity.";
+  readonly jsonSchema = {
+    type: "object" as const,
+    properties: {
+      symbol: { type: "string", description: "The underlying symbol, e.g. AAPL." },
+      action: { type: "string", description: "BUY, SELL, BUY_TO_COVER, or SELL_SHORT." },
+      quantity: { type: "number", description: "Contract quantity (positive)." },
+      optionLegs: {
+        type: "array",
+        description: "The option legs (at least one): underlyingSymbol, securityType OPTN, side, quantity, and optionally optionType, strike, expirationDate.",
+      },
+      orderType: { type: "string", description: "MARKET, LIMIT, STOP, or STOP_LIMIT (optional)." },
+      limitPrice: { type: "number", description: "Limit price (optional)." },
+      stopPrice: { type: "number", description: "Stop price (optional)." },
+      strategyNetDebit: { type: "number", description: "Strategy net debit for spreads (optional)." },
+      provider: { type: "string", description: "Broker provider id (optional)." },
+    },
+    required: ["symbol", "action", "quantity", "optionLegs"],
+  };
+  readonly zodSchema = z.object({
+    symbol: z.string().min(1).describe("The underlying symbol"),
+    action: tradeActionSchema.describe("BUY, SELL, BUY_TO_COVER, or SELL_SHORT"),
+    quantity: z.number().positive().describe("Contract quantity"),
+    optionLegs: z.array(optionLegSchema).min(1).describe("The option legs (at least one)"),
+    orderType: tradeOrderTypeSchema.optional().describe("Order type (optional)"),
+    limitPrice: z.number().positive().optional().describe("Limit price (optional)"),
+    stopPrice: z.number().positive().optional().describe("Stop price (optional)"),
+    strategyNetDebit: z.number().optional().describe("Strategy net debit (optional)"),
+    provider: z.string().min(1).optional().describe("Broker provider id (optional)"),
+  });
+
+  async execute(
+    input: OptionsTradeProposalInput,
+    context: McpToolContext,
+  ): Promise<TradeProposalDoorResult> {
+    const actingLogin = context.actingLogin?.();
+    const result = await proposeOptionsTradeViaDoor(context.env, actingLogin, input);
+    context.audit("propose_options_trade", "mcp", {
+      actingLogin: actingLogin ?? null,
+      symbol: input.symbol,
+      action: input.action,
+      quantity: input.quantity,
+      legs: input.optionLegs.length,
+      status: result.status,
+      orderId: result.proposal?.orderId ?? null,
+    });
+    return result;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* get_trading_accounts (#2349)                                        */
+/* ------------------------------------------------------------------ */
+
+export class GetTradingAccountsCommand implements IMcpToolCommand<{ provider?: string }> {
+  readonly name = "get_trading_accounts";
+  readonly description =
+    "Read the acting user's broker accounts through their own TradingAgent instance. Read-only. Requires the chat turn's acting identity.";
+  readonly jsonSchema = {
+    type: "object" as const,
+    properties: {
+      provider: { type: "string", description: "Broker provider id (optional; the agent's default otherwise)." },
+    },
+  };
+  readonly zodSchema = z.object({
+    provider: z.string().min(1).optional().describe("Broker provider id (optional)"),
+  });
+
+  async execute(input: { provider?: string }, context: McpToolContext): Promise<unknown> {
+    const actingLogin = context.actingLogin?.();
+    const result = await getTradingAccountsViaDoor(context.env, actingLogin, input.provider);
+    context.audit("get_trading_accounts", "mcp", {
+      actingLogin: actingLogin ?? null,
+      provider: input.provider ?? null,
+    });
+    return result;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* get_trading_positions (#2349)                                       */
+/* ------------------------------------------------------------------ */
+
+export class GetTradingPositionsCommand implements IMcpToolCommand<{
+  accountKey?: string;
+  provider?: string;
+}> {
+  readonly name = "get_trading_positions";
+  readonly description =
+    "Read the acting user's broker positions through their own TradingAgent instance, optionally for one account. Read-only — this is the broker's live view. Requires the chat turn's acting identity.";
+  readonly jsonSchema = {
+    type: "object" as const,
+    properties: {
+      accountKey: { type: "string", description: "Account key to read positions for (optional)." },
+      provider: { type: "string", description: "Broker provider id (optional)." },
+    },
+  };
+  readonly zodSchema = z.object({
+    accountKey: z.string().min(1).optional().describe("Account key (optional)"),
+    provider: z.string().min(1).optional().describe("Broker provider id (optional)"),
+  });
+
+  async execute(
+    input: { accountKey?: string; provider?: string },
+    context: McpToolContext,
+  ): Promise<unknown> {
+    const actingLogin = context.actingLogin?.();
+    const result = await getTradingPositionsViaDoor(context.env, actingLogin, input);
+    context.audit("get_trading_positions", "mcp", {
+      actingLogin: actingLogin ?? null,
+      accountKey: input.accountKey ?? null,
+      provider: input.provider ?? null,
+    });
+    return result;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* get_trading_quote (#2349)                                           */
+/* ------------------------------------------------------------------ */
+
+export class GetTradingQuoteCommand implements IMcpToolCommand<{
+  symbol: string;
+  provider?: string;
+}> {
+  readonly name = "get_trading_quote";
+  readonly description =
+    "Read a quote for one symbol through the acting user's own TradingAgent instance. Read-only. Requires the chat turn's acting identity.";
+  readonly jsonSchema = {
+    type: "object" as const,
+    properties: {
+      symbol: { type: "string", description: "The symbol to quote, e.g. AAPL." },
+      provider: { type: "string", description: "Broker provider id (optional)." },
+    },
+    required: ["symbol"],
+  };
+  readonly zodSchema = z.object({
+    symbol: z.string().min(1).describe("The symbol to quote"),
+    provider: z.string().min(1).optional().describe("Broker provider id (optional)"),
+  });
+
+  async execute(
+    input: { symbol: string; provider?: string },
+    context: McpToolContext,
+  ): Promise<unknown> {
+    const actingLogin = context.actingLogin?.();
+    const result = await getTradingQuoteViaDoor(context.env, actingLogin, input);
+    context.audit("get_trading_quote", "mcp", {
+      actingLogin: actingLogin ?? null,
+      symbol: input.symbol,
+      provider: input.provider ?? null,
+    });
+    return result;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* list_report_assets (#2349)                                          */
+/* ------------------------------------------------------------------ */
+
+export class ListReportAssetsCommand implements IMcpToolCommand<{ limit?: number }> {
+  readonly name = "list_report_assets";
+  readonly description =
+    "List the acting user's report assets through their own ReportAssetAgent instance: storage key, file name, and stored-at for each generated report PDF, newest first. Metadata only — no asset bytes. Read-only. Requires the chat turn's acting identity.";
+  readonly jsonSchema = {
+    type: "object" as const,
+    properties: {
+      limit: { type: "number", description: "How many assets to list (default 20, max 200)." },
+    },
+  };
+  readonly zodSchema = z.object({
+    limit: z.number().int().positive().max(200).optional().describe("Assets to list (default 20)"),
+  });
+
+  async execute(
+    input: { limit?: number },
+    context: McpToolContext,
+  ): Promise<ReportAssetsDoorResult> {
+    const actingLogin = context.actingLogin?.();
+    const result = await listReportAssetsViaDoor(context.env, actingLogin, input.limit);
+    context.audit("list_report_assets", "mcp", {
+      actingLogin: actingLogin ?? null,
+      count: result.assets.length,
+    });
+    return result;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* get_report_asset (#2349)                                            */
+/* ------------------------------------------------------------------ */
+
+export class GetReportAssetCommand implements IMcpToolCommand<{ key: string }> {
+  readonly name = "get_report_asset";
+  readonly description =
+    "Fetch one of the acting user's report assets by its storage key through their own ReportAssetAgent instance. Returns the file name, byte length, and the asset bytes base64-encoded (the shape the report-asset A2A door uses). An unknown key is an error, not an empty result. Read-only. Requires the chat turn's acting identity.";
+  readonly jsonSchema = {
+    type: "object" as const,
+    properties: {
+      key: { type: "string", description: "The asset's storage key (from list_report_assets)." },
+    },
+    required: ["key"],
+  };
+  readonly zodSchema = z.object({
+    key: z.string().min(1).describe("The asset's storage key"),
+  });
+
+  async execute(
+    input: { key: string },
+    context: McpToolContext,
+  ): Promise<ReportAssetDoorResult> {
+    const actingLogin = context.actingLogin?.();
+    const result = await getReportAssetViaDoor(context.env, actingLogin, input.key);
+    context.audit("get_report_asset", "mcp", {
+      actingLogin: actingLogin ?? null,
+      key: input.key,
+      fileName: result.fileName,
+      byteLength: result.byteLength,
     });
     return result;
   }

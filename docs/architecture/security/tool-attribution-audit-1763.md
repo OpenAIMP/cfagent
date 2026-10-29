@@ -11,7 +11,7 @@ and `tests/a2a_entrypoint_auth_1763.test.ts`).
 ## Method and scope
 
 - Inventory source: `src/permissions/mcpPermissionPorts.ts`
-  `MCP_TOOL_SCOPES` (65 tools: 56 canonical + 9 deprecated #1906
+  `MCP_TOOL_SCOPES` (72 tools: 63 canonical + 9 deprecated #1906
   aliases, completeness-pinned against the live
   factory registry in both directions by #1843's tests) plus the
   scanner surface (`src/services/cloudflareWalletsScanner.ts`) and
@@ -58,7 +58,7 @@ and `tests/a2a_entrypoint_auth_1763.test.ts`).
    authenticated the request is the identity, not the tool call
    itself. See gap G-AUD-3.
 
-## The 65 factory tools — verdict per tool
+## The 72 factory tools — verdict per tool
 
 Verdict key: **L** = login-attributable via door 1 (session /
 API-key); **I** = instance-attributable only via door 2 (gap
@@ -68,7 +68,7 @@ the verdict of the door used; the table lists the strongest
 attribution available (door 1) and the gaps that apply on the
 other doors. Scope column is #1843's declaration, consumed here.
 
-### mcp:read (33)
+### mcp:read (38)
 
 | Tool | Scope | /mcp verdict |
 |---|---|---|
@@ -105,6 +105,11 @@ other doors. Scope column is #1843's declaration, consumed here.
 | `agentdb.audit.history` | mcp:read | L (I / R on other doors) |
 | `agentdb.reports.list` | mcp:read | L (I / R on other doors) |
 | `list_scheduled_goals` | mcp:read | L via door 2 only — acting identity required (#2341); refused on doors 1/3 (no acting-identity carrier there) |
+| `get_trading_accounts` | mcp:read | L via door 2 only — acting identity required (#2349); refused on doors 1/3 (no acting-identity carrier there) |
+| `get_trading_positions` | mcp:read | L via door 2 only — acting identity required (#2349); refused on doors 1/3 (no acting-identity carrier there) |
+| `get_trading_quote` | mcp:read | L via door 2 only — acting identity required (#2349); refused on doors 1/3 (no acting-identity carrier there) |
+| `list_report_assets` | mcp:read | L via door 2 only — acting identity required (#2349); refused on doors 1/3 (no acting-identity carrier there) |
+| `get_report_asset` | mcp:read | L via door 2 only — acting identity required (#2349); refused on doors 1/3 (no acting-identity carrier there) |
 
 ### mcp:write (7)
 
@@ -144,7 +149,7 @@ other doors. Scope column is #1843's declaration, consumed here.
 | `check_payment_budget` | mcp:payments | L via door 2 only — acting identity required (#2341); refused on doors 1/3 (no acting-identity carrier there) |
 | `get_payments_overview` | mcp:payments | L via door 2 only — acting identity required (#2341); refused on doors 1/3 (no acting-identity carrier there) |
 
-### mcp:trade (5)
+### mcp:trade (7)
 
 | Tool | Scope | /mcp verdict |
 |---|---|---|
@@ -153,6 +158,8 @@ other doors. Scope column is #1843's declaration, consumed here.
 | `alpaca_place_order` | mcp:trade | L (I / R on other doors) |
 | `foss_alpaca_place_order` (deprecated #1906 alias of `alpaca_place_order`, same scope) | mcp:trade | L (I / R on other doors) |
 | `execute_durable_twap` | mcp:trade | L (I / R on other doors) |
+| `propose_stock_trade` | mcp:trade | L via door 2 only — acting identity required (#2349); refused on doors 1/3 (no acting-identity carrier there). Preview only: the result is a pending-approval proposal; no order is placed |
+| `propose_options_trade` | mcp:trade | L via door 2 only — acting identity required (#2349); refused on doors 1/3 (no acting-identity carrier there). Preview only: the result is a pending-approval proposal; no order is placed |
 
 ### mcp:admin (4)
 

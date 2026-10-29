@@ -47,6 +47,18 @@ export interface AssetResult {
 }
 
 /**
+ * One stored asset's metadata, as listed by listAssets (#2349):
+ * the storage key plus the fileName/storedAt pair every asset
+ * record carries (reportBlobStore's ReportPdfMeta). Metadata only —
+ * asset bytes never ride a listing.
+ */
+export interface ReportAssetMeta {
+  key: string;
+  fileName: string;
+  storedAt: string;
+}
+
+/**
  * Issue #1958 (think-fleet, tracker #1951, shape (a)): this class
  * extends PortThink instead of Agent. It has no chat turn and no port
  * hooks of its own — nothing here drives a turn, so there is no hook
@@ -91,6 +103,30 @@ export class ReportAssetAgent extends PortThink {
       console.warn(`[ReportAssetAgent] generateAsset(${request.type}) failed:`, err);
       return null;
     }
+  }
+
+  /**
+   * List this instance's stored assets, newest first (#2349, mesh
+   * G1 batch B: the chat door's list half). Every asset this
+   * instance generated wrote a metadata record under its storage
+   * key (reportBlobStore's ReportPdfMeta: fileName + storedAt,
+   * with the bytes in R2 or as a legacy base64 field); a record is
+   * an asset exactly when it carries that pair, so non-asset
+   * records sharing the storage are skipped. Metadata only — the
+   * listing never loads or returns asset bytes.
+   */
+  async listAssets(limit = 50): Promise<ReportAssetMeta[]> {
+    const listed = await this.ctx.storage.list();
+    const assets: ReportAssetMeta[] = [];
+    for (const [key, value] of listed) {
+      const meta = value as { fileName?: unknown; storedAt?: unknown } | null;
+      if (meta && typeof meta.fileName === "string" && typeof meta.storedAt === "string") {
+        assets.push({ key, fileName: meta.fileName, storedAt: meta.storedAt });
+      }
+    }
+    assets.sort((a, b) => b.storedAt.localeCompare(a.storedAt));
+    const cap = Math.max(1, Math.min(Math.trunc(limit) || 50, 200));
+    return assets.slice(0, cap);
   }
 
   /**

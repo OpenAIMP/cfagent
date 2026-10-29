@@ -135,7 +135,7 @@ export interface ToolPermissionPort {
  * fails loudly instead of executing unscoped.
  */
 export const MCP_TOOL_SCOPES: Record<string, McpScope> = {
-  // read (33)
+  // read (38)
   knowledge_search: "mcp:read",
   query_platform_knowledge: "mcp:read",
   get_async_job: "mcp:read",
@@ -173,6 +173,14 @@ export const MCP_TOOL_SCOPES: Record<string, McpScope> = {
   "agentdb.reports.list": "mcp:read",
   // #2341 (mesh S5): the ScheduledAgent door's read — a pure list/inspect.
   list_scheduled_goals: "mcp:read",
+  // #2349 (mesh S6): the TradingAgent door's reads (accounts,
+  // positions, quote) and the ReportAssetAgent door's list/get —
+  // pure reads of the acting user's own data through their agents.
+  get_trading_accounts: "mcp:read",
+  get_trading_positions: "mcp:read",
+  get_trading_quote: "mcp:read",
+  list_report_assets: "mcp:read",
+  get_report_asset: "mcp:read",
   // write (7)
   manage_categories: "mcp:write",
   manage_referrals: "mcp:write",
@@ -204,12 +212,17 @@ export const MCP_TOOL_SCOPES: Record<string, McpScope> = {
   // ledger data, so both sit in the payments scope, not read).
   check_payment_budget: "mcp:payments",
   get_payments_overview: "mcp:payments",
-  // trade (5)
+  // trade (7)
   etrade_preview_order: "mcp:trade",
   etrade_execute_order: "mcp:trade",
   alpaca_place_order: "mcp:trade",
   foss_alpaca_place_order: "mcp:trade", // #1906 deprecated alias, same scope as canonical
   execute_durable_twap: "mcp:trade",
+  // #2349 (mesh S6): the TradingAgent door's proposal commands —
+  // preview-only (a proposal is a pending-approval preview, never a
+  // placed order), in the trade scope alongside etrade_preview_order.
+  propose_stock_trade: "mcp:trade",
+  propose_options_trade: "mcp:trade",
   // admin (4)
   get_audit_events: "mcp:admin",
   list_database_tables: "mcp:admin",
