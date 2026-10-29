@@ -16,8 +16,8 @@
  *  - migration 0017 owns the families' DDL; the Drizzle schema
  *    maps it (column parity, the audit-policy technique);
  *  - ALL_MIGRATIONS registers version 17 exactly once and the
- *    13/14 gap is preserved as-is (gate G-3 — not this slice's
- *    to fill);
+ *    14 gap is preserved as-is (gate G-3 — 0013 claimed by
+ *    #2306 subscription Stripe ids, #2198, not this slice);
  *  - the port modules import no store client (structural pins);
  *  - recordTraceSafely honours the #1133 discipline: it never
  *    throws, and a failed append returns the stable catalog
@@ -620,11 +620,11 @@ describe("#2288 substrate — composition roots", () => {
 });
 
 describe("#2288 substrate — migration registration + parity + structure", () => {
-  it("migration 0017 is registered exactly once; the 13/14 gap is preserved (gate G-3)", () => {
+  it("migration 0017 is registered exactly once; the 14 gap is preserved (gate G-3)", () => {
     const versions = ALL_MIGRATIONS.map((m) => m.version);
     expect(new Set(versions).size).toBe(versions.length);
     expect(versions).toContain(17);
-    expect(versions).not.toContain(13);
+    expect(versions).toContain(13); // claimed by #2306 (subscription Stripe ids, #2198)
     expect(versions).not.toContain(14);
     expect(MIGRATION_0017_INTELLIGENCE_SUBSTRATE.version).toBe(17);
   });
