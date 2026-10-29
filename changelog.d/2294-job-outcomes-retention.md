@@ -1,0 +1,3 @@
+### Fixed
+
+- **`mas_job_outcomes` is bounded and indexed:** the outcome feed had no retention decision and no `created_at` index, so every list call scanned the whole history — ~2,432 rows per request on the heaviest instance, the largest single contributor to the 2026-10-29 DO rows-read exhaustion (#2280). The nightly retention pass now prunes rows older than 90 days (`MAS_JOB_OUTCOMES_RETENTION_DAYS`) and keeps at most 500 rows per instance; `ensureJobOutcomesTable` creates `idx_mas_job_outcomes_created`. The feed still reads the newest 50, and a disabled window still enforces the 500-row cap.

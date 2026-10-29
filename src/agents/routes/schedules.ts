@@ -42,6 +42,7 @@ import { getStoredTokens, isTokenExpiredEt } from "../../security/etradeOAuth";
 import { isLoginShaped } from "../../security/serviceIdentity";
 import { findDuplicateSchedule } from "../../services/scheduleDedupe";
 import { runStorageRetention } from "../../security/storageRetention";
+import { pruneJobOutcomes } from "../../services/jobOutcomes";
 import {
   buildSchedulePayload,
   SqlDiscoveryRunStore,
@@ -662,7 +663,18 @@ export async function handleSchedulesRoutes(
           eventsRetentionDays: ctx.env.MAS_EVENTS_RETENTION_DAYS,
           memoryRetentionDays: ctx.env.MAS_MEMORY_RETENTION_DAYS,
         });
-        return Response.json({ success: true, ...result });
+        // #2294: the outcome feed had no retention decision at all. Bound it
+        // in the same nightly pass so history cannot grow into the read path.
+        const outcomes = pruneJobOutcomes(ctx.agentCtx.storage.sql, {
+          retentionDays: ctx.env.MAS_JOB_OUTCOMES_RETENTION_DAYS,
+        });
+        return Response.json({
+          success: true,
+          ...result,
+          jobOutcomesPruned: outcomes.deletedByAge + outcomes.deletedByCap,
+          jobOutcomesByAge: outcomes.deletedByAge,
+          jobOutcomesByCap: outcomes.deletedByCap,
+        });
       } catch (err: any) {
         return Response.json({ error: err.message || "Failed to run storage retention" }, { status: 500 });
       }

@@ -58,8 +58,16 @@ export interface JobOutcomeRow {
   createdAt: string;
 }
 
+/** Default age window for outcome rows; older history has no reader. */
+export const JOB_OUTCOMES_RETENTION_DEFAULT_DAYS = 90;
+/** Hard row cap per instance; the feed only reads the newest 50. */
+export const JOB_OUTCOMES_KEEP_ROWS = 500;
+
 export function ensureJobOutcomesTable(sql: SqlStorage): void {
   sql.exec("CREATE TABLE IF NOT EXISTS mas_job_outcomes (id TEXT PRIMARY KEY, kind TEXT, trigger TEXT, status TEXT, scanned INTEGER, matched INTEGER, coded_error TEXT, report_url TEXT, pdf_key TEXT, xlsx_key TEXT, csv_key TEXT, delivery_json TEXT, origin TEXT, created_at TEXT)");
+  // The feed orders by created_at and the prune filters on it; without this
+  // index every list call scans the whole table (see #2280).
+  sql.exec("CREATE INDEX IF NOT EXISTS idx_mas_job_outcomes_created ON mas_job_outcomes(created_at DESC)");
 }
 
 function rowFromRecord(r: Record<string, any>): JobOutcomeRow {
@@ -129,6 +137,74 @@ export function recordJobOutcome(sql: SqlStorage, input: JobOutcomeInput): JobOu
     merged.createdAt
   );
   return merged;
+}
+
+export interface PruneJobOutcomesOptions {
+  /** Age window; <= 0 disables the age prune (the row cap still applies). */
+  retentionDays?: number | string | null;
+  /** Rows kept regardless of age. Defaults to JOB_OUTCOMES_KEEP_ROWS. */
+  keepRows?: number;
+  /** Injectable clock (tests). */
+  now?: () => number;
+}
+
+export interface PruneJobOutcomesResult {
+  deletedByAge: number;
+  deletedByCap: number;
+}
+
+function resolveDays(value: number | string | null | undefined): number {
+  const parsed = typeof value === "number" ? value : Number.parseInt(String(value ?? ""), 10);
+  return Number.isFinite(parsed) ? parsed : JOB_OUTCOMES_RETENTION_DEFAULT_DAYS;
+}
+
+function countOutcomes(sql: SqlStorage): number {
+  const rows = Array.from(
+    sql.exec("SELECT COUNT(*) AS count FROM mas_job_outcomes")
+  ) as Array<{ count: number }>;
+  return Number(rows[0]?.count ?? 0);
+}
+
+/**
+ * Bound the outcome feed. Two independent rules, both reported:
+ *  - age: delete rows older than the window (default 90 days);
+ *  - cap: keep only the newest `keepRows` (default 500) regardless of age.
+ * Readers only ever use the newest 50 plus a point read by id, so older rows
+ * are history nothing reads — and, unindexed, they were the whole table's
+ * scan cost on every list (#2280).
+ */
+export function pruneJobOutcomes(
+  sql: SqlStorage,
+  options: PruneJobOutcomesOptions = {}
+): PruneJobOutcomesResult {
+  ensureJobOutcomesTable(sql);
+  const days = resolveDays(options.retentionDays);
+  const keep = Math.max(1, Math.floor(options.keepRows ?? JOB_OUTCOMES_KEEP_ROWS));
+  let deletedByAge = 0;
+
+  if (days > 0) {
+    const cutoff = new Date((options.now?.() ?? Date.now()) - days * 86_400_000).toISOString();
+    const before = countOutcomes(sql);
+    sql.exec("DELETE FROM mas_job_outcomes WHERE created_at < ?", cutoff);
+    deletedByAge = Math.max(0, before - countOutcomes(sql));
+  }
+
+  const total = countOutcomes(sql);
+  let deletedByCap = 0;
+  if (total > keep) {
+    const ids = Array.from(
+      sql.exec(
+        "SELECT id FROM mas_job_outcomes ORDER BY created_at ASC LIMIT ?",
+        total - keep
+      )
+    ) as Array<{ id: string }>;
+    for (const row of ids) {
+      sql.exec("DELETE FROM mas_job_outcomes WHERE id = ?", row.id);
+      deletedByCap += 1;
+    }
+  }
+
+  return { deletedByAge, deletedByCap };
 }
 
 export function listJobOutcomes(sql: SqlStorage, limit = 50): JobOutcomeRow[] {
