@@ -106,25 +106,17 @@ function aboveLayerCounts(pattern: RegExp): Map<string, number> {
 
 /** [file, sites, owner] — every entry retires only in its owner's slice. */
 const STORAGE_ALLOW_LIST: Array<[string, number, string]> = [
-  ["src/services/scheduledReports.ts", 24, "#2359 step 4d (canonical-report write port)"],
   ["src/agents/research-agent.ts", 21, "#2361 step 4e"],
-  ["src/agents/orchestrator.ts", 17, "#2359 step 4d"],
+  ["src/agents/orchestrator.ts", 4, "remainder: ADR-out ai-chat lift (3) + G-7 mas_settings CREATE (1)"],
   ["src/agents/routes/payments.ts", 8, "#2360 step 4d-2"],
-  ["src/agents/orchestrator/reportDispatch.ts", 7, "#2359 step 4d (confirmations) + G-7 (settings pair)"],
+  ["src/agents/orchestrator/reportDispatch.ts", 3, "#2390 step 4g (mas_settings read/write doors)"],
   ["src/services/learnings.ts", 7, "R-1 gated — NOT step 4c (two-host question open)"],
-  ["src/agents/routes/screenerPresets.ts", 4, "#2359 step 4d"],
   ["src/services/screeningFlags.ts", 4, "G-7 (mas_settings)"],
-  ["src/agents/orchestrator/autopilot.ts", 3, "#2359 step 4d"],
-  ["src/agents/routes/reports.ts", 3, "#2359 step 4d"],
   ["src/security/sessionStore.ts", 2, "step 5 (SessionStore / kv_store)"],
   ["src/services/masRetentionIndexes.ts", 2, "#2362 step 4f"],
   ["src/actors/cfAgentsAdapter.ts", 1, "permanent — Agents-SDK shim (ADR-out)"],
-  ["src/agents/orchestrator/chatTurnHelpers.ts", 1, "#2359 step 4d"],
-  ["src/agents/routes/autopilot.ts", 1, "#2359 step 4d"],
   ["src/agents/screener-agent.ts", 1, "#2361 step 4e"],
   ["src/services/frameworkQueueIndexes.ts", 1, "#2362 step 4f"],
-  ["src/services/reportSemanticIndex.ts", 1, "#2359 step 4d"],
-  ["src/services/screenerPresetResolution.ts", 1, "#2359 step 4d"],
 ];
 
 /** The step-4c families: zero above-layer sites remain. */
@@ -211,6 +203,34 @@ const STEP4A_DATA_LAYER_FILES: Array<[string, number]> = [
   ["src/data/createAsyncJobPorts.ts", 0],
 ];
 
+/** The step-4d families: zero above-layer sites remain. */
+const STEP4D_SERVICE_FILES = [
+  "src/services/scheduledReports.ts",
+  "src/agents/orchestrator/autopilot.ts",
+  "src/agents/routes/screenerPresets.ts",
+  "src/agents/routes/reports.ts",
+  "src/agents/routes/autopilot.ts",
+  "src/agents/orchestrator/chatTurnHelpers.ts",
+  "src/services/reportSemanticIndex.ts",
+  "src/services/screenerPresetResolution.ts",
+] as const;
+
+/** The step-4d statements live in the data layer, exactly. */
+const STEP4D_DATA_LAYER_FILES: Array<[string, number]> = [
+  ["src/data/doSqliteAutopilotStateAdapter.ts", 3],
+  ["src/data/doSqlitePolicyVerdictAdapter.ts", 4],
+  ["src/data/doSqliteReportConfirmationAdapter.ts", 9],
+  ["src/data/doSqliteScreenerPresetAdapter.ts", 6],
+  ["src/data/doSqliteCanonicalReportStoreAdapter.ts", 19],
+  ["src/data/doSqliteUsageEventAdapter.ts", 4],
+  ["src/data/orchestratorTablePorts.ts", 0],
+  ["src/data/canonicalReportStorePorts.ts", 0],
+  ["src/data/createOrchestratorTablePorts.ts", 0],
+  ["src/data/createCanonicalReportStorePorts.ts", 0],
+  ["src/data/inMemoryOrchestratorTableAdapters.ts", 0],
+  ["src/data/inMemoryCanonicalReportStoreAdapters.ts", 0],
+];
+
 describe("global D-D census: surface 1 — storage-shaped sites above the layer", () => {
   it("the above-layer population is exactly the shrink-only allow-list", () => {
     const actual = aboveLayerCounts(STORAGE_EXEC_PATTERN);
@@ -222,8 +242,12 @@ describe("global D-D census: surface 1 — storage-shaped sites above the layer"
     // → 192; step 4b (#2357) retires the strategy cluster's 48
     // → 144; step 4a (#2358) retires the async-job family's 33
     // plus 2 of orchestrator.ts's sites (the mas_async_jobs DDL
-    // third; its remaining 17 are #2359's) → 109.
-    expect(total).toBe(109);
+    // third; its remaining 17 are #2359's) → 109; step 4d
+    // (#2359) retires 55 more (scheduledReports 24,
+    // orchestrator 13 of 17, reportDispatch 4 of 7, presets 4,
+    // autopilot 3+1, reports 3, chatTurnHelpers 1,
+    // reportSemanticIndex 1, screenerPresetResolution 1) → 54.
+    expect(total).toBe(54);
   });
 
   for (const file of STEP4C_SERVICE_FILES) {
@@ -257,6 +281,18 @@ describe("global D-D census: surface 1 — storage-shaped sites above the layer"
   }
 
   for (const [file, sites] of STEP4A_DATA_LAYER_FILES) {
+    it(`${file} holds exactly ${sites} storage-exec sites`, () => {
+      expect(countIn(STORAGE_EXEC_PATTERN, file)).toBe(sites);
+    });
+  }
+
+  for (const file of STEP4D_SERVICE_FILES) {
+    it(`${file} holds zero storage-exec sites (serves through its port)`, () => {
+      expect(countIn(STORAGE_EXEC_PATTERN, file)).toBe(0);
+    });
+  }
+
+  for (const [file, sites] of STEP4D_DATA_LAYER_FILES) {
     it(`${file} holds exactly ${sites} storage-exec sites`, () => {
       expect(countIn(STORAGE_EXEC_PATTERN, file)).toBe(sites);
     });
@@ -305,7 +341,7 @@ describe("global D-D census: surface 3 — prepare() outside the data layer", ()
 });
 
 // ---------------------------------------------------------------------------
-// By-table writer sets for ported tables (steps 1–3 + step 4c + step 4b + step 4a)
+// By-table writer sets for ported tables (steps 1–3 + step 4c + step 4b + step 4a + step 4d)
 // ---------------------------------------------------------------------------
 
 const PORTED_TABLES = [
@@ -331,6 +367,9 @@ const PORTED_TABLES = [
   "mas_strategy_gates", "mas_strategy_bank_proposals", "mas_adaptation_audit",
   // step 4a (#2358)
   "mas_async_jobs",
+  // step 4d (#2359)
+  "mas_autopilot", "mas_policy_verdicts", "mas_report_confirmations",
+  "mas_screener_presets", "usage_events",
 ] as const;
 
 /**
@@ -357,7 +396,6 @@ const PORTED_TABLE_WRITERS: Record<string, { layer: string[]; bypass?: Record<st
   mas_messages: {
     layer: ["src/data/doSqliteOrmAdapters.ts", "src/data/ormSchema.ts"],
     bypass: {
-      "src/agents/orchestrator.ts": "#2359 step 4d (recordMessage bypass, audit R-3)",
       "src/services/masRetentionIndexes.ts": "#2362 step 4f (index helper into the layer)",
     },
   },
@@ -373,7 +411,6 @@ const PORTED_TABLE_WRITERS: Record<string, { layer: string[]; bypass?: Record<st
     layer: ["src/data/doSqliteOrmAdapters.ts", "src/data/ormSchema.ts"],
     bypass: {
       "src/agents/routes/payments.ts": "#2360 step 4d-2 (audit R-2)",
-      "src/agents/orchestrator.ts": "#2359 step 4d (seed DELETEs)",
     },
   },
   mas_trades: { layer: ["src/data/ormFacade.ts"] },
@@ -381,19 +418,11 @@ const PORTED_TABLE_WRITERS: Record<string, { layer: string[]; bypass?: Record<st
   mas_external_ads: { layer: ["src/data/ormFacade.ts"] },
   mas_ads: {
     layer: ["src/data/doSqliteMarketplaceAdapter.ts", "src/data/ormSchema.ts"],
-    bypass: {
-      "src/agents/orchestrator.ts": "#2359 step 4d (seed INSERT)",
-    },
   },
   mas_referrals: { layer: ["src/data/ormSchema.ts"] },
   webhook_replay_nonces: { layer: ["src/data/ormFacade.ts"] },
   mas_options_chain_cache: { layer: ["src/data/ormFacade.ts"] },
-  mas_reports: {
-    layer: [],
-    bypass: {
-      "src/services/scheduledReports.ts": "#2359 step 4d (canonical-report WRITE port — 3c ported the read/outcome side only)",
-    },
-  },
+  mas_reports: { layer: ["src/data/doSqliteCanonicalReportStoreAdapter.ts"] },
   mas_goals: { layer: ["src/data/doSqliteGoalScenarioAdapter.ts"] },
   mas_scenarios: { layer: ["src/data/doSqliteGoalScenarioAdapter.ts"] },
   mas_outcomes: { layer: ["src/data/doSqliteGoalScenarioAdapter.ts"] },
@@ -416,6 +445,11 @@ const PORTED_TABLE_WRITERS: Record<string, { layer: string[]; bypass?: Record<st
   mas_strategy_bank_proposals: { layer: ["src/data/doSqliteReselectionAdapter.ts"] },
   mas_adaptation_audit: { layer: ["src/data/doSqliteAdaptationAuditAdapter.ts"] },
   mas_async_jobs: { layer: ["src/data/doSqliteAsyncJobAdapter.ts"] },
+  mas_autopilot: { layer: ["src/data/doSqliteAutopilotStateAdapter.ts"] },
+  mas_policy_verdicts: { layer: ["src/data/doSqlitePolicyVerdictAdapter.ts"] },
+  mas_report_confirmations: { layer: ["src/data/doSqliteReportConfirmationAdapter.ts"] },
+  mas_screener_presets: { layer: ["src/data/doSqliteScreenerPresetAdapter.ts"] },
+  usage_events: { layer: ["src/data/doSqliteUsageEventAdapter.ts"] },
 };
 
 const WRITE_VERB =
