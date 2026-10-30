@@ -27,7 +27,7 @@ export interface SessionLimits {
   minIdleTimeoutMs: number;
   /** Step-up freshness window for sensitive actions (15 minutes). */
   stepUpFreshnessMs: number;
-  /** Minimum gap between activity touches (60 seconds). */
+  /** Minimum gap between activity touches (300 seconds). */
   touchIntervalMs: number;
   /** In-isolate session cache: positive hit TTL (60 seconds). */
   cachePositiveTtlMs: number;
