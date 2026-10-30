@@ -32,12 +32,35 @@
  * until a reviewed change wires a consumer; promotion of a v2
  * change into live state is the champion/challenger gate's job
  * (championChallenger.ts), not this module's.
+ *
+ * Issue #2357 (#1976 step 4b, ADR 0022 D-I step 4): the versioned
+ * store sits behind the strategy weights port (src/data/
+ * strategyWeightsPorts.ts; DO adapter in
+ * doSqliteStrategyWeightsAdapter.ts, composed by
+ * createStrategyClusterPorts.ts). The pure policy (bounds,
+ * proposals, decay, after-cost scoring) and the application
+ * paths stay here, unchanged; their row operations run through
+ * the port.
  */
 
 import { applyAdaptation, isAdaptationHalted } from "./adaptationAudit";
-import type { RegimeAssessment } from "./researchPipeline";
+import { DoSqliteStrategyWeightsStore } from "../data/doSqliteStrategyWeightsAdapter";
+import { weightsV2Key } from "../data/strategyWeightsPorts";
+import type {
+  StrategyWeightsSqlExecutor,
+  StrategyWeightsStore,
+  WeightVersionRecord,
+  WeightsV2Regime,
+} from "../data/strategyWeightsPorts";
 import type { CostAssumptions } from "./researchEconomics";
 import type { TrackRecord } from "./researchTrackRecord";
+
+export { weightsV2Key };
+export type { WeightVersionRecord, WeightsV2Regime };
+
+function weightsStore(sql: StrategyWeightsSqlExecutor): StrategyWeightsStore {
+  return new DoSqliteStrategyWeightsStore(sql);
+}
 
 /* ------------------------------------------------------------------ */
 /* Moved from v1 strategyWeights.ts (#1257 retirement)                 */
@@ -61,8 +84,6 @@ export const STRATEGY_WEIGHT_BOUNDS = {
 
 export const WEIGHTS_LAST_RUN_WEEK_KEY = "adaptation.weights.lastRunWeek";
 export const WEIGHT_ADAPTATION_ACTOR = "strategy-weight-job";
-
-export type WeightsV2Regime = RegimeAssessment["regime"];
 
 export const WEIGHTS_V2_DEFAULTS = {
   min: STRATEGY_WEIGHT_BOUNDS.min,
@@ -174,10 +195,6 @@ export function buildWeightPolicyEvaluation(
       .filter((s) => s.evaluated < STRATEGY_WEIGHT_BOUNDS.minSample)
       .map((s) => s.key),
   };
-}
-
-export function weightsV2Key(strategy: string, regime: string): string {
-  return `${strategy}|${regime}`;
 }
 
 /** Weight decay toward the default as evidence ages (pure). */
@@ -451,99 +468,22 @@ export function proposeWeightAdjustmentsV2(
 /* ------------------------------------------------------------------ */
 
 export function ensureWeightsV2Tables(sql: any): void {
-  sql.exec(
-    `CREATE TABLE IF NOT EXISTS mas_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)`
-  );
-  sql.exec(`CREATE TABLE IF NOT EXISTS mas_strategy_weights_v2 (
-    strategy TEXT NOT NULL,
-    regime TEXT NOT NULL,
-    weight REAL NOT NULL,
-    version INTEGER NOT NULL,
-    updated_at TEXT NOT NULL,
-    PRIMARY KEY (strategy, regime)
-  )`);
-  sql.exec(`CREATE TABLE IF NOT EXISTS mas_strategy_weight_versions (
-    id TEXT PRIMARY KEY,
-    version INTEGER NOT NULL,
-    strategy TEXT NOT NULL,
-    regime TEXT NOT NULL,
-    before_weight REAL,
-    after_weight REAL NOT NULL,
-    signal REAL,
-    evaluated INTEGER NOT NULL DEFAULT 0,
-    win_rate_after_cost REAL,
-    avg_r_after_cost REAL,
-    actor TEXT NOT NULL,
-    rationale TEXT NOT NULL,
-    created_at TEXT NOT NULL
-  )`);
-}
-
-export interface WeightVersionRecord {
-  version: number;
-  strategy: string;
-  regime: string;
-  /** Null when no weight row existed before this change (#760 semantics). */
-  before: number | null;
-  after: number;
-  signal: number | null;
-  evaluated: number;
-  winRateAfterCost: number | null;
-  avgRAfterCost: number | null;
-  actor: string;
-  rationale: string;
-  createdAt: string;
+  weightsStore(sql).ensureTables();
 }
 
 export function currentWeightsVersion(sql: any): number {
-  ensureWeightsV2Tables(sql);
-  const rows = Array.from(
-    sql.exec(`SELECT version FROM mas_strategy_weight_versions`)
-  ) as any[];
-  return rows.reduce((m, r) => Math.max(m, Number(r.version) || 0), 0);
+  return weightsStore(sql).currentVersion();
 }
 
 export function listWeightVersionRecords(
   sql: any,
   limit = 200
 ): WeightVersionRecord[] {
-  ensureWeightsV2Tables(sql);
-  const rows = Array.from(
-    sql.exec(
-      `SELECT * FROM mas_strategy_weight_versions ORDER BY version ASC LIMIT ?`,
-      limit
-    )
-  ) as any[];
-  return rows.map((r) => ({
-    version: Number(r.version),
-    strategy: String(r.strategy),
-    regime: String(r.regime),
-    before: r.before_weight === null || r.before_weight === undefined ? null : Number(r.before_weight),
-    after: Number(r.after_weight),
-    signal: r.signal === null || r.signal === undefined ? null : Number(r.signal),
-    evaluated: Number(r.evaluated) || 0,
-    winRateAfterCost:
-      r.win_rate_after_cost === null || r.win_rate_after_cost === undefined
-        ? null
-        : Number(r.win_rate_after_cost),
-    avgRAfterCost:
-      r.avg_r_after_cost === null || r.avg_r_after_cost === undefined
-        ? null
-        : Number(r.avg_r_after_cost),
-    actor: String(r.actor),
-    rationale: String(r.rationale),
-    createdAt: String(r.created_at),
-  }));
+  return weightsStore(sql).listVersionRecords(limit);
 }
 
 export function getStrategyWeightsV2(sql: any): Record<string, number> {
-  ensureWeightsV2Tables(sql);
-  const rows = Array.from(
-    sql.exec(`SELECT strategy, regime, weight FROM mas_strategy_weights_v2`)
-  ) as any[];
-  const out: Record<string, number> = {};
-  for (const r of rows) out[weightsV2Key(String(r.strategy), String(r.regime))] = Number(r.weight);
-  return out;
+  return weightsStore(sql).getWeights();
 }
 
 /**
@@ -553,13 +493,7 @@ export function getStrategyWeightsV2(sql: any): Record<string, number> {
  * regime alone — no other regime's value may leak into the read.
  */
 export function getStrategyWeightsV2ForRegime(sql: any, regime: string): Record<string, number> {
-  ensureWeightsV2Tables(sql);
-  const rows = Array.from(
-    sql.exec(`SELECT strategy, weight FROM mas_strategy_weights_v2 WHERE regime = ?`, regime)
-  ) as any[];
-  const out: Record<string, number> = {};
-  for (const r of rows) out[String(r.strategy)] = Number(r.weight);
-  return out;
+  return weightsStore(sql).getWeightsForRegime(regime);
 }
 
 /**
@@ -572,94 +506,7 @@ export function getStrategyWeightsV2ForRegime(sql: any, regime: string): Record<
  * picked regime's value.
  */
 export function getStrategyWeightsV2Collapsed(sql: any): Record<string, number> {
-  ensureWeightsV2Tables(sql);
-  const rows = Array.from(
-    sql.exec(`SELECT strategy, weight FROM mas_strategy_weights_v2`)
-  ) as any[];
-  const sums = new Map<string, { total: number; count: number }>();
-  for (const r of rows) {
-    const key = String(r.strategy);
-    const acc = sums.get(key) ?? { total: 0, count: 0 };
-    acc.total += Number(r.weight);
-    acc.count += 1;
-    sums.set(key, acc);
-  }
-  const out: Record<string, number> = {};
-  for (const [key, acc] of sums) out[key] = acc.total / acc.count;
-  return out;
-}
-
-function weightRowExists(sql: any, strategy: string, regime: string): boolean {
-  const rows = Array.from(
-    sql.exec(
-      `SELECT weight FROM mas_strategy_weights_v2 WHERE strategy = ? AND regime = ?`,
-      strategy,
-      regime
-    )
-  ) as any[];
-  return rows.length > 0;
-}
-
-function writeWeightRow(
-  sql: any,
-  strategy: string,
-  regime: string,
-  weight: number | null,
-  version: number,
-  now: Date
-): void {
-  // DELETE+INSERT idiom (MockSqlStorage parity, as in strategyWeights).
-  sql.exec(
-    `DELETE FROM mas_strategy_weights_v2 WHERE strategy = ? AND regime = ?`,
-    strategy,
-    regime
-  );
-  if (weight !== null) {
-    sql.exec(
-      `INSERT INTO mas_strategy_weights_v2 (strategy, regime, weight, version, updated_at) VALUES (?, ?, ?, ?, ?)`,
-      strategy,
-      regime,
-      weight,
-      version,
-      now.toISOString()
-    );
-  }
-}
-
-function writeVersionRecord(
-  sql: any,
-  rec: {
-    version: number;
-    strategy: string;
-    regime: string;
-    before: number | null;
-    after: number;
-    signal: number | null;
-    evaluated: number;
-    winRateAfterCost: number | null;
-    avgRAfterCost: number | null;
-    actor: string;
-    rationale: string;
-  },
-  now: Date
-): void {
-  sql.exec(
-    `INSERT INTO mas_strategy_weight_versions (id, version, strategy, regime, before_weight, after_weight, signal, evaluated, win_rate_after_cost, avg_r_after_cost, actor, rationale, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    `wv-${rec.version}-${rec.strategy}-${rec.regime}`,
-    rec.version,
-    rec.strategy,
-    rec.regime,
-    rec.before,
-    rec.after,
-    rec.signal,
-    rec.evaluated,
-    rec.winRateAfterCost,
-    rec.avgRAfterCost,
-    rec.actor,
-    rec.rationale,
-    now.toISOString()
-  );
+  return weightsStore(sql).getWeightsCollapsed();
 }
 
 /* ------------------------------------------------------------------ */
@@ -702,11 +549,12 @@ export function applyWeightsV2Targets(
 ): { halted?: boolean; applied: WeightsV2AdjustmentResult["adjusted"] } {
   ensureWeightsV2Tables(sql);
   if (isAdaptationHalted(sql)) return { halted: true, applied: [] };
+  const store = weightsStore(sql);
   const applied: WeightsV2AdjustmentResult["adjusted"] = [];
   for (const t of targets) {
-    const existed = weightRowExists(sql, t.strategy, t.regime);
+    const existed = store.weightRowExists(t.strategy, t.regime);
     const before = existed
-      ? (getStrategyWeightsV2(sql)[weightsV2Key(t.strategy, t.regime)] ?? null)
+      ? (store.getWeights()[weightsV2Key(t.strategy, t.regime)] ?? null)
       : null;
     const effectiveAfter = t.weight ?? WEIGHTS_V2_DEFAULTS.defaultWeight;
     const out = applyAdaptation(
@@ -722,10 +570,9 @@ export function applyWeightsV2Targets(
         dataWindow: `weights v2 as of ${opts.now.toISOString().slice(0, 10)}`,
       },
       () => {
-        const version = currentWeightsVersion(sql) + 1;
-        writeWeightRow(sql, t.strategy, t.regime, t.weight, version, opts.now);
-        writeVersionRecord(
-          sql,
+        const version = store.currentVersion() + 1;
+        store.writeWeightRow(t.strategy, t.regime, t.weight, version, opts.now);
+        store.writeVersionRecord(
           {
             version,
             strategy: t.strategy,
@@ -785,14 +632,15 @@ export function runWeightsV2Adjustment(
   if (isAdaptationHalted(sql)) return { ...base, halted: true };
 
   const actor = opts.actor ?? WEIGHTS_V2_ACTOR;
-  const weights = getStrategyWeightsV2(sql);
+  const store = weightsStore(sql);
+  const weights = store.getWeights();
   const proposals = proposeWeightAdjustmentsV2(slices, weights, {
     now: opts.now,
     caps: opts.caps,
     halfLifeDays: opts.halfLifeDays,
   });
   for (const p of proposals) {
-    const existed = weightRowExists(sql, p.strategy, p.regime);
+    const existed = store.weightRowExists(p.strategy, p.regime);
     const before = existed ? p.current : null;
     const out = applyAdaptation(
       sql,
@@ -812,10 +660,9 @@ export function runWeightsV2Adjustment(
         dataWindow: `evidence through ${p.latestEvaluatedAt ?? "unknown"}`,
       },
       () => {
-        const version = currentWeightsVersion(sql) + 1;
-        writeWeightRow(sql, p.strategy, p.regime, p.proposed, version, opts.now);
-        writeVersionRecord(
-          sql,
+        const version = store.currentVersion() + 1;
+        store.writeWeightRow(p.strategy, p.regime, p.proposed, version, opts.now);
+        store.writeVersionRecord(
           {
             version,
             strategy: p.strategy,
