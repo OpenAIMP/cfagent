@@ -364,7 +364,7 @@ describe("discovery direct delivery helper (#1236)", () => {
     expect(results[2].ok).toBe(true);
   });
 
-  it("blocks email on allowlist violation (DELIVER_001) without calling the port, other channels still send", async () => {
+  it("blocks email on allowlist violation (FAILURE_DELIVERY_RECIPIENT_NOT_ALLOWED) without calling the port, other channels still send", async () => {
     const port = fakePort();
     const config = resolveScreenerFollowupConfig({ SCREENER_EMAIL_ALLOWLIST: "owner@example.com" });
     const results = await deliverDiscoveryDirect({
@@ -378,7 +378,7 @@ describe("discovery direct delivery helper (#1236)", () => {
       .toEqual(["slack", "webhook"]);
     const emailResult = results.find((r) => r.channel === "email")!;
     expect(emailResult.ok).toBe(false);
-    expect(emailResult.error).toContain("DELIVER_001");
+    expect(emailResult.error).toContain("FAILURE_DELIVERY_RECIPIENT_NOT_ALLOWED");
   });
 
   it("sends nothing and returns [] when the task names no channels", async () => {

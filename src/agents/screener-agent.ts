@@ -18,7 +18,7 @@
  */
 
 import { PortThink } from "../actors/thinkAdapter";
-import { codedMessage } from "../errors/errorAspects";
+import { codedMessage } from "../outcomes/outcomeAspects";
 import {
   dispatchScreenerA2A,
   screenerA2AOutcome,
@@ -1684,7 +1684,7 @@ export class ScreenerAgent extends PortThink {
       outcome.xlsxKey = key;
       outcome.xlsxStatus = "generated";
     } catch (err) {
-      outcome.xlsxError = codedMessage("REPORT_002", err instanceof Error ? err.message : String(err));
+      outcome.xlsxError = codedMessage("FAILURE_REPORT_XLSX_GENERATION", err instanceof Error ? err.message : String(err));
       console.error("[ScreenerAgent] Strategy XLSX generation failed:", outcome.xlsxError);
     }
 
@@ -1707,7 +1707,7 @@ export class ScreenerAgent extends PortThink {
       outcome.csvKey = key;
       outcome.csvStatus = "generated";
     } catch (err) {
-      outcome.csvError = codedMessage("REPORT_004", err instanceof Error ? err.message : String(err));
+      outcome.csvError = codedMessage("FAILURE_REPORT_CSV_GENERATION", err instanceof Error ? err.message : String(err));
       console.error("[ScreenerAgent] Strategy CSV generation failed:", outcome.csvError);
     }
 
@@ -1741,7 +1741,7 @@ export class ScreenerAgent extends PortThink {
       }, reportRetry, { label: "screener-xlsx" });
     } catch (xlsxErr) {
       result.xlsxStatus = "failed";
-      result.xlsxError = codedMessage("REPORT_002", xlsxErr instanceof Error ? xlsxErr.message : String(xlsxErr));
+      result.xlsxError = codedMessage("FAILURE_REPORT_XLSX_GENERATION", xlsxErr instanceof Error ? xlsxErr.message : String(xlsxErr));
       console.error("[ScreenerAgent] XLSX generation failed:", result.xlsxError);
     }
 
@@ -1791,7 +1791,7 @@ export class ScreenerAgent extends PortThink {
       }, reportRetry, { label: "screener-csv" });
     } catch (csvErr) {
       result.csvStatus = "failed";
-      result.csvError = codedMessage("REPORT_004", csvErr instanceof Error ? csvErr.message : String(csvErr));
+      result.csvError = codedMessage("FAILURE_REPORT_CSV_GENERATION", csvErr instanceof Error ? csvErr.message : String(csvErr));
       console.error("[ScreenerAgent] CSV generation failed:", result.csvError);
     }
   }
@@ -1872,10 +1872,10 @@ export class ScreenerAgent extends PortThink {
   }> {
     const latest = await this.ctx.storage.get<ScreenerRunResult>(LATEST_KEY);
     if (!latest) {
-      const { codedMessage } = await import("../errors/errorAspects");
+      const { codedMessage } = await import("../outcomes/outcomeAspects");
       return {
         pdfStatus: "failed",
-        pdfError: codedMessage("REPORT_003", "no stored screener run to regenerate"),
+        pdfError: codedMessage("FAILURE_REPORT_ARTIFACT_MISSING", "no stored screener run to regenerate"),
       };
     }
     await this.generateRunPdf(latest);

@@ -33,7 +33,7 @@ import { validateEmailRecipient } from "../security/webhookReplay";
 import { cfpaySendEmail, getCfpayConfig } from "./cfpayA2A";
 import { deliverScreenerToSlack } from "./screenerSlackDelivery";
 import { ETradeWebhookService } from "./tradingWebhooks";
-import { codedMessage } from "../errors/errorAspects";
+import { codedMessage } from "../outcomes/outcomeAspects";
 import {
   isEmailAllowed,
   type ScreenerFollowupConfig,
@@ -364,7 +364,7 @@ export interface DiscoveryDirectPort {
  * outcome's own fields, in CHANNEL_ORDER (slack, email, webhook);
  * a task naming no channels sends nothing. Email is gated by the
  * screener allowlist exactly as the chain executor gates it: a
- * violation is recorded as DELIVER_001 and email is dropped while
+ * violation is recorded as FAILURE_DELIVERY_RECIPIENT_NOT_ALLOWED and email is dropped while
  * the other channels still send. A port throw for one channel is
  * recorded as that channel's failure. This helper NEVER throws, so
  * a delivery problem can never fail the run.
@@ -386,7 +386,7 @@ export async function deliverDiscoveryDirect(input: {
       results.push({
         channel,
         ok: false,
-        error: codedMessage("DELIVER_001", `recipient ${outcome.emailTo}`),
+        error: codedMessage("FAILURE_DELIVERY_RECIPIENT_NOT_ALLOWED", `recipient ${outcome.emailTo}`),
       });
       continue;
     }

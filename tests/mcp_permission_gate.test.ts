@@ -5,7 +5,7 @@
  * TDD red→green: written before the implementation module existed.
  *
  * Denial contract: a refused call returns a business error
- * ([MCP_001] + business message, never a technical leak), is
+ * ([FAILURE_MCP_PERMISSION_DENIED] + business message, never a technical leak), is
  * audit-logged as mcp.permission_denied, and never reaches the
  * command's execute. Scopes never come from tool-call arguments:
  * a forged `scope` argument is ignored.
@@ -14,7 +14,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { handleMCPRequest } from "../src/mcp";
 import { McpToolFactory } from "../src/mcp/commands";
 import { DatabaseORM } from "../src/orm";
-import { BusinessError } from "../src/errors/errorAspects";
+import { BusinessError } from "../src/outcomes/outcomeAspects";
 import type { ObservabilitySink } from "../src/observability/observabilityPorts";
 import type { Env } from "../src/types";
 import { MockSqlStorage } from "./mock-sql";
@@ -270,7 +270,7 @@ describe("JSON-RPC choke point (#1744)", () => {
         permissionPort: READ_ONLY,
       }
     );
-    expect(resp.error?.message).toContain("[MCP_001]");
+    expect(resp.error?.message).toContain("[FAILURE_MCP_PERMISSION_DENIED]");
     expect(auditLogs.some((l) => l.type === "mcp.permission_denied")).toBe(true);
   });
 
@@ -298,7 +298,7 @@ describe("JSON-RPC choke point (#1744)", () => {
       }
     );
     expect(submitJob).not.toHaveBeenCalled();
-    expect(resp.error?.message).toContain("[MCP_001]");
+    expect(resp.error?.message).toContain("[FAILURE_MCP_PERMISSION_DENIED]");
   });
 
   it("ignores forged scope arguments: scopes resolve from the principal only", async () => {
@@ -321,7 +321,7 @@ describe("JSON-RPC choke point (#1744)", () => {
         permissionPort: READ_ONLY,
       }
     );
-    expect(resp.error?.message).toContain("[MCP_001]");
+    expect(resp.error?.message).toContain("[FAILURE_MCP_PERMISSION_DENIED]");
   });
 });
 

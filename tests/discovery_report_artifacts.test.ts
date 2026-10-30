@@ -308,7 +308,7 @@ describe("discovery report storage (#2180)", () => {
     });
     expect(outcome.xlsxStatus).toBe("failed");
     expect(outcome.xlsxKey).toBeUndefined();
-    expect(outcome.xlsxError).toContain("REPORT_002");
+    expect(outcome.xlsxError).toContain("FAILURE_REPORT_XLSX_GENERATION");
     expect(outcome.pdfKey).toBe("discovery:pdf:disc-1");
     expect(outcome.csvKey).toBe("discovery:csv:disc-1");
   });
@@ -322,8 +322,8 @@ describe("discovery report storage (#2180)", () => {
     });
     expect(outcome.pdfError).toContain("storage");
     expect(outcome.csvError).toContain("storage");
-    expect(outcome.csvError).toContain("REPORT_004");
-    expect(outcome.xlsxError).toContain("REPORT_002");
+    expect(outcome.csvError).toContain("FAILURE_REPORT_CSV_GENERATION");
+    expect(outcome.xlsxError).toContain("FAILURE_REPORT_XLSX_GENERATION");
   });
 
   it("builds a canonical body that carries every key and status", () => {

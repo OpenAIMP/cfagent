@@ -81,7 +81,7 @@ describe("failure email renders from the catalog with the trace block (#2248)", 
       expect(data.operation).toBe("email.send");
       expect(data.to).toBe("ops@example.com");
       expect(data.subject).toBe(
-        "❌ [SCREEN_001] The screen run failed. — Options screen — bullish — E*TRADE session missing",
+        "❌ [FAILURE_SCREEN_RUN_FAILED] The screen run failed. — Options screen — bullish — E*TRADE session missing",
       );
       expect(data.body).toContain("Run: options_scanner:2026-10-29T04:35:02.787Z:bullish");
     } finally {

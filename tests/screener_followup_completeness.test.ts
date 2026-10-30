@@ -444,7 +444,7 @@ describe("delivery port: email carries text + PDF + XLSX", () => {
     await executeAsyncJob(ctx, { jobId: job.jobId });
     const failedJob = getAsyncJob(ctx, job.jobId);
     expect(failedJob?.status).toBe("failed");
-    expect(failedJob?.error).toContain("[DELIVER_002]");
+    expect(failedJob?.error).toContain("[FAILURE_DELIVERY_CHANNEL_FAILED]");
     const deliveredReceipts = sql.rows.filter((r) => {
       if (r.capability !== "followup.notify") return false;
       const p = JSON.parse(String(r.payload_json)) as { event?: string };

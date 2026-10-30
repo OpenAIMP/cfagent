@@ -48,7 +48,7 @@ describe("ReportsPanel PDF-unavailable (#2247)", () => {
                 createdAt: "2026-10-25T10:00:00.000Z",
                 reportUrl: undefined,
                 pdfStatus: "failed",
-                pdfError: "[REPORT_001] The PDF report could not be generated. — boom",
+                pdfError: "[FAILURE_REPORT_PDF_GENERATION] The PDF report could not be generated. — boom",
               },
             ],
           }),
@@ -64,7 +64,7 @@ describe("ReportsPanel PDF-unavailable (#2247)", () => {
     });
     await flush();
     const text = container.textContent || "";
-    expect(text).toContain("REPORT_001");
+    expect(text).toContain("FAILURE_REPORT_PDF_GENERATION");
     expect(container.querySelector("div.report-pdf-unavailable")).not.toBeNull();
     expect(container.querySelector("span.report-pdf-unavailable")).toBeNull();
   });

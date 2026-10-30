@@ -20,7 +20,7 @@ const base: JobOutcomeInput = {
   kind: "options",
   trigger: "scheduled",
   status: "failed",
-  codedError: "[AUTH_003] E*TRADE connection missing",
+  codedError: "[FAILURE_AUTH_NO_SESSION] E*TRADE connection missing",
   origin: "bus",
 };
 
@@ -39,7 +39,7 @@ describe("job outcomes sink (#1333)", () => {
     expect(rows[0].id).toBe("job-1");
     expect(rows[0].kind).toBe("options");
     expect(rows[0].status).toBe("failed");
-    expect(rows[0].codedError).toContain("[AUTH_003]");
+    expect(rows[0].codedError).toContain("[FAILURE_AUTH_NO_SESSION]");
     expect(rows[0].reportUrl).toBe("/api/screening/reports/xyz");
     expect(rows[0].pdfKey).toBe("options/xyz.pdf");
   });

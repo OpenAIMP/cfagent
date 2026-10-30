@@ -725,7 +725,7 @@ describe("enqueueHttpRequest (queued HTTP delivery)", () => {
 describe("J01 system 2: mas_job_outcomes sink", () => {
   const base: JobOutcomeInput = {
     id: "delivery-1", kind: "options", trigger: "scheduled", status: "failed",
-    codedError: "[AUTH_003] E*TRADE connection missing", origin: "bus",
+    codedError: "[FAILURE_AUTH_NO_SESSION] E*TRADE connection missing", origin: "bus",
   };
   it("records and lists an outcome with its own id/kind/trigger/status shape (no async-job fields)", () => {
     const sql = new MockSqlStorage();
