@@ -1,5 +1,7 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { useUrlSyncedTabs } from "../../useUrlSyncedTabs";
+import { usePolling } from "../../usePolling";
+import { getPollingConfig } from "../../pollingConfig";
 import { Button, Table, PageShell, type TableColumn } from "../../components/ui";
 import "./optionsFlows.css";
 import {
@@ -167,14 +169,15 @@ export function OptionsFlowsHub({
       .catch(() => {
         setCongressItems([]);
       });
-
-    // Auto-refresh dynamic options flow stream every 30 seconds
-    const interval = setInterval(() => {
-      fetchLiveFlows(filterConfig);
-    }, 30000);
-
-    return () => clearInterval(interval);
   }, [filterConfig.tickers, filterConfig.minPremium, filterConfig.marketCaps, filterConfig.assetTypes]);
+
+  // Issue #2419: live-stream refresh on the shared treatment —
+  // hidden-pause + externalized cadence (was a hand-rolled 30s
+  // setInterval with no visibility handling). The immediate fetch
+  // on filter change stays in the effect above; the poller always
+  // calls the latest fetchLiveFlows through the hook's ref.
+  const flowsPollMs = getPollingConfig().optionsFlowsPollMs;
+  usePolling(() => fetchLiveFlows(filterConfig), { fastMs: flowsPollMs, idleMs: flowsPollMs });
 
   // Filtered collections
   const filteredLiveItems = useMemo(() => {

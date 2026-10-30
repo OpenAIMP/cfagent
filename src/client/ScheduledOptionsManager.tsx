@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Button, Notice } from "./components/ui";
+import { usePolling } from "./usePolling";
+import { getPollingConfig } from "./pollingConfig";
 import { apiFetch as fetch } from "./apiFetch";
 import { listProfiles } from "./scannerApi";
 import type { StrategyProfile } from "../trading";
@@ -298,9 +300,16 @@ export function ScheduledOptionsManager({
 
   useEffect(() => {
     fetchLatestRuns();
-    const timer = setInterval(fetchLatestRuns, 60_000);
-    return () => clearInterval(timer);
   }, [fetchLatestRuns]);
+
+  // Issue #2419: shared treatment — hidden-pause + externalized
+  // cadence (was a hand-rolled 60s setInterval with no visibility
+  // handling). The immediate fetch above is unchanged. Note the
+  // double-poll residual: AutonomousOptionsRuns polls the same
+  // /api/options/latest endpoint on the same cadence; dedup would
+  // need a shared fetch cache and is deliberately not forced here.
+  const optionsLatestMs = getPollingConfig().optionsLatestPollMs;
+  usePolling(fetchLatestRuns, { fastMs: optionsLatestMs, idleMs: optionsLatestMs });
 
   // Open the modal for a NEW schedule (never an edit session).
   const openCreateModal = () => {

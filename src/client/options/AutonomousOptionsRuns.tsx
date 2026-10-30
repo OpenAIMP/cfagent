@@ -11,6 +11,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Badge, Button, EmptyState } from "../components/ui";
 import { apiFetch as fetch } from "../apiFetch";
+import { usePolling } from "../usePolling";
+import { getPollingConfig } from "../pollingConfig";
 
 interface OptionsRunOpportunity {
   symbol?: string;
@@ -30,8 +32,6 @@ interface OptionsRun {
   error?: string;
 }
 
-const POLL_MS = 60_000;
-
 export function AutonomousOptionsRuns() {
   const [runs, setRuns] = useState<OptionsRun[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -50,9 +50,13 @@ export function AutonomousOptionsRuns() {
 
   useEffect(() => {
     void load();
-    const timer = setInterval(() => void load(), POLL_MS);
-    return () => clearInterval(timer);
   }, [load]);
+
+  // Issue #2419: shared treatment — hidden-pause + externalized
+  // cadence (was a hand-rolled 60s setInterval with no visibility
+  // handling). The immediate load above is unchanged.
+  const optionsLatestMs = getPollingConfig().optionsLatestPollMs;
+  usePolling(load, { fastMs: optionsLatestMs, idleMs: optionsLatestMs });
 
   return (
     <section className="autonomous-runs" aria-label="Autonomous options runs">
