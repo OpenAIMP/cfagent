@@ -196,7 +196,15 @@ describe("payment assurance live routes (issue #2059)", () => {
       },
       get: async () => ({
         sendEvent: async () => {},
-        status: async () => "running",
+        // Provider semantics (the cfWorkflowAdapter existence
+        // proof): status() on an instance that was never
+        // created errors — so the submission seam's
+        // create-or-adopt (#2409) cannot mistake this genuine
+        // create failure for a landed duplicate, and the
+        // original error reaches the route's generic 500.
+        status: async () => {
+          throw new Error("instance not found");
+        },
       }),
     };
     const res = await call(
