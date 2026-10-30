@@ -1,0 +1,182 @@
+{
+  "$schema": "error-catalog-v1",
+  "description": "Externalized error codes. businessMessage goes to UI; technicalDetail goes to logs only.",
+  "errors": {
+    "AUTH_001": {
+      "businessMessage": "Authentication required. Please reconnect your brokerage account.",
+      "category": "auth",
+      "code": "AUTH_001",
+      "httpStatus": 401,
+      "retryable": false,
+      "technicalDetail": "OAuth token missing for user"
+    },
+    "AUTH_002": {
+      "businessMessage": "E*TRADE connection expired. Please reconnect your account in Settings.",
+      "category": "auth",
+      "code": "AUTH_002",
+      "httpStatus": 401,
+      "retryable": false,
+      "technicalDetail": "E*TRADE OAuth access token is missing in PROD mode"
+    },
+    "QUOTE_001": {
+      "businessMessage": "Unable to retrieve live quotes. The screener will use the most recent available data.",
+      "category": "auth",
+      "code": "QUOTE_001",
+      "httpStatus": 401,
+      "retryable": true,
+      "technicalDetail": "E*TRADE OAuth access token missing or expired"
+    },
+    "QUOTE_002": {
+      "businessMessage": "Quote service temporarily unavailable. Retrying...",
+      "category": "network",
+      "code": "QUOTE_002",
+      "httpStatus": 503,
+      "retryable": true,
+      "technicalDetail": "E*TRADE API HTTP error"
+    },
+    "QUOTE_003": {
+      "businessMessage": "Some symbols could not be quoted. Results show available data.",
+      "category": "data",
+      "code": "QUOTE_003",
+      "httpStatus": 200,
+      "retryable": true,
+      "technicalDetail": "E*TRADE returned empty response for batch"
+    },
+    "QUOTE_004": {
+      "businessMessage": "Quote data format unexpected. Using cached data where available.",
+      "category": "data",
+      "code": "QUOTE_004",
+      "httpStatus": 500,
+      "retryable": false,
+      "technicalDetail": "E*TRADE response JSON parse failed or unexpected structure"
+    },
+    "QUOTE_005": {
+      "businessMessage": "Market data delayed. Prices may not reflect current market.",
+      "category": "data",
+      "code": "QUOTE_005",
+      "httpStatus": 200,
+      "retryable": false,
+      "technicalDetail": "Quote returned zero/negative price (market closed or stale)"
+    },
+    "QUOTE_006": {
+      "businessMessage": "Too many requests. Please wait a moment and try again.",
+      "category": "network",
+      "code": "QUOTE_006",
+      "httpStatus": 429,
+      "retryable": true,
+      "technicalDetail": "E*TRADE rate limit exceeded (HTTP 429)"
+    },
+    "SYS_001": {
+      "businessMessage": "An unexpected error occurred. Our team has been notified.",
+      "category": "system",
+      "code": "SYS_001",
+      "httpStatus": 500,
+      "retryable": false,
+      "technicalDetail": "Unhandled exception"
+    },
+    "WATCHLIST_001": {
+      "code": "WATCHLIST_001",
+      "businessMessage": "Watchlist is not available. Your portfolio data is shown below.",
+      "technicalDetail": "E*TRADE /user/watchlist returned HTTP 404 (Resource not found)",
+      "category": "data",
+      "retryable": false,
+      "httpStatus": 200
+    },
+    "AUTH_003": {
+      "businessMessage": "No E*TRADE session is stored for this account. Please connect your account in Settings.",
+      "category": "auth",
+      "code": "AUTH_003",
+      "httpStatus": 401,
+      "retryable": false,
+      "technicalDetail": "No E*TRADE OAuth token set exists in the SessionStore for the user in the resolved environment"
+    },
+    "SCREEN_001": {
+      "businessMessage": "The screen run failed.",
+      "category": "screen",
+      "code": "SCREEN_001",
+      "httpStatus": 500,
+      "retryable": true,
+      "technicalDetail": "Screener run completed with success=false; see the run error detail"
+    },
+    "SCREEN_002": {
+      "businessMessage": "The screen published qualified partial results \u2014 some symbols could not be evaluated.",
+      "category": "screen",
+      "code": "SCREEN_002",
+      "httpStatus": 200,
+      "retryable": true,
+      "technicalDetail": "Partial coverage: a subset of the universe evaluated; failure reasons recorded on the run"
+    },
+    "SCREEN_003": {
+      "businessMessage": "The options screen was discarded \u2014 no contracts could be evaluated.",
+      "category": "screen",
+      "code": "SCREEN_003",
+      "httpStatus": 502,
+      "retryable": true,
+      "technicalDetail": "Options scan evaluated zero contracts (chain fetch or coverage failure); run discarded by the coverage gate"
+    },
+    "REPORT_001": {
+      "businessMessage": "The PDF report could not be generated.",
+      "category": "report",
+      "code": "REPORT_001",
+      "httpStatus": 500,
+      "retryable": true,
+      "technicalDetail": "Report pipeline PDF render failed; pdfError recorded on the run"
+    },
+    "REPORT_002": {
+      "businessMessage": "The XLSX report could not be generated.",
+      "category": "report",
+      "code": "REPORT_002",
+      "httpStatus": 500,
+      "retryable": true,
+      "technicalDetail": "Report pipeline XLSX generation failed; xlsxError recorded on the run"
+    },
+    "REPORT_003": {
+      "businessMessage": "The generated report file could not be found for delivery.",
+      "category": "report",
+      "code": "REPORT_003",
+      "httpStatus": 500,
+      "retryable": true,
+      "technicalDetail": "Follow-up report job found no adoptable artifact for the run's recorded keys"
+    },
+    "REPORT_004": {
+      "businessMessage": "The CSV report could not be generated.",
+      "category": "report",
+      "code": "REPORT_004",
+      "httpStatus": 500,
+      "retryable": true,
+      "technicalDetail": "Report pipeline CSV generation failed; csvError recorded on the run"
+    },
+    "DELIVER_001": {
+      "businessMessage": "The delivery recipient is not on the screener email allowlist; delivery refused.",
+      "category": "delivery",
+      "code": "DELIVER_001",
+      "httpStatus": 403,
+      "retryable": false,
+      "technicalDetail": "Effective recipient failed isEmailAllowed against SCREENER_EMAIL_ALLOWLIST / run-owner rule"
+    },
+    "DELIVER_002": {
+      "businessMessage": "Report delivery failed on this channel.",
+      "category": "delivery",
+      "code": "DELIVER_002",
+      "httpStatus": 502,
+      "retryable": true,
+      "technicalDetail": "Delivery port returned ok=false or threw; see the transport detail"
+    },
+    "DATA_001": {
+      "businessMessage": "A market-data provider was unavailable; results may be partial.",
+      "category": "data",
+      "code": "DATA_001",
+      "httpStatus": 502,
+      "retryable": true,
+      "technicalDetail": "Provider fetch failed after policy retries (e.g. Yahoo throttling/unreachable); symbols dropped as provider-unavailable"
+    },
+    "MCP_001": {
+      "businessMessage": "This tool is not available for your current access level.",
+      "category": "auth",
+      "code": "MCP_001",
+      "httpStatus": 403,
+      "retryable": false,
+      "technicalDetail": "MCP tool permission scope not held by caller principal"
+    }
+  }
+}
