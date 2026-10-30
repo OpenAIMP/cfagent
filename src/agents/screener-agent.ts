@@ -1316,9 +1316,15 @@ export class ScreenerAgent extends PortThink {
               ? await gatherPorts.config.listCapabilityRoutes()
               : gatherListRoutes(this.ctx.storage.sql)
           );
+          // Issue #2426 (G14): the gather tenant is the run owner's
+          // login — userLogin is guaranteed present here (the
+          // userLogin() resolution above throws without a recorded
+          // owner), so the captures this run writes and reads back
+          // partition by their real owner instead of a shared
+          // synthetic "default" tenant.
           const gatherRunContext = {
             runId: req.idempotencyKey,
-            tenantId: "default",
+            tenantId: userLogin,
             userLogin,
           };
           const gatherLiveQuoteDeps = gatherBindLive(gatherPrimary, gatherRunContext);
@@ -1340,7 +1346,10 @@ export class ScreenerAgent extends PortThink {
             blobEnv: this.env,
             ...(gatherPorts.captures ? { capturePort: gatherPorts.captures } : {}),
             ...(gatherPorts.config ? { configPort: gatherPorts.config } : {}),
-            tenantId: "default",
+            // Issue #2426: same disposition as gatherRunContext
+            // above — the enrichment reads back this run's captures
+            // under the owner's login, not a shared "default" tenant.
+            tenantId: userLogin,
             userLogin,
             runId: req.idempotencyKey,
             liveQuoteDeps: gatherLiveQuoteDeps,
