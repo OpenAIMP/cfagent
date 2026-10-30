@@ -136,6 +136,7 @@ import { handleScreenerResearchRoutes } from "./routes/screenerResearch";
 import { handleSchedulesRoutes, makeRunScheduleCallback } from "./routes/schedules";
 import { handleMaintenanceRoutes } from "./routes/maintenance";
 import { handleServiceUserRoutes } from "./routes/serviceUser";
+import { handleAdminTenantQueueRoutes } from "./routes/adminTenantQueues";
 import { TRADING_PAID_SERVICES } from "../services/agenticPayments";
 import type {
   Env,
@@ -2151,6 +2152,17 @@ export class OrchestratorAgent extends PortThink {
       return this.logChatActivity(request);
     }
 
+    // Issue #2457: cross-tenant admin queue actions run synchronously
+    // through routeRequest, before the queue decision below. The
+    // generic /api/ forwarder marks these queue-eligible and "admin"
+    // is not an immediate prefix, so without this branch a
+    // preview-confirm-verify admin call would queue as an async job
+    // and return 202 instead of its result. Same early-branch pattern
+    // as chat-activity above; no shared queue semantics change.
+    if (/(?:^|\/api)\/admin\/tenants(?:\/|$)/.test(path)) {
+      return this.routeRequest(request);
+    }
+
     // The Worker strips the /api prefix when forwarding and marks queue-eligible requests.
     const isMcpEndpoint = /\/mcp(?:\/|$)/i.test(path);
     const isScheduleEndpoint = /(?:^|\/)(?:api\/)?schedules(?:\/|$)/i.test(path);
@@ -2656,6 +2668,15 @@ export class OrchestratorAgent extends PortThink {
       audit: (type, agent, payload) => this.audit(type, agent, payload),
     });
     if (serviceUserResponse) return serviceUserResponse;
+
+    // Issue #2457: cross-tenant queue routes run after service-user,
+    // before schedules; the route logic itself lives in
+    // routes/adminTenantQueues.ts, the class gains no logic.
+    const adminTenantQueueResponse = await handleAdminTenantQueueRoutes(request, url, path, sessionId, {
+      env: this.env,
+      audit: (type, agent, payload) => this.audit(type, agent, payload),
+    });
+    if (adminTenantQueueResponse) return adminTenantQueueResponse;
 
     // Issue #359-16: schedules task-scheduling routes (list/create/cancel/
     // trigger-*) are handled by src/agents/routes/schedules.ts

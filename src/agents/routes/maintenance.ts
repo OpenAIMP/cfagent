@@ -204,6 +204,16 @@ export async function handleMaintenanceRoutes(
       scope,
       deletedCount: wouldDelete,
       ...(clearable === "mas_async_jobs" ? { skippedRunning } : {}),
+      // Issue #2457: cross-tenant delegation annotation only. These
+      // headers are set solely by the admin tenant-queue route when
+      // it fans out to this instance; they never change scope or
+      // authorization here — the instance itself is the scope.
+      ...(request.headers.get("x-admin-actor")
+        ? { adminActor: request.headers.get("x-admin-actor") }
+        : {}),
+      ...(request.headers.get("x-admin-tenant")
+        ? { adminTenant: request.headers.get("x-admin-tenant") }
+        : {}),
     });
     return Response.json({
       table: clearable,
