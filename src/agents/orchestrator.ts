@@ -59,6 +59,7 @@ import { createOrchestratorTablePorts } from "../data/createOrchestratorTablePor
 import { createOrmPorts } from "../data/createOrmPorts";
 import { createDidAttestation, resolveAgentDidDocument } from "./did";
 import { createMAS } from "./mas";
+import { dispatchOrchestratorA2A, orchestratorA2AOutcome, type OrchestratorA2AOutcome } from "./orchestrator/a2aDispatch";
 import { buildChatErrorFallback, type ChatErrorFallbackContext } from "./chatErrorFallback";
 import { getScreenerExecutionContext, migrateLegacyScreenSchedules, removeUnownedBaselineSchedules, ensureStrategyScanSchedule, resolveScheduledLogin, type ScheduleMaintenanceContext } from "./orchestrator/scheduleMaintenance";
 import { autoRenewETradeTokens, autonomousGoalScreen, autonomousMarketScreen, autonomousStrategyDiscovery, collectIvHistory, expireStaleOrderDraft, sendScheduledReminder, type ScheduledCallbacksContext } from "./orchestrator/scheduledCallbacks";
@@ -709,6 +710,45 @@ export class OrchestratorAgent extends PortThink {
       nowMs: Date.now(),
     });
   }
+  /**
+   * Issue #2223 (slice 1): A2A door, cfpay signature — the edge
+   * dispatcher (src/a2a) resolves the orchestrator-family names to
+   * this class on the SHARED_ORCHESTRATOR_INSTANCE instance and
+   * calls this with the parsed body + origin (a Request cannot
+   * cross the DO RPC boundary). Thin delegation to the dispatch
+   * module (./orchestrator/a2aDispatch), which serves the MAS tools;
+   * the NLQ executor is injected here because its ports are
+   * class-bound. Returns the collected { text, data } outcome.
+   *
+   * Issue #2421 (Agent Mesh S15): RESTORED. #2178 (eff48958)
+   * removed this method as collateral of the mas_events
+   * audit-chain rework, leaving the five surfaces resolving at the
+   * edge to a class with no handleA2A (every POST 500'd) and the
+   * dispatch module with no production caller. The wiring below is
+   * the #2223 original; tests/mesh_every_door_s15_2421.test.ts
+   * pins its presence so a future refactor cannot unwire it
+   * silently again.
+   */
+  async handleA2A(body: unknown, origin: string): Promise<OrchestratorA2AOutcome> {
+    void origin; // reserved for per-origin policy (cfpay parity); unused in v1
+    this.ensureTables();
+    const sessionId = this.sessionKey();
+    const data = await dispatchOrchestratorA2A(this.env, body, {
+      sessionId,
+      sql: this.ctx.storage.sql,
+      audit: (type, agent, payload) => this.audit(type, agent, payload),
+      nlqExecute: async (query: string) => {
+        const plan = await planNLQ(this.env, query);
+        return executeNLQQueryAsync(this.getOrm(), sessionId, plan, this.env, undefined, undefined, {
+          schedulingPort: this.nlqSchedulingPort(),
+          stockScreenPort: this.nlqStockScreenPort(),
+          socialBriefPort: this.nlqSocialBriefPort() ?? undefined,
+        });
+      },
+    });
+    return orchestratorA2AOutcome(data);
+  }
+
   /** Cloudflare Agents lifecycle: initialize SQLite and recover durable work. */
   async onStart(props?: Record<string, unknown>): Promise<void> {
     this.ensureTables();
