@@ -1,5 +1,5 @@
 /**
- * Cloudflare Slack Trading Agent — shell since Issue #1262 Phase 2.
+ * Cloudflare Slack Trading Agent.
  *
  * This class keeps the Agents SDK surface (the export pin in
  * tests/dead-agent-classes.test.ts, the /health endpoint, the #147
@@ -11,12 +11,32 @@
  * handleSlashCommand / handleInteraction implementations were
  * retired in #1262 Phase 2 (they ran NLQ under the DO instance id
  * with no principal resolution or tier gates, and double-dispatched
- * transaction snaps after approvals). The worker routes in
- * src/server.ts are the production ingress; this onRequest path is
- * the Agents SDK fallback. (The SLACK_AGENT DO binding exists since
- * #2215; production ingress still runs through the server routes,
- * and the class's first production instantiation is its A2A door —
- * handleA2A below, #2223.)
+ * transaction snaps after approvals).
+ *
+ * Issue #2412 (Agent Mesh S13, G10): Slack ingress is ONE
+ * implementation. Production ingress runs src/server.ts routes →
+ * OrchestratorAgent instances named slack_<teamId> →
+ * handleTradingIntegrationsRoutes (src/agents/routes/
+ * tradingIntegrations.ts) → the service. This class's onRequest
+ * previously carried a parallel ingress (its own principal
+ * resolution and a service construction with NO NLQ dep set, so
+ * behavior differed by entry point); it now delegates the same
+ * three payload shapes to the same handler with an agent-hosted
+ * route context (tradingRouteContext below), so the gate, the
+ * principal resolution, the NLQ dep set, the event dedup, and the
+ * service are identical on both hosts. The production host stays
+ * the orchestrator instance because the channel's NLQ dep set is
+ * host-bound: the scheduling port binds the host class's own
+ * schedule-callback methods (which exist only on
+ * OrchestratorAgent), the discovery stores are built over the host
+ * instance's storage, and the approval draft ledger lives in the
+ * host instance's ORM. On THIS host the scheduling port therefore
+ * refuses honestly (see refusingNlqSchedulingPort) rather than
+ * registering schedules whose callbacks this class cannot run.
+ * The SLACK_AGENT DO binding exists since #2215; the class's first
+ * production instantiation is its A2A door — handleA2A below,
+ * #2223 — and chat reaches its outbound helpers through the G1
+ * door (#2351).
  *
  * Issue #1960 (think-fleet): migrated from AIChatAgent to PortThink
  * (src/actors/thinkAdapter.ts). Chat-surface mapping, verified from
@@ -51,19 +71,38 @@ import { DatabaseORM } from "../orm";
 import { AGENT_DIDS } from "./did";
 import {
   ETradeSlackTradingService,
-  resolvePrincipal,
-  slackPrincipalLinkStoreFromEnv,
   verifySlackSignature,
 } from "../trading";
 import { gateSlackRequest } from "../security/webhookSecurity";
 import { BrowserAgent } from "./browserAgent";
+import {
+  handleTradingIntegrationsRoutes,
+  type TradingIntegrationsRouteContext,
+} from "./routes/tradingIntegrations";
+import type { NLQSchedulingPort } from "./nlq/types";
+import type { AgentName, AuditEvent } from "../types";
 
 export class SlackAgent extends PortThink {
   private slackService?: ETradeSlackTradingService;
   private browserAgent?: BrowserAgent;
 
+  /**
+   * Issue #2412 (Agent Mesh S13, G10): fail closed. This used to
+   * fall back to a synthetic "master" session literal when the
+   * instance id was absent — exactly the synthetic-identity shape
+   * the mesh programme retires (S3 deferred the site to this
+   * slice). A real Durable Object instantiation always carries
+   * ctx.id; its absence means the class was constructed outside a
+   * DO runtime, where inventing a shared session identity would
+   * attribute work to nobody. Refuse instead.
+   */
   sessionKey(): string {
-    return this.ctx?.id ? this.ctx.id.toString() : "slack_agent_master";
+    if (!this.ctx?.id) {
+      throw new Error(
+        "SlackAgent has no Durable Object instance id — refusing to invent a session identity"
+      );
+    }
+    return this.ctx.id.toString();
   }
 
   private getSlackService(orm?: DatabaseORM): ETradeSlackTradingService {
@@ -71,7 +110,7 @@ export class SlackAgent extends PortThink {
       this.slackService = new ETradeSlackTradingService(
         this.env,
         orm,
-        this.sessionKey() || "slack_agent_master"
+        this.sessionKey()
       );
     } else if (orm && (this.slackService as any).orm !== orm) {
       (this.slackService as any).orm = orm;
@@ -87,7 +126,76 @@ export class SlackAgent extends PortThink {
   }
 
   private getOrm(): DatabaseORM {
+    // No schema-initialization call here by design: the #2345 R-7
+    // composition pin reserves schema initialization to the
+    // designated initializer classes; this class's ORM runs over
+    // the shared schema the store's initializer ensured (an
+    // uninitialized store fails loud at the service's requireOrm,
+    // #781).
     return new DatabaseORM(this.ctx.storage.sql);
+  }
+
+  /**
+   * Audit writer for the agent-hosted route context: the same
+   * mas_events row shape OrchestratorAgent.recordAudit writes
+   * (issue #270's single-owner insert, replicated at this host),
+   * with the same never-fail-the-request discipline as
+   * OrchestratorAgent.audit.
+   */
+  private audit(type: string, agent: AgentName | "judge" | "nlq" | "orchestrator", payload: Record<string, unknown>): void {
+    try {
+      this.getOrm().events.create({
+        id: crypto.randomUUID(),
+        sessionId: this.sessionKey(),
+        type,
+        agent: agent as AuditEvent["agent"],
+        payload,
+        createdAt: new Date().toISOString(),
+      });
+    } catch {
+      // Don't fail execution if audit insertion fails (orchestrator parity).
+    }
+  }
+
+  /**
+   * Issue #2412: on the SlackAgent host there is no schedule
+   * registry this class can fire — NLQ schedule callbacks are
+   * methods on OrchestratorAgent, the host that owns the channel
+   * ledger in production. Binding this class's own Agent-base
+   * scheduling API would register schedules whose callbacks do not
+   * exist here and strand them silently; refusing makes the NLQ
+   * executor report the failure honestly, exactly as a missing
+   * port did before S13.
+   */
+  private refusingNlqSchedulingPort(): NLQSchedulingPort {
+    const refuse = (): never => {
+      throw new Error(
+        "NLQ scheduling is unavailable on the SlackAgent host — schedules are hosted by the orchestrator instance that owns the channel ledger"
+      );
+    };
+    return {
+      schedule: refuse,
+      scheduleEvery: refuse,
+      cancelSchedule: refuse,
+      listSchedules: refuse,
+    } as unknown as NLQSchedulingPort;
+  }
+
+  /**
+   * Issue #2412: the route context the shared channel handler
+   * (src/agents/routes/tradingIntegrations.ts) runs against when
+   * THIS class hosts it — the same handler the production
+   * server.ts forwards reach on OrchestratorAgent instances.
+   */
+  private tradingRouteContext(): TradingIntegrationsRouteContext {
+    return {
+      env: this.env,
+      getOrm: () => this.getOrm(),
+      audit: (type, agent, payload) => this.audit(type, agent, payload),
+      agentCtx: this.ctx,
+      nlqSchedulingPort: () => this.refusingNlqSchedulingPort(),
+      getStorageSql: () => this.ctx.storage.sql,
+    };
   }
 
   /**
@@ -180,9 +288,14 @@ export class SlackAgent extends PortThink {
       path.endsWith("/commands") || path.endsWith("/slash") ||
       path.endsWith("/interactions") ||
       path.endsWith("/events") || path.endsWith("/slack");
+    // Issue #2412: the gate's verified raw body is what the shared
+    // handler consumes below — the payload is read exactly once,
+    // from the bytes the signature was verified over.
+    let gateRawBody: string | null = null;
     if (request.method === "POST" && isSlackIngress) {
       const gate = await gateSlackRequest(request.clone(), this.env.SLACK_SIGNING_SECRET);
       if (!gate.ok) return gate.response;
+      gateRawBody = gate.rawBody;
     } else if (request.method === "POST" && this.env.SLACK_SIGNING_SECRET) {
       // Non-Slack POSTs (e.g. the manual /transaction-snap trigger):
       // unchanged behaviour — when the caller presents Slack signature
@@ -198,74 +311,58 @@ export class SlackAgent extends PortThink {
       }
     }
 
-    // Issue #1262 Phase 2: every Slack ingress delegates to the
-    // single service with a principal resolved from the payload's
-    // team + user (the retired handlers ran without one). The
-    // onRequest path carries no NLQ deps — it is the Agents SDK
-    // fallback, unreachable in production (no wrangler binding);
-    // the worker routes pass the full Phase 4 dep set. The service
-    // still flags every NLQ call untrustedContent: true here.
-    const slackLinks = slackPrincipalLinkStoreFromEnv(this.env);
-
-    // 1. Slash Commands (/commands or /slack/commands)
-    if (path.endsWith("/commands") || path.endsWith("/slash")) {
-      const formData = await request.formData();
-      const principal = await resolvePrincipal(
-        this.env,
-        {
-          channel: "slack",
-          channelUserId: typeof formData.get("user_id") === "string" ? (formData.get("user_id") as string) : "",
-          channelScopeId: typeof formData.get("team_id") === "string" ? (formData.get("team_id") as string) : "",
-          text: typeof formData.get("text") === "string" ? (formData.get("text") as string) : "",
-        },
-        { slackLinks }
-      );
-      const service = new ETradeSlackTradingService(this.env, this.getOrm(), this.sessionKey(), principal, slackLinks);
-      return service.processSlackCommand(formData);
-    }
-
-    // 2. Interactive Components (/interactions or /slack/interactions)
-    if (path.endsWith("/interactions")) {
-      const rawBody = await request.text();
-      const params = new URLSearchParams(rawBody);
-      const payloadRaw = params.get("payload");
-      if (!payloadRaw) return new Response("Missing payload parameter", { status: 400 });
-      const payload = JSON.parse(payloadRaw);
-      const principal = await resolvePrincipal(
-        this.env,
-        {
-          channel: "slack",
-          channelUserId: payload.user?.id ?? "",
-          channelScopeId: payload.team?.id ?? "",
-          text: "",
-        },
-        { slackLinks }
-      );
-      const service = new ETradeSlackTradingService(this.env, this.getOrm(), this.sessionKey(), principal, slackLinks);
-      const result = await service.processSlackInteraction(payload);
-      return Response.json(result);
-    }
-
-    // 3. Events API (/events or /slack/events)
-    if (path.endsWith("/events") || path.endsWith("/slack")) {
-      const body = (await request.json().catch(() => ({}))) as any;
-      if (body.type === "url_verification") {
-        return Response.json({ challenge: body.challenge });
+    // Issue #2412 (Agent Mesh S13, G10): Slack ingress delegates to
+    // the SHARED channel handler — the same
+    // handleTradingIntegrationsRoutes the production server.ts
+    // forwards terminate in on OrchestratorAgent instances. The
+    // per-path blocks that used to live here (own principal
+    // resolution, own service construction with NO NLQ dep set)
+    // were the parallel implementation G10 retires: behavior now
+    // cannot differ by entry point. The delegated request is built
+    // from the gate's verified raw body, carries only the content
+    // type the handler's branch expects, and never forwards an
+    // x-user-login header — that session-principal assertion is
+    // the server.ts simulator's to make on its own forward, and
+    // this host has no session forwarder.
+    if (request.method === "POST" && isSlackIngress) {
+      const rawBody = gateRawBody;
+      if (rawBody === null) {
+        // The gate above ran on the non-ingress branch (defensive:
+        // isSlackIngress and the gate branch use the same path set).
+        return Response.json({ error: "Slack ingress gate did not verify a body" }, { status: 500 });
       }
-
-      const principal = await resolvePrincipal(
-        this.env,
-        {
-          channel: "slack",
-          channelUserId: body.event?.user ?? "",
-          channelScopeId: body.team_id ?? "",
-          text: "",
-        },
-        { slackLinks }
+      let targetPath: string;
+      let contentType: string;
+      let body: string;
+      if (path.endsWith("/commands") || path.endsWith("/slash")) {
+        targetPath = "/trading/slack/command";
+        contentType = "application/x-www-form-urlencoded";
+        body = rawBody;
+      } else if (path.endsWith("/interactions")) {
+        const payloadRaw = new URLSearchParams(rawBody).get("payload");
+        if (!payloadRaw) return new Response("Missing payload parameter", { status: 400 });
+        targetPath = "/trading/slack/interaction";
+        contentType = "application/json";
+        body = payloadRaw;
+      } else {
+        targetPath = "/trading/slack/event";
+        contentType = "application/json";
+        body = rawBody;
+      }
+      const delegated = new Request(`https://agent.internal${targetPath}`, {
+        method: "POST",
+        headers: { "Content-Type": contentType },
+        body,
+      });
+      const handled = await handleTradingIntegrationsRoutes(
+        delegated,
+        new URL(delegated.url),
+        targetPath,
+        this.sessionKey(),
+        this.tradingRouteContext()
       );
-      const service = new ETradeSlackTradingService(this.env, this.getOrm(), this.sessionKey(), principal, slackLinks);
-      const eventResult = await service.processSlackEvent(body);
-      return Response.json(eventResult);
+      if (handled) return handled;
+      return Response.json({ error: `Not Found: ${path}` }, { status: 404 });
     }
 
     // 4. Manual Transaction Snap Trigger (/transaction-snap)

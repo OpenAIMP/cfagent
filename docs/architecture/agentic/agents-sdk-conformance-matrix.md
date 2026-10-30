@@ -108,25 +108,28 @@ recovery column reads as it does.
 | `state` | 10 | 4 | 0 |
 | `connections` | 3 | 11 | 0 |
 | `scheduling` | 3 | 11 | 0 |
-| `recovery` | 2 | 9 | 3 |
+| `recovery` | 3 | 9 | 2 |
 | `sdk-state` | 7 | 7 | 0 |
 | `sessions` | 3 | 10 | 1 |
 | `routing` | 14 | 0 | 0 |
 | `websockets` | 2 | 12 | 0 |
 | `sdk-scheduling` | 2 | 12 | 0 |
 | `fibers` | 0 | 2 | 12 |
-| Total | 57 | 80 | 17 |
+| Total | 58 | 80 | 16 |
 
 154 cells (14 roster entries × 11 aspects), zero unclassified. The
 two honest headlines: **recovery has its first IMPLEMENTED cells** —
 S12 (#2409) proved OrchestratorAgent's queued-job recovery and
 TradingAgent's workflow-mediated recovery with behavioral pins
 (instance replacement + step-journal replay at the flow seam; not
-live workerd eviction), while three recovery GAPs remain
-(ResearchAgent and ScreenerAgent re-dispositioned to the programme
-backlog by #2409 with the evidence boundary named in their cells;
-SlackAgent owned by S13) — and **fibers is a GAP for every
-PortThink agent**, judged against the real SDK primitive.
+live workerd eviction), and S13 (#2412) closed SlackAgent's
+recovery cell the same way (instance replacement over the same
+durable store; the replacement incarnation honors the executed
+draft), while two recovery GAPs remain (ResearchAgent and
+ScreenerAgent re-dispositioned to the programme backlog by #2409
+with the evidence boundary named in their cells) — and **fibers
+is a GAP for every PortThink agent**, judged against the real SDK
+primitive.
 
 ## 4. GAP register
 
@@ -136,7 +139,6 @@ PortThink agent**, judged against the real SDK primitive.
 | TradingAgent | `sessions` | Programme backlog (re-dispositioned by #2375 — S9 landed the door caller, not a turn) |
 | ScreenerAgent | `recovery` | Programme backlog (workflow layer proven by #2409; agent-level resume of an interrupted screen unowned) |
 | SlackAgent | `identity` | S16 (G14 identity records + mesh credentials) |
-| SlackAgent | `recovery` | S13 (G10 channel completeness — first instantiation) |
 | All 12 PortThink agents | `fibers` | Programme backlog (no slice yet) |
 
 Residuals recorded inside IMPLEMENTED cells (not GAPs, but tracked):
@@ -280,14 +282,14 @@ AiSearchAgent's unthreaded session login for turn-tool/RPC callers
 
 | Aspect | State | Evidence |
 |---|---|---|
-| `identity` | GAP | sessionKey() falls back to the synthetic literal "slack_agent_master" when ctx.id is absent (slackAgent.ts:65-66, repeated at :74 — presence pinned). In a real DO instantiation ctx.id always exists, so the fallback fires only in in-process/test construction, but it is exactly the synthetic-identity shape G14 retires; S16 removing it must update this cell. Owner: S16 (G14 identity records + mesh credentials). |
-| `state` | IMPLEMENTED | SQLite via getOrm() over this.ctx.storage.sql (slackAgent.ts:89-90). Caveat: exercised only if the class is ever instantiated as a DO — in production it never has been (see connections). |
-| `connections` | NOT-APPLICABLE | Its own signature-gated onRequest ingress (:143) is a parallel implementation nothing calls; production Slack ingress terminates on OrchestratorAgent instances named slack_<teamId> via server.ts forwarders (registry channel posture MIXED). |
+| `identity` | GAP | S13 (#2412) retired the synthetic fallback this cell cited: sessionKey() throws when ctx.id is absent instead of returning the retired master literal, and getSlackService no longer re-asserts it (absence pinned below; behavioral pin in tests/mesh_channels_s13_2412.test.ts). The cell stays a GAP for the G14 remainder: the class holds no registry identity record and no per-agent mesh credential — Slack ingress still authenticates with the app-level signing secret and bot token. Owner: S16 (G14 identity records + mesh credentials). |
+| `state` | IMPLEMENTED | SQLite via getOrm() over this.ctx.storage.sql — schema ensured by the store's designated initializer classes, not this class (the #2345 R-7 composition pin: this file deliberately carries no initializeSchema); the S13 suite (#2412) exercises the boot/ORM paths over a fresh store through the converged ingress. The class is instantiated in production via its A2A door and the G1 chat door (see routing). |
+| `connections` | NOT-APPLICABLE | No connection surface of its own: its signature-gated onRequest ingress delegates Slack payloads to the shared channel handler (src/agents/routes/tradingIntegrations.ts) — since S13 (#2412) it is the same implementation the production server.ts forwarders terminate in on OrchestratorAgent instances named slack_<teamId>, not a parallel one (registry channel posture FORWARDER). |
 | `scheduling` | NOT-APPLICABLE | No scheduling role: it registers no schedules and owns no scheduled work; anything time-based reaches it from callers recorded elsewhere in this row. |
-| `recovery` | GAP | Never instantiated in production, so its boot/ORM paths are unproven; S13's ingress work is the first instantiation and owns exercising and pinning its recovery behavior. Owner: S13 (G10 channel completeness). |
+| `recovery` | IMPLEMENTED | S13 (#2412) exercised the boot/ORM paths with a behavioral pin (tests/mesh_channels_s13_2412.test.ts): a previewed draft in the instance store is executed by one SlackAgent incarnation through the converged ingress, and a fresh incarnation over the SAME store honors the recorded outcome — a second approval is answered by the shared engine's already-executed refusal and the broker placement runs exactly once. The class holds no in-flight work of its own between requests: every request rebuilds its service from env + durable storage, so instance replacement loses nothing. Residual: The simulation is instance replacement over the same durable store in the node:sqlite harness, not live workerd eviction (the S12 residual, fleet-wide). |
 | `sdk-state` | IMPLEMENTED | State goes through ctx.storage.sql directly (getOrm, slackAgent.ts:89-90) — the same ctx.storage posture as the fleet; the SDK setState API is unused (fleet pin). |
 | `sessions` | NOT-APPLICABLE | No chat transcript; its sessionKey-keyed service state is not an agent session store. |
-| `routing` | IMPLEMENTED | Binding SLACK_AGENT exists (migration v10, #2215 — the class header's no-binding claim is stale, survey §6.4); A2A surface slack (registry); production stub callers: the A2A dispatcher (#2223) and, since #2351, the orchestrator's G1 chat door (src/agents/orchestrator/meshDoors.ts) addressed to the fixed instance "slack", serving only the two outbound helpers (approval ticket + transaction snap). Production ingress still bypasses the class (see connections), which S13 owns. |
+| `routing` | IMPLEMENTED | Binding SLACK_AGENT exists (migration v10, #2215 — the class header's no-binding claim is stale, survey §6.4); A2A surface slack (registry); production stub callers: the A2A dispatcher (#2223) and, since #2351, the orchestrator's G1 chat door (src/agents/orchestrator/meshDoors.ts) addressed to the fixed instance "slack", serving only the two outbound helpers (approval ticket + transaction snap). Production ingress terminates on OrchestratorAgent instances, but since S13 (#2412) both hosts run the one shared channel handler (see connections). |
 | `websockets` | NOT-APPLICABLE | No WebSocket surface of its own: it defines no onConnect/onMessage and no socket client connects to it (fleet pin: onConnect exists only in TickerAgent). |
 | `sdk-scheduling` | NOT-APPLICABLE | No SDK scheduler use: the file contains no this.schedule/this.scheduleEvery call (fleet pin: such calls exist only in OrchestratorAgent and TickerAgent). |
 | `fibers` | GAP | No agent uses the SDK/Think fiber primitive (fleet pin: no runFiber/startFiber in agent sources). The only fiber surface, src/services/durableFibers.ts, is home-grown and NOT durable: live records sit in an in-memory Map (activeFibers, :32), checkpoints are written but never read back, and the onFiberRecovered hook its header advertises (:9) exists nowhere else in src/. Owner: programme backlog (no slice yet). |
@@ -392,8 +394,11 @@ on. Later rounds should add, in owning-slice order:
   approval door + TradingTradeWorkflow) but drives no turn on the
   class, so its sessions GAP stays in the programme backlog until a
   slice drives a real turn on it.
-- SlackAgent's identity fix and first instantiation — S16/S13,
-  converting its two GAPs.
+- SlackAgent's identity remainder — S16. S13 (#2412) landed the
+  first-instantiation work: ingress converged onto the shared
+  channel handler, the synthetic session fallback retired
+  fail-closed, and the recovery GAP converted (see its row); the
+  identity GAP that remains is the G14 records/credentials part.
 - A fibers adoption decision (SDK primitive behind the actor port,
   or an explicit programme decision to keep the GAP) — currently
   unowned in the backlog; the matrix keeps it visible until a slice
@@ -427,9 +432,13 @@ on. Later rounds should add, in owning-slice order:
   PaymentsAgent are post-S3 (#2327): the `"default"` fallback family
   the survey catalogued on those paths is retired and fail-closed,
   and ScheduledAgent's budget calls now name their bucket
-  explicitly. The remaining family members the survey found —
-  SlackAgent's `slack_agent_master`, ScreenerAgent's `tenantId`
-  literals, ScheduledAgent's `actor: "system"`, the DID `"anonymous"`
-  derivations, the NLQ webhook's synthetic login — are recorded in
-  this matrix as GAPs or residuals with their owning slices (S13,
-  S16), not silently dropped.
+  explicitly. Of the remaining family members the survey found,
+  S13 (#2412) dispositioned two: SlackAgent's synthetic master
+  fallback is retired fail-closed (its identity cell keeps the
+  G14 remainder for S16), and the NLQ webhook's fallback login is
+  named in code and in the channel registry as the channel's
+  service identity (an HMAC-authenticated system caller, not a
+  user login). The rest — ScreenerAgent's `tenantId` literals,
+  ScheduledAgent's `actor: "system"`, the DID `"anonymous"`
+  derivations — are recorded in this matrix as GAPs or residuals
+  with their owning slice (S16), not silently dropped.
