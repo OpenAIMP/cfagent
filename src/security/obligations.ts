@@ -95,6 +95,7 @@ import {
   type Permission,
 } from "./authorization";
 import { checkPermission, type CheckPermissionInput } from "./iaaaPdpSeam";
+import { recordBlockingAudit, type BlockingAuditEvents } from "./auditChain";
 import {
   DEFAULT_SESSION_POLICY,
   DEFAULT_STEP_UP_FRESHNESS_MS,
@@ -190,6 +191,41 @@ export interface ObligationAuditEvent {
 export type ObligationAuditWriter = (
   event: ObligationAuditEvent,
 ) => Promise<boolean>;
+
+/**
+ * Issue #2178 (Q7 S2) — guard family: adapt a chained mas_events
+ * repo into an ObligationAuditWriter. The repo is still injected;
+ * this only adapts it. A successful chained write returns true
+ * (obligation satisfied); a throwing store propagates untouched —
+ * auditSatisfied fails closed on throw, so an unaudited allow is
+ * impossible. The obligation event carries no session, so the
+ * row's sessionId is the acting principal (payload carries the
+ * full decision fields). Boundary: today's worker-level
+ * enforcement points (the server.ts IAAA routes) have no ORM /
+ * mas_events write path, so they keep the IAAA DO-log writer
+ * until a worker→DO audit RPC exists; this factory is the sink
+ * agent-side enforcement points use.
+ */
+export function createChainedAuditWriter(
+  events: BlockingAuditEvents,
+): ObligationAuditWriter {
+  return async (event) => {
+    recordBlockingAudit(events, {
+      id: crypto.randomUUID(),
+      sessionId: event.principalId,
+      type: "iaaa.guard_decision",
+      agent: "orchestrator",
+      payload: {
+        permission: event.permission,
+        principalId: event.principalId,
+        tenantId: event.tenantId,
+        decision: event.decision,
+      },
+      createdAt: new Date(event.nowMs).toISOString(),
+    });
+    return true;
+  };
+}
 
 /** Caller-supplied evaluation context. The PEP supplies it; the subject never does. */
 export interface ObligationEvaluationContext {

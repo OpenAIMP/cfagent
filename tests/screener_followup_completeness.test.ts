@@ -193,9 +193,9 @@ function makeCtx(sql: StatefulAsyncSql, env: Record<string, unknown>, opts?: { h
     sessionKey: () => "session-1",
     schedule: async () => ({}),
     audit: () => {},
-    getOrm: () => {
-      throw new Error("no orm");
-    },
+    // Issue #2178 (Q7 S2): followup.deliver jobs now audit
+    // their claim through the ORM events repo — no-op here.
+    getOrm: () => ({ events: { create: () => ({}) } }),
     routeRequest: async () => new Response("{}", { status: 200 }),
     nlqSchedulingPort: () => {
       throw new Error("unused");
