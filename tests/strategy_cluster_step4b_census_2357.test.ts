@@ -21,6 +21,10 @@
  *    which move onto the pre-existing step-3a settings-read
  *    adapter in doSqliteOrmAdapters.ts — its count is
  *    unchanged, the SELECT already lived there).
+ *    #2390 (step 4g) update: the weights adapter drops to 11
+ *    (= 45 in-layer) — its mas_settings CREATE retired to the
+ *    dedicated settings port's adapter under the G-7 ruling;
+ *    the statement lives on in the layer, outside this family.
  *  - By-table: the cluster's tables (mas_challengers,
  *    mas_challenger_approvals, mas_challenger_promotions,
  *    mas_strategy_bank_active, mas_strategy_weights_v2,
@@ -52,7 +56,10 @@ const SERVICE_FILES = [
 ] as const;
 
 const DATA_LAYER_FILES: Array<[string, number]> = [
-  ["src/data/doSqliteStrategyWeightsAdapter.ts", 12],
+  // 12 at 4b; 11 since #2390 (step 4g): the adapter's
+  // mas_settings CREATE retired — the dedicated settings
+  // port's adapter is that table's single ensurer (G-7).
+  ["src/data/doSqliteStrategyWeightsAdapter.ts", 11],
   ["src/data/doSqliteStrategyPolicyAdapter.ts", 11],
   ["src/data/doSqliteChallengerAdapter.ts", 15],
   ["src/data/doSqliteAdaptationAuditAdapter.ts", 5],
@@ -82,8 +89,8 @@ describe("step-4b family census: services serve through the ports", () => {
     });
   }
 
-  it("the family total is conserved: 46 in the new adapters + 2 settings reads on the 3a adapter", () => {
+  it("the family total is conserved: 45 in the new adapters + 2 settings reads on the 3a adapter (+1 settings CREATE retired to the settings adapter in #2390)", () => {
     const inLayer = DATA_LAYER_FILES.reduce((a, [, n]) => a + n, 0);
-    expect(inLayer).toBe(46);
+    expect(inLayer).toBe(45);
   });
 });
