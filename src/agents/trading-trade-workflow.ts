@@ -9,9 +9,13 @@
  *   executeOrder, which re-validates the draft state.
  *
  * Params carry ids only — never credentials (cfpay rule). The workflow
- * holds no broker state of its own; settling delegates to
- * settleTradingOrder, the same core the synchronous approval door uses,
- * so both paths enforce identical validation.
+ * holds no broker state of its own; settling delegates to the order
+ * owner's TradingAgent approval door (executeApprovedOrder), which
+ * settles through settleTradingOrder — the same core the synchronous
+ * approval door uses — inside the Durable Object that holds the draft
+ * store the proposal was previewed into (#2375: before this, the
+ * settle ran workflow-side ORM-less and could not see any real
+ * draft), so both paths enforce identical validation.
  *
  * The class is a thin adapter: run() extracts the params and delegates
  * to runTradeApprovalFlow, which is unit-testable with a fake step.
@@ -21,12 +25,12 @@ import { ThinkWorkflow } from "@cloudflare/think/workflows";
 import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers";
 import type { DefaultProgress } from "agents/workflows";
 import type { Env } from "../types";
-import { getTradingAgentConfig } from "../config/tradingAgentConfig";
 import {
-  settleTradingOrder,
+  tradingAgentName,
   type TradeApprovalDecision,
   type TradeApprovalParams,
 } from "./trading-agent";
+import { getServiceUserLogin } from "../security/serviceIdentity";
 
 /** How long a proposal waits for its decision before lapsing. */
 export const TRADE_APPROVAL_TIMEOUT = "24 hours";
@@ -43,6 +47,48 @@ export interface TradeApprovalStep {
 export type TradeApprovalOutcome =
   | { status: "settled"; orderId: string; decision: "approved" | "rejected"; result: unknown }
   | { status: "expired"; orderId: string };
+
+/**
+ * Settle through the order owner's TradingAgent approval door
+ * (#2375). The door method is the synchronous settle
+ * (executeApprovedOrder) — the workflow supplies the decision, the
+ * agent supplies its own draft store. Fails closed when the DO
+ * binding is not configured: there is no workflow-side fallback,
+ * because a fallback would settle against a store that does not
+ * hold the draft.
+ */
+async function settleThroughApprovalDoor(
+  env: Env,
+  params: TradeApprovalParams,
+  decision: TradeApprovalDecision,
+): Promise<unknown> {
+  const ns = env.TRADING_AGENT;
+  if (!ns) {
+    throw new Error(
+      "Trade approval workflow cannot settle: the TRADING_AGENT binding is not configured, so the approval door that holds the draft store is unreachable.",
+    );
+  }
+  const stub = ns.get(
+    ns.idFromName(tradingAgentName(params.userLogin, getServiceUserLogin(env))),
+  ) as unknown as {
+    executeApprovedOrder(input: {
+      provider?: string;
+      userLogin: string;
+      orderId: string;
+      authorizerDid: string;
+      decision: "approved" | "rejected";
+      expectedTerms?: TradeApprovalDecision["expectedTerms"];
+    }): Promise<unknown>;
+  };
+  return stub.executeApprovedOrder({
+    provider: params.provider,
+    userLogin: params.userLogin,
+    orderId: params.orderId,
+    authorizerDid: decision.authorizerDid,
+    decision: decision.decision,
+    expectedTerms: decision.expectedTerms,
+  });
+}
 
 /**
  * The flow: wait for the decision event, then settle exactly once
@@ -66,19 +112,7 @@ export async function runTradeApprovalFlow(
     return { status: "expired", orderId: params.orderId };
   }
   const result = await step.do("settle-trade", () =>
-    settleTradingOrder(
-      env,
-      getTradingAgentConfig(env as unknown as Record<string, unknown>),
-      {
-        provider: params.provider,
-        userLogin: params.userLogin,
-        orderId: params.orderId,
-        authorizerDid: decision.authorizerDid,
-        decision: decision.decision,
-        expectedTerms: decision.expectedTerms,
-      },
-      "workflow",
-    ),
+    settleThroughApprovalDoor(env, params, decision),
   );
   return { status: "settled", orderId: params.orderId, decision: decision.decision, result };
 }
@@ -87,9 +121,9 @@ export class TradingTradeWorkflow extends ThinkWorkflow<
   // Issue #1738: TradingAgent is an Agents SDK actor now, not a
   // Think class, so it cannot satisfy ThinkWorkflow's agent-type
   // constraint. ADR 0004 W13 already prescribes `any` here (the
-  // screener workflow does the same); the workflow never calls
-  // agent methods — it settles through the shared core — so the
-  // type change is mechanical, not behavioral.
+  // screener workflow does the same). Since #2375 the workflow
+  // settles through the agent's approval door over the DO binding
+  // (not an agent-class method call), so the `any` stands.
   any,
   TradeApprovalParams,
   DefaultProgress,

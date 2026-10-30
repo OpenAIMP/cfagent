@@ -193,7 +193,7 @@ const MATRIX: MatrixRow[] = [
         "ctx.storage KV facade plus SQLite ORM over ctx.storage.sql in-instance; config resolved per call from env.",
       ),
       connections: NA(
-        "No client connects and no connection surface exists; reachable via A2A dispatch and via stub RPC — since #2349 the orchestrator's chat turn is a production stub caller through the G1 door (proposals + reads, src/agents/orchestrator/meshDoors.ts).",
+        "No client connects and no connection surface exists; reachable via A2A dispatch and via stub RPC — since #2349 the orchestrator's chat turn is a production stub caller through the G1 door (proposals + reads, src/agents/orchestrator/meshDoors.ts), and since #2375 also through the approval door's workflow operations (start/decide).",
       ),
       scheduling: NA(
         "None in the agent: its durable timing lives in TradingTradeWorkflow's 24h waitForEvent, not in any schedule of its own.",
@@ -204,11 +204,11 @@ const MATRIX: MatrixRow[] = [
       ),
       "sdk-state": SDK_STATE_DIVERGENT,
       sessions: GAP(
-        "S9 (G4 chat trading)",
-        "The mechanism is wired: portHooks are set lazily via tradingTurnHooks() (:975). But no production caller has ever driven a turn on this class (survey §1/§6.5), so no transcript has ever accumulated — claiming IMPLEMENTED would overclaim. S9, the first-caller slice, owns the proof.",
+        "Programme backlog (re-dispositioned by #2375 — S9 landed the door caller, not a turn)",
+        "The mechanism is wired: portHooks are set lazily via tradingTurnHooks(). #2375 (S9/G4) made the chat turn the first production caller of this class's door surface — proposal → approval-workflow start → decision → settle — but that path is typed RPC from the orchestrator's turn and drives no turn ON this class, so no transcript has ever accumulated and claiming IMPLEMENTED would overclaim; NOT-APPLICABLE is barred because the hooks are set (the portHooks coherence pin below). Re-dispositioned by #2375: the GAP stays; conversion needs a slice that drives a real turn on this class.",
       ),
       routing: IMPL(
-        "Binding TRADING_AGENT; A2A surface trading — handleA2A at :1236 dispatching to dispatchTradingA2A, pinned by tests/trading_agent.test.ts. The orchestrator's G1 chat door (#2349, src/agents/orchestrator/meshDoors.ts) is the first production stub caller: proposals and reads only, addressed per-user via tradingAgentName. The approval door (executeApprovedOrder/startTradeApproval/decideTradeApproval) has no door or turn caller; S9/G4 builds behind it.",
+        "Binding TRADING_AGENT; A2A surface trading — handleA2A at :1236 dispatching to dispatchTradingA2A, pinned by tests/trading_agent.test.ts. The orchestrator's G1 chat door (#2349, src/agents/orchestrator/meshDoors.ts) is the first production stub caller: proposals and reads, addressed per-user via tradingAgentName. Since #2375 (S9/G4) the door also carries the approval door's workflow operations — startTradeApproval starts TradingTradeWorkflow, decideTradeApproval delivers the decision with the authorizer derived server-side — while executeApprovedOrder stays workflow-called only (the settle step), never door-called.",
       ),
       websockets: NA("No WebSocket surface of its own: it defines no onConnect/onMessage and no socket client connects to it (fleet pin below: onConnect exists only in TickerAgent)."),
       "sdk-scheduling": NA("No SDK scheduler use: the file contains no this.schedule/this.scheduleEvery call (fleet pin below: such calls exist only in OrchestratorAgent and TickerAgent)."),

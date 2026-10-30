@@ -6,6 +6,14 @@
  * arrives, refuses anonymous decisions through the shared settle core,
  * and the deployment wiring (wrangler binding, server export, class
  * shape, agent doors' guards) stays in place.
+ *
+ * #2375: the flow's settle step delegates to the order owner's
+ * TradingAgent approval door (executeApprovedOrder) instead of
+ * calling the settle core workflow-side — the draft store lives in
+ * the agent's DO. The fake TRADING_AGENT namespace below is the
+ * binding seam: its stub's executeApprovedOrder delegates straight
+ * to the shared settle core, so every assertion in this file still
+ * exercises the same core validation and platform contract.
  */
 
 import { describe, it, expect, vi } from "vitest";
@@ -44,7 +52,8 @@ import {
   TRADE_APPROVAL_TIMEOUT,
   type TradeApprovalStep,
 } from "../src/agents/trading-trade-workflow";
-import { TradingAgent } from "../src/agents/trading-agent";
+import { TradingAgent, settleTradingOrder } from "../src/agents/trading-agent";
+import { getTradingAgentConfig } from "../src/config/tradingAgentConfig";
 import { TradingPlatformRegistry } from "../src/trading";
 import type { Env } from "../src/types";
 
@@ -63,9 +72,29 @@ TradingPlatformRegistry.register("fakeflow291" as any, () => ({
   },
 }) as any);
 
+const coreEnv = {
+  TRADING_AGENT_PROVIDERS: "fakeflow291",
+  TRADING_AGENT_DEFAULT_PROVIDER: "fakeflow291",
+} as unknown as Env;
+
 const env = {
   TRADING_AGENT_PROVIDERS: "fakeflow291",
   TRADING_AGENT_DEFAULT_PROVIDER: "fakeflow291",
+  // #2375 binding seam: the approval-door stub the flow's settle
+  // step reaches. It delegates to the shared settle core exactly as
+  // the real agent's executeApprovedOrder does.
+  TRADING_AGENT: {
+    idFromName: (name: string) => name,
+    get: (_id: unknown) => ({
+      executeApprovedOrder: (input: any) =>
+        settleTradingOrder(
+          coreEnv,
+          getTradingAgentConfig(coreEnv as unknown as Record<string, unknown>),
+          input,
+          "workflow",
+        ),
+    }),
+  },
 } as unknown as Env;
 
 function fakeStep(payload: unknown, opts: { timeout?: boolean } = {}): TradeApprovalStep {
