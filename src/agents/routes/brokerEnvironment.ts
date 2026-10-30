@@ -62,10 +62,13 @@ export function resolveBrokerEnvironmentDefault(workerEnv: Partial<Env>): Broker
  * default applies.
  */
 export function resolveBrokerEnvironmentFromSettings(
-  readSettingRaw: (key: string) => string | null,
+  readSettingRaw: ((key: string) => string | null) | undefined,
   workerEnv: Partial<Env>,
 ): BrokerEnvironment {
-  const stored = readSettingRaw(BROKER_ENVIRONMENT_SETTING_KEY);
+  const stored =
+    typeof readSettingRaw === "function"
+      ? readSettingRaw(BROKER_ENVIRONMENT_SETTING_KEY)
+      : null;
   if (isBrokerEnvironment(stored)) return stored;
   return resolveBrokerEnvironmentDefault(workerEnv);
 }
