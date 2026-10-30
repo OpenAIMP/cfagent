@@ -64,6 +64,8 @@ import { buildChatErrorFallback, type ChatErrorFallbackContext } from "./chatErr
 import { getScreenerExecutionContext, migrateLegacyScreenSchedules, removeUnownedBaselineSchedules, ensureStrategyScanSchedule, resolveScheduledLogin, type ScheduleMaintenanceContext } from "./orchestrator/scheduleMaintenance";
 import { autoRenewETradeTokens, autonomousGoalScreen, autonomousMarketScreen, autonomousStrategyDiscovery, collectIvHistory, expireStaleOrderDraft, sendScheduledReminder, type ScheduledCallbacksContext } from "./orchestrator/scheduledCallbacks";
 import { nlqSchedulingPort, nlqSocialBriefPort, nlqStockScreenPort, type NlqPortsContext } from "./orchestrator/nlqPorts";
+import { formatTraceparent, newTraceContext } from "../observability/observabilityPorts";
+import { recordTraceHopBestEffort } from "../data/createMeshTracePorts";
 import { createSocialBriefStoreFromNamespace } from "./social/briefStore";
 import type { DoNamespaceLike } from "../security/durableKv";
 import { createKvMembershipStore } from "../security/iaaaMembershipStore";
@@ -494,7 +496,43 @@ export class OrchestratorAgent extends PortThink {
       // screen's workflow start and mas_reports read-back.
       env: this.env,
       ensureTables: () => this.ensureTables(),
+      // Issue #2428 (Agent Mesh S17): the chat screen's workflow
+      // command is stamped with the in-flight turn's traceparent
+      // (the same lazy mint the turn tools read), so the run
+      // joins the turn's trace.
+      traceparent: () => this.turnTraceparent(),
     };
+  }
+
+  /**
+   * Issue #2428 (Agent Mesh S17): the in-flight turn's mesh
+   * traceparent. Minted lazily on first read (one trace per
+   * turn, shared by the turn tools, the door calls, the queued
+   * jobs, and the NLQ screen port) and the turn hop is recorded
+   * once, best-effort, at mint time. No in-flight turn → no
+   * trace (undefined): consumers outside a turn record nothing
+   * rather than fabricating an ingress.
+   */
+  private turnTraceparent(): string | undefined {
+    const turn = this.pendingTurn;
+    if (!turn) return undefined;
+    if (!turn.traceparent) {
+      const trace = newTraceContext();
+      turn.traceparent = formatTraceparent(trace);
+      if (!turn.traceHopRecorded) {
+        turn.traceHopRecorded = true;
+        void recordTraceHopBestEffort(this.env, {
+          traceId: trace.traceId,
+          spanId: trace.spanId,
+          kind: "turn",
+          operation: "chat.turn",
+          timestampMs: Date.now(),
+          caller: turn.userLogin,
+          agent: "OrchestratorAgent",
+        });
+      }
+    }
+    return turn.traceparent;
   }
 
   private asyncJobsContext(): AsyncJobsContext {
@@ -570,6 +608,10 @@ export class OrchestratorAgent extends PortThink {
       // turn's userLogin from the turn stash (filled by the HTTP
       // driver before runTurn, or by portBeforeTurn for WS turns).
       turnUserLogin: () => this.pendingTurn?.userLogin,
+      // Issue #2428 (Agent Mesh S17): the mesh doors' and jobs'
+      // trace carrier — the in-flight turn's traceparent, minted
+      // lazily on the turn stash (see turnTraceparent()).
+      turnTraceparent: () => this.turnTraceparent(),
       // Issue #1738: Think's active-turn metadata went away with
       // the base change. deriveTurn falls back to the last user
       // message's metadata, which carries sourceTab/userLogin for
@@ -1677,6 +1719,16 @@ export class OrchestratorAgent extends PortThink {
     suppressUserRecord?: boolean;
     route?: RouteDecision;
     requestId: string;
+    /**
+     * Issue #2428 (Agent Mesh S17): the turn's mesh traceparent,
+     * minted lazily by turnTraceparent() on first read so every
+     * consumer of the turn (tools, doors, the NLQ screen port)
+     * shares ONE trace. Absent until first read — a turn nobody
+     * traces mints nothing.
+     */
+    traceparent?: string;
+    /** Issue #2428: the turn hop for this trace has been recorded. */
+    traceHopRecorded?: boolean;
   };
 
   /** Actor configuration: the constructed model arm (step-2 decision). */

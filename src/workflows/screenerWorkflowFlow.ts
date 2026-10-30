@@ -205,6 +205,35 @@ export interface ScreenerWorkflowDeps {
    */
   deliverOutcome: (payload: unknown, userLogin: string) => Promise<void>;
   nowMs: () => number;
+  /**
+   * Issue #2428 (Agent Mesh S17): trace hop recorder for this
+   * run's steps. Optional and purely observational: called
+   * AFTER a step's journaled result returns (never inside a
+   * step callback, so durable replay cannot re-run it as a
+   * side effect — and the recorder's deterministic spans make
+   * a re-record converge in the store regardless). Absent →
+   * no step hops: the trace break the registry records for
+   * unwired runners. A throwing recorder must never fail a
+   * step; call sites go through traceStep(), which swallows.
+   */
+  traceHop?: (
+    command: WorkflowJobCommand,
+    event: { kind: "workflow-step" | "projection"; operation: string },
+  ) => Promise<void>;
+}
+
+/** Issue #2428: record one trace hop for a completed step, best-effort (never throws into the flow). */
+async function traceStep(
+  deps: ScreenerWorkflowDeps,
+  command: WorkflowJobCommand,
+  kind: "workflow-step" | "projection",
+  operation: string,
+): Promise<void> {
+  try {
+    await deps.traceHop?.(command, { kind, operation });
+  } catch {
+    // Tracing degrades; the run does not (the #1743 rule).
+  }
 }
 
 /** Capability id carried on every workflow projection row. */
@@ -585,6 +614,7 @@ export async function runShardFlow(
         () => deps.screenRunner.runScreen(shardScreenRequest(command)),
         { retries: { limit: WORKFLOW_STEP_MAX_RETRIES } },
       );
+  await traceStep(deps, command, "workflow-step", command.goalScreen ? "execute-goal-screen" : "execute-screen");
   // Issue #2080: the canonical body must carry the run's trigger and its
   // full artifact set. The child summary is the fallback payload, so the
   // trigger rides on it explicitly (a summary never carried one).
@@ -622,6 +652,7 @@ export async function runShardFlow(
       }
     },
   );
+  await traceStep(deps, command, "workflow-step", "store-shard");
   const stored = storeOutcome.stored;
   const reportId = storeOutcome.reportId;
   const storeError = storeOutcome.storeError;
@@ -644,6 +675,7 @@ export async function runShardFlow(
     );
     delivered = delivery.delivered;
     deliverError = delivery.deliverError;
+    await traceStep(deps, command, "workflow-step", "deliver-shard");
   }
   const summary = shardSummaryFromResult(shardId, result);
   const rowResult = {
@@ -672,6 +704,7 @@ export async function runShardFlow(
       ], deps.nowMs()),
     );
   });
+  await traceStep(deps, command, "projection", "project-shard");
   // Strip `full`: the parent collects summaries + flags only.
   const { full: _dropped, ...output } = result;
   return {
@@ -733,6 +766,7 @@ export async function runParentFlow(
       ], nowMs()),
     );
   });
+  await traceStep(deps, command, "workflow-step", "announce");
 
   // Fan out in batches of maxParallelShards.
   const pending: PendingShard[] = [];
@@ -881,6 +915,7 @@ export async function runParentFlow(
     }
     warnUnprojected(command.jobId, "deliver", await projectBestEffort(deps, command.tenantId, command.jobId, legs, nowMs()));
   });
+  await traceStep(deps, command, "projection", "project-final");
 
   return collation;
 }

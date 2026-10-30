@@ -10,6 +10,14 @@
  *   - `agentdb.audit.history` — audit events for one chain
  *   - `agentdb.reports.list`  — canonical reports for the tenant
  *
+ * Issue #2428 (Agent Mesh S17, G13a) adds a fifth read in this
+ * family, over the slice's own projection:
+ *   - `agentdb.trace.get`     — the assembled mesh trace for
+ *     one W3C trace id (hop records + the job-history rows for
+ *     the trace's mapped jobIds), honestly partial with named
+ *     breaks when the chain is broken. Same read contract:
+ *     projection only, tenant from IAAA, no tenant argument.
+ *
  * Read contract (R1/R5/R7): every tool reads the PROJECTION
  * ONLY, through the slice-1/2/3 read helpers behind the ports
  * — no duplicated query logic, no new tables, no new
@@ -47,6 +55,8 @@ import {
   readAuditHistory,
   readReports,
 } from "../data/createAuditReportPorts";
+import { readTraceHops } from "../data/createMeshTracePorts";
+import { assembleMeshTrace } from "../observability/meshTrace";
 import type {
   ChainRow,
   ScheduleRow,
@@ -429,6 +439,128 @@ export class AgentDbReportsListCommand implements IMcpToolCommand<{
     context.audit("agentdb.reports.list", "mcp", {
       reportId,
       reports: result.reports.length,
+    });
+    return result;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* agentdb.trace.get (#2428, Agent Mesh S17 — unified traces)          */
+/* ------------------------------------------------------------------ */
+
+export interface AgentDbTraceGetResult {
+  traceId: string;
+  /** True only when every hop this trace's shape requires is present. */
+  complete: boolean;
+  hops: Array<{
+    kind: string;
+    operation: string;
+    timestampMs: number;
+    caller?: string;
+    agent?: string;
+    jobId?: string;
+  }>;
+  /** Named breaks: each expected-but-missing hop, stated plainly. */
+  breaks: string[];
+  /** The existing run identities the trace maps to (workflow jobIds). */
+  jobIds: string[];
+}
+
+/** Reader seams for traceForMcp (the production defaults read env; tests inject). */
+export interface TraceForMcpDeps {
+  /** Tenant override (tests); absent → resolveIaaaTenant(env), the sibling commands' resolution. */
+  tenantId?: string;
+  readHops?: (traceId: string) => Promise<import("../data/meshTracePorts").MeshTraceHop[]>;
+  readJobs?: (tenantId: string, chainId: string) => Promise<ShardJobRow[] | null>;
+}
+
+const TRACE_ID_SHAPE = /^[0-9a-f]{32}$/;
+
+/**
+ * Assemble one mesh trace for the read surface. Tenancy (R7):
+ * the tenant is resolved from env exactly like the sibling
+ * commands; hops recorded under a DIFFERENT tenant are
+ * excluded before assembly (a hop whose tenant is null — an
+ * ingress boundary with no scope — stays visible: it carries
+ * no tenant material). The trace id itself is an unguessable
+ * 128-bit identifier; malformed ids are refused, never
+ * normalized into a lookup.
+ */
+export async function traceForMcp(
+  env: Partial<Env>,
+  traceId: string,
+  deps: TraceForMcpDeps = {},
+): Promise<AgentDbTraceGetResult> {
+  if (typeof traceId !== "string" || !TRACE_ID_SHAPE.test(traceId)) {
+    throw new Error("agentdb.trace.get: traceId must be a W3C trace id (32 lowercase hex).");
+  }
+  const tenantId = deps.tenantId ?? resolveIaaaTenant(env as Env);
+  const readHops = deps.readHops ?? ((id: string) => readTraceHops(env, id));
+  const readJobs = deps.readJobs ?? ((t: string, c: string) => readJobHistory(env, t, c));
+
+  const allHops = await readHops(traceId);
+  const hops = allHops.filter(
+    (hop) => hop.tenantId === undefined || hop.tenantId === null || hop.tenantId === tenantId,
+  );
+  const jobIds = [
+    ...new Set(
+      hops
+        .map((hop) => hop.jobId)
+        .filter((j): j is string => typeof j === "string" && j.length > 0),
+    ),
+  ];
+  const rows: ShardJobRow[] = [];
+  for (const jobId of jobIds) {
+    const jobRows = await readJobs(tenantId, jobId).catch(() => null);
+    if (jobRows) rows.push(...jobRows);
+  }
+  const assembly = assembleMeshTrace(traceId, hops, rows);
+  return {
+    traceId: assembly.traceId,
+    complete: assembly.complete,
+    hops: assembly.hops.map((hop) => ({
+      kind: hop.kind,
+      operation: hop.operation,
+      timestampMs: hop.timestampMs,
+      ...(hop.caller ? { caller: hop.caller } : {}),
+      ...(hop.agent ? { agent: hop.agent } : {}),
+      ...(hop.jobId ? { jobId: hop.jobId } : {}),
+    })),
+    breaks: assembly.breaks,
+    jobIds: assembly.jobIds,
+  };
+}
+
+export class AgentDbTraceGetCommand implements IMcpToolCommand<{
+  traceId: string;
+}> {
+  readonly name = "agentdb.trace.get";
+  readonly description =
+    "Assemble one mesh trace from AgentDB by its W3C trace id: the ordered hops a request left across the chat turn, mesh doors, async jobs, workflow starts/steps, projections, and A2A calls, with named breaks when the chain is incomplete. Read-only: it writes nothing. The tenant is resolved from the caller's environment, never from arguments; hops recorded under another tenant are excluded.";
+  readonly jsonSchema = {
+    type: "object" as const,
+    properties: {
+      traceId: {
+        type: "string",
+        description: "The W3C trace id (32 lowercase hex) minted at the request's ingress.",
+      },
+    },
+    required: ["traceId"],
+  };
+  readonly zodSchema = z.object({
+    traceId: z.string().min(1).describe("The W3C trace id (32 lowercase hex)"),
+  });
+
+  async execute(
+    input: { traceId: string },
+    context: McpToolContext,
+  ): Promise<AgentDbTraceGetResult> {
+    const result = await traceForMcp(context.env, input.traceId);
+    context.audit("agentdb.trace.get", "mcp", {
+      traceId: result.traceId,
+      complete: result.complete,
+      hops: result.hops.length,
+      breaks: result.breaks.length,
     });
     return result;
   }

@@ -42,6 +42,7 @@ import { AGENT_ERROR_CATALOG, AgentErrorCode } from "../../aspects/errorCodes";
 import type { PaymentRecord } from "../../payments/ledger";
 import type { Env } from "../../types";
 import type { A2AAttribution } from "../../a2a/meshCredentials";
+import { traceIdOfTraceparent } from "../../observability/meshTrace";
 
 /**
  * The operations this dispatch serves. This constant is the
@@ -126,6 +127,13 @@ export interface PaymentsProcessRequest {
    * callers), where no edge-authenticated caller exists to record.
    */
   caller?: string;
+  /**
+   * Issue #2428 (Agent Mesh S17): the W3C trace id of the
+   * caller's mesh trace, threaded from the edge traceparent by
+   * the class beside the caller. The method records it with
+   * the payment's ledger write; absent for untraced callers.
+   */
+  traceId?: string;
 }
 
 /** The PaymentsAgent method surface the dispatch delegates to. */
@@ -150,6 +158,13 @@ export interface PaymentsA2ADeps {
    * attribution); the surface/credential parts stay at the edge.
    */
   attribution?: A2AAttribution;
+  /**
+   * Issue #2428 (Agent Mesh S17): the edge's mesh traceparent
+   * for this call, injected by the class from handleA2A's
+   * fourth argument. Only its trace id is threaded onward
+   * (into payments.process's recorded ledger attribution).
+   */
+  traceparent?: string;
 }
 
 /**
@@ -212,6 +227,7 @@ async function executeOperation(
   args: Record<string, unknown>,
   executor: PaymentsA2AExecutor,
   attribution?: A2AAttribution,
+  traceparent?: string,
 ): Promise<unknown> {
   switch (operation) {
     case "payments.budget_check": {
@@ -253,6 +269,12 @@ async function executeOperation(
         // from the request body, which anyone holding a credential
         // could forge.
         ...(attribution ? { caller: attribution.caller } : {}),
+        // Mesh trace (issue #2428): the edge's trace id rides
+        // beside the caller the same way — from the edge's
+        // traceparent, never from the request body.
+        ...(traceIdOfTraceparent(traceparent)
+          ? { traceId: traceIdOfTraceparent(traceparent)! }
+          : {}),
       };
       // Faithful pass-through: the method validates against the
       // budget guard, verifies with the facilitator, and records
@@ -317,7 +339,7 @@ export async function dispatchPaymentsA2A(
       // injected executor there is no honest way to serve this.
       throw new Error("Payments executor is not configured for this dispatch context.");
     }
-    const result = await executeOperation(op, args, deps.executor, deps.attribution);
+    const result = await executeOperation(op, args, deps.executor, deps.attribution, deps.traceparent);
     return { ok: true, operation, correlationId, result };
   } catch (err) {
     if (err instanceof PaymentsA2AInputError) {

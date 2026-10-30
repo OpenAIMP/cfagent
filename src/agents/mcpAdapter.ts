@@ -16,6 +16,8 @@ import { tool } from "ai";
 import { z } from "zod";
 import type { IMcpToolCommand, McpToolContext } from "../patterns/interfaces";
 import { McpToolFactory } from "../mcp/commands";
+import { recordTraceHopBestEffort } from "../data/createMeshTracePorts";
+import { childContextOfTraceparent } from "../observability/meshTrace";
 import {
   authorizeMcpToolCall,
   createProductionMcpPermissionPort,
@@ -57,7 +59,15 @@ export class McpAgentToolAdapter {
           // nothing: identity-gated tools then fail closed at
           // execution, exactly as an unidentified direct call does.
           const actingLogin = context.actingLogin?.();
-          return context.submitJob({
+          // #2428 (Agent Mesh S17): stamp the turn's traceparent
+          // into the job payload under the same server-side-only
+          // discipline as the acting identity — resolved HERE,
+          // from the turn context, never from tool arguments — so
+          // the job executor re-supplies it to the execution
+          // context and the run stays on the turn's trace. Absent
+          // trace stamps nothing.
+          const traceparent = context.traceparent?.();
+          const submitted = await context.submitJob({
             capability: "mcp.tool",
             payload: {
               toolName: command.name,
@@ -65,8 +75,25 @@ export class McpAgentToolAdapter {
               ...(typeof actingLogin === "string" && actingLogin.trim()
                 ? { actingLogin }
                 : {}),
+              ...(typeof traceparent === "string" && traceparent
+                ? { traceparent }
+                : {}),
             },
           });
+          const traceChild = childContextOfTraceparent(traceparent);
+          if (traceChild) {
+            void recordTraceHopBestEffort(context.env, {
+              traceId: traceChild.traceId,
+              spanId: traceChild.spanId,
+              parentSpanId: traceChild.parentSpanId,
+              kind: "job-queue",
+              operation: command.name,
+              timestampMs: Date.now(),
+              caller: typeof actingLogin === "string" ? actingLogin : undefined,
+              jobId: submitted.jobId,
+            });
+          }
+          return submitted;
         }
         return executeWithPermissionGate({
           port,

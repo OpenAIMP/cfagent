@@ -120,7 +120,11 @@ describe("migration 0022 registration", () => {
     expect(versions.filter((v) => v === 22)).toHaveLength(1);
     expect(MIGRATION_0022_D1_REGULARIZATION.version).toBe(22);
     expect(MIGRATION_0022_D1_REGULARIZATION.name).toBe("0022_d1_regularization");
-    expect(ALL_MIGRATIONS[ALL_MIGRATIONS.length - 1]).toBe(MIGRATION_0022_D1_REGULARIZATION);
+    // #2428 appended migration 0023 (agent_mesh_trace_hops) after
+    // 0022; 0022's registration is asserted by position-independent
+    // containment now (the pin rule: the appending slice updates
+    // the pin its change alters).
+    expect(ALL_MIGRATIONS).toContain(MIGRATION_0022_D1_REGULARIZATION);
   });
 });
 

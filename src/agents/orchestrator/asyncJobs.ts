@@ -42,6 +42,8 @@ import {
 import { getServiceUserLogin } from "../../security/serviceIdentity";
 import type { MembershipStore } from "../../security/authorization";
 import { executeMCPTool } from "../../mcp";
+import { recordTraceHopBestEffort } from "../../data/createMeshTracePorts";
+import { childContextOfTraceparent } from "../../observability/meshTrace";
 import { executeNaturalLanguageQuery } from "../nlq";
 import {
   NLQ_MODE_SWITCH,
@@ -759,6 +761,25 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
         headers: Object.fromEntries(response.headers.entries()),
       };
     } else if (job.capability === "mcp.tool") {
+      // #2428 (Agent Mesh S17): the execution hop — recorded when
+      // the job's payload carries the turn's stamped traceparent;
+      // an unstamped job executes untraced (the recorded break),
+      // never under a minted-after-the-fact trace.
+      const traceChild = childContextOfTraceparent(payload.traceparent);
+      if (traceChild) {
+        const executeHop: import("../../data/meshTracePorts").MeshTraceHop = {
+          traceId: traceChild.traceId,
+          spanId: traceChild.spanId,
+          parentSpanId: traceChild.parentSpanId,
+          kind: "job-execute",
+          operation: String(payload.toolName || ""),
+          timestampMs: Date.now(),
+          caller:
+            typeof payload.actingLogin === "string" ? payload.actingLogin : undefined,
+          jobId,
+        };
+        await recordTraceHopBestEffort(ctx.env, executeHop);
+      }
       const toolName = String(payload.toolName || "");
       const args = (payload.arguments || {}) as Record<string, unknown>;
       result = await executeMCPTool(toolName, args, {
@@ -778,6 +799,13 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
         // call rather than captured.
         actingLogin: () =>
           typeof payload.actingLogin === "string" ? payload.actingLogin : undefined,
+        // #2428 (Agent Mesh S17): re-supply the traceparent the
+        // turn adapter stamped into this job's payload at queue
+        // time (server-side only — a payload without the stamp
+        // resolves to no trace, and the execution records no
+        // trace hops rather than fabricating one).
+        traceparent: () =>
+          typeof payload.traceparent === "string" ? payload.traceparent : undefined,
         // Issue #1686: async-job MCP scans capture like turn-tool scans.
         // The scan mechanism itself is executing-pinned via the MCP leg
         // pin; this literal is source-pinned below (see the pin file).

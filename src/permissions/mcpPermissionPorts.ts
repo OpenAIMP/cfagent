@@ -171,6 +171,7 @@ export const MCP_TOOL_SCOPES: Record<string, McpScope> = {
   "agentdb.jobs.history": "mcp:read",
   "agentdb.audit.history": "mcp:read",
   "agentdb.reports.list": "mcp:read",
+  "agentdb.trace.get": "mcp:read",
   // #2341 (mesh S5): the ScheduledAgent door's read — a pure list/inspect.
   list_scheduled_goals: "mcp:read",
   // #2349 (mesh S6): the TradingAgent door's reads (accounts,

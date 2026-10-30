@@ -1110,6 +1110,41 @@ CREATE TABLE IF NOT EXISTS resource_comparison_reports (
 `,
 };
 
+/**
+ * Migration 0023 — agent_mesh_trace_hops (issue #2428, Agent
+ * Mesh S17 / G13a unified traces). Portable subset (R2): no
+ * dialect functions, epoch-ms integers. One row per recorded
+ * trace hop; the (trace_id, span_id) primary key is the
+ * idempotency rule — a durable-replay re-record of the same
+ * deterministic span converges via ON CONFLICT DO NOTHING in
+ * the adapter. The trace index serves the read surface's
+ * ordered assembly. Retention: hops are diagnostic records,
+ * bounded by the trace volume they observe; no purge contract
+ * is declared in this slice (the table joins the retention
+ * review with the other AgentDB tables, #1701's contract).
+ */
+export const MIGRATION_0023_AGENT_MESH_TRACE_HOPS: DataMigration = {
+  version: 23,
+  name: "0023_agent_mesh_trace_hops",
+  sql: `
+CREATE TABLE IF NOT EXISTS agent_mesh_trace_hops (
+  trace_id TEXT NOT NULL,
+  span_id TEXT NOT NULL,
+  parent_span_id TEXT,
+  kind TEXT NOT NULL,
+  operation TEXT NOT NULL,
+  timestamp_ms INTEGER NOT NULL,
+  tenant_id TEXT,
+  caller TEXT,
+  agent_name TEXT,
+  job_id TEXT,
+  note TEXT,
+  PRIMARY KEY (trace_id, span_id)
+);
+CREATE INDEX IF NOT EXISTS agent_mesh_trace_hops_trace_idx ON agent_mesh_trace_hops (trace_id, timestamp_ms);
+`,
+};
+
 export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0001_AGENT_GOVERNANCE,
   MIGRATION_0002_AGENT_CHAINS_SCHEDULES,
@@ -1133,6 +1168,7 @@ export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0020_IV_HISTORY,
   MIGRATION_0021_MARKETPLACE,
   MIGRATION_0022_D1_REGULARIZATION,
+  MIGRATION_0023_AGENT_MESH_TRACE_HOPS,
 ];
 
 function splitStatements(sqlText: string): string[] {

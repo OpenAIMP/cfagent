@@ -737,6 +737,7 @@ export const MESH_TOOL_FAMILIES: MeshToolFamilyEntry[] = [
       "agentdb.jobs.history",
       "agentdb.audit.history",
       "agentdb.reports.list",
+      "agentdb.trace.get",
     ],
     commandSources: [{ file: "src/mcp/agentDbReadCommands.ts", kind: "readonly-name" }],
   },
@@ -1663,6 +1664,129 @@ export const MESH_CAPABILITY_DOORS: MeshCapabilityDoorEntry[] = [
   },
 ];
 
+// ---------------------------------------------------------------------------
+// Trace spine (S17, #2428, programme G13a) — the unified trace:
+// one W3C trace id (#1743) carried across doors, workflows, and
+// agents. Each entry names one hop: carried (with its carrier
+// and where the hop is recorded) or break (a hop that cannot
+// carry the id today, with the consequence — a recorded trace
+// break, never a fabricated link). Hop records live in AgentDB
+// `agent_mesh_trace_hops` (migration 0023) behind the
+// src/data/meshTracePorts.ts port, are emitted to the ADR 0011
+// observability stream per hop, and are assembled by the
+// `agentdb.trace.get` read command. tests/mesh_traces_s17_2428
+// .test.ts pins this record against the carriers in code.
+// ---------------------------------------------------------------------------
+
+export interface MeshTraceSpineEntry {
+  /** The hop kind (src/data/meshTracePorts.ts MESH_TRACE_HOP_KINDS), or the name of an unjoined leg for a break. */
+  hop: string;
+  status: "carried" | "break";
+  /** How the trace id travels at this hop (carried only). */
+  carrier?: string;
+  /** Where the hop is recorded (carried only). */
+  evidence?: string;
+  /** Why the leg cannot join today, and the consequence (break only). */
+  consequence?: string;
+}
+
+export const MESH_TRACE_SPINE: MeshTraceSpineEntry[] = [
+  {
+    hop: "ingress",
+    status: "carried",
+    carrier:
+      "W3C traceparent header, continued or minted at the boundary (#1743 traceContextFromHeaders / withRequestObservability); the A2A edge continues or mints per call (src/a2a/index.ts).",
+    evidence: "Observability stream (http.request + mesh.trace.hop events); A2A ingress hop recorded as kind \"a2a\".",
+  },
+  {
+    hop: "turn",
+    status: "carried",
+    carrier:
+      "Minted lazily on the OrchestratorAgent turn stash (turnTraceparent()) and shared by every consumer of the turn; carried to tools via ChatTurnHelpersContext.turnTraceparent → McpToolContext.traceparent.",
+    evidence: "Hop recorded at mint (kind \"turn\", caller = the turn's userLogin) in agent_mesh_trace_hops.",
+  },
+  {
+    hop: "door",
+    status: "carried",
+    carrier:
+      "McpToolContext.traceparent resolver, read by every mesh door command before dispatch (src/mcp/meshDoorCommands.ts recordDoorHop), under the S5 server-side-only carrier discipline — never a tool argument.",
+    evidence: "Hop per door call (kind \"door\", caller = acting login, agent = door target class).",
+  },
+  {
+    hop: "job-queue",
+    status: "carried",
+    carrier:
+      "Stamped into the mcp.tool async-job payload by McpAgentToolAdapter at queue time, server-side from the turn context (mirrors the S5 actingLogin stamp).",
+    evidence: "Hop at queue time (kind \"job-queue\", jobId = the queued job's id).",
+  },
+  {
+    hop: "job-execute",
+    status: "carried",
+    carrier:
+      "Re-supplied by the async-job executor from the payload stamp into executeMCPTool's traceparent carrier (src/agents/orchestrator/asyncJobs.ts), mirroring actingLogin.",
+    evidence: "Hop at execution (kind \"job-execute\", jobId = the job's id).",
+  },
+  {
+    hop: "workflow-start",
+    status: "carried",
+    carrier:
+      "WorkflowJobCommand.traceparent (#1743's field, producer-stamped by buildChatScreenCommand from the turn resolver) through WorkflowPort.start; the paid path's PaymentWorkflow submission carries the identical command.",
+    evidence: "Hop at start (kind \"workflow-start\", jobId = the run's jobId, operations screener.start / payment.start).",
+  },
+  {
+    hop: "workflow-step",
+    status: "carried",
+    carrier:
+      "The command's traceparent, inherited by shard commands via shardCommandFor's parent spread; step hops derive deterministic spans from (jobId, step name) so durable replay converges.",
+    evidence: "Hops per completed step (kind \"workflow-step\") recorded by the screener flow's traceHop dep, wired in screenerWorkflow.ts buildDeps.",
+  },
+  {
+    hop: "projection",
+    status: "carried",
+    carrier:
+      "The trace's mapped jobId joins the D1 projection directly: assembly folds agent_shard_jobs rows for the jobId in as projection hops, and the flow records project-shard / project-final hops under the same trace.",
+    evidence: "Projection rows (read via readJobHistory) + recorded hops (kind \"projection\").",
+  },
+  {
+    hop: "a2a",
+    status: "carried",
+    carrier:
+      "Traceparent header at the A2A edge (continued or minted), handed into handleA2A as the fourth argument beside the S16 attribution (src/a2a/index.ts).",
+    evidence: "Hop at the edge (kind \"a2a\", caller = a2a-credential:<surface> or shared-transitional, agent = the surface).",
+  },
+  {
+    hop: "ledger",
+    status: "carried",
+    carrier:
+      "PaymentsAgent A2A path only: edge traceparent → dispatch deps → PaymentsProcessRequest.traceId → the ledger forward body → the ledger owner's payments_agent.recorded audit payload (shape-checked at the route).",
+    evidence: "Audit payload carries traceId beside the S16 caller; hop recorded at the ledger route (kind \"ledger\", deterministic span on the idempotency key).",
+  },
+  {
+    hop: "trading-workflow-steps",
+    status: "break",
+    consequence:
+      "TradingTradeWorkflow's params carry no traceparent field (the S9 approval door starts it from TradingAgent, not from a traced command), so a chat trade's trace ends at the door/start hops: the trade run's internal steps cannot join the turn's trace until the workflow's params grow the field (a TradingAgent-slice change, not an instrumentation shim here). Assembly reports the trade trace as far as the door.",
+  },
+  {
+    hop: "payment-workflow-steps",
+    status: "break",
+    consequence:
+      "PaymentWorkflow's internal steps (gate, ledger record inside the workflow, screener start) record no step hops: the S10 path's trace covers the port's payment.start hop and the screener run it starts (whose command carries the traceparent), but the payment run's own step spans are not yet recorded, so assembly shows the payment leg as its start hop plus the screener leg.",
+  },
+  {
+    hop: "http-route-workflow-starts",
+    status: "break",
+    consequence:
+      "Route-originated workflow starts (goalScreenWorkflowSubmission and the scheduled starters) build their commands outside a turn and stamp no traceparent: withRequestObservability mints an ingress trace for the request's observability event but no handler receives it, so route-started runs are untraced end to end. Consequence: their runs appear in no trace assembly until a starter threads the ingress trace into its command.",
+  },
+  {
+    hop: "channel-ingress-turns",
+    status: "break",
+    consequence:
+      "Channel ingresses that drive services directly (email/voice trading paths, the NLQ webhook) never enter an OrchestratorAgent turn stash, so no turn trace is minted for them: their work is auditable through mas_events and the channel records, but it does not join the mesh trace spine until those paths route through a traced turn or mint at their own ingress.",
+  },
+];
+
 export const MESH_NON_RENAMES: MeshNonRenameEntry[] = [
   {
     names: ["SearchAgent", "SearchHub", "SearchAgentTab"],
@@ -1691,6 +1815,7 @@ export const MESH_REGISTRY = {
   doors: MESH_DOORS,
   workflows: MESH_WORKFLOWS,
   capabilityDoors: MESH_CAPABILITY_DOORS,
+  traceSpine: MESH_TRACE_SPINE,
   nonRenames: MESH_NON_RENAMES,
 } as const;
 
