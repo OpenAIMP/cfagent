@@ -98,6 +98,9 @@ import {
   GetTradingAccountsCommand,
   GetTradingPositionsCommand,
   GetTradingQuoteCommand,
+  StartTradeApprovalCommand,
+  DecideTradeApprovalCommand,
+  GetTradeApprovalStatusCommand,
   ListReportAssetsCommand,
   GetReportAssetCommand,
   BrowserSnapTransactionCommand,
@@ -1737,6 +1740,19 @@ export class McpToolFactory {
     this.registerTool(new GetTradingQuoteCommand());
     this.registerTool(new ListReportAssetsCommand());
     this.registerTool(new GetReportAssetCommand());
+
+    // Agent Mesh S9/G4 (#2375, batch D): the chat turn crosses the
+    // TradingAgent approval-door boundary — through the door, not
+    // around it. A proposal is submitted to the approval door
+    // (start_trade_approval: the durable TradingTradeWorkflow run
+    // starts and waits), the human's decision is delivered through
+    // the door (decide_trade_approval: authorizer derived
+    // server-side, never an argument), and the run's status reads
+    // from the workflow binding (get_trade_approval_status). The
+    // synchronous settle still has no command.
+    this.registerTool(new StartTradeApprovalCommand());
+    this.registerTool(new DecideTradeApprovalCommand());
+    this.registerTool(new GetTradeApprovalStatusCommand());
 
     // Agent Mesh G1 doors (#2351, S7 batch C): the chat turn reaches
     // BrowserAgent (snap/capture/scrape) and SlackAgent (approval
