@@ -15,9 +15,10 @@
  *   server-side state (createState from ./session). The redirect
  *   URI is ${APP_BASE_URL || "https://agent.openaimp.com"}/auth/callback/<providerId>.
  *   A provider
- *   with the credentials gate on (the default) fails start with an
- *   error page when its client id/secret env is missing — never a
- *   redirect to a flow that cannot complete.
+ *   with the credentials gate on (the default) fails start with a
+ *   redirect to the login page carrying the signin_failed outcome
+ *   when its client id/secret env is missing — never a redirect to
+ *   a flow that cannot complete, and never a bare error page (#2402).
  * - handleCallback: state verification, code exchange at the token
  *   endpoint THROUGH the shared oauth2 core
  *   (exchangeAuthorizationCodeConfidential in ./oauth2Core —
@@ -27,14 +28,15 @@
  *   only in the token request body; nothing here logs a secret,
  *   a token, or a code.
  *
- * Fail-closed validation:
+ * Fail-closed validation (#2402: every failure below redirects to
+ * the login page with the signin_failed outcome, technical detail
+ * in the server log only; no session, no binding in any case):
  * - provider error parameter, missing code/state, or bad state →
- *   error page (400/403), no upstream call on a bad state.
- * - token endpoint failure or a missing access token → error page
- *   (upstream status preserved as 502; an HTTP-200 error payload
- *   is a 400 carrying the provider's error description).
+ *   login redirect, no upstream call on a bad state.
+ * - token endpoint failure or a missing access token → login
+ *   redirect (the upstream status is logged, not surfaced).
  * - a missing/unverified email when requireEmailVerified is set →
- *   error page, here in the factory (the tail has no such rule).
+ *   login redirect, here in the factory (the tail has no such rule).
  * - a missing/blank subject or login-key field is NOT re-decided
  *   here: the profile is handed to the generic wired tail, whose
  *   fail-closed rules (including the MISSING_SUBJECT_ID failure
@@ -63,6 +65,7 @@
  * only consumer, PR-A's legacy-callback bridge.)
  */
 import type { Env } from "../types";
+import { authOutcomeLoginUrl } from "./authOutcome";
 import type { LoginCallbackOptions, LoginProvider } from "./providers";
 import { completeWiredLogin, type NormalizedLoginProfile } from "./iaaaLogin";
 import { createState, verifyState } from "./session";
@@ -128,20 +131,20 @@ function redirectUri(env: Env, options: OidcProviderOptions): string {
   return `${base}/auth/callback/${options.providerId}`;
 }
 
+/**
+ * #2402: a provider-flow failure no longer strands the user on a
+ * bare error page (or, worse, nowhere — the #2280 loop). It redirects
+ * to the login page carrying the generic signin_failed outcome, so
+ * the login page shows the user-safe message. The technical message
+ * and status go to the server log only, never to the user. The
+ * fail-closed semantics are unchanged: no session, no binding.
+ */
 function errorPage(message: string, status = 400): Response {
-  return new Response(
-    `<!DOCTYPE html><html><head><title>Authentication Error</title></head>` +
-      `<body><h1>Authentication Error</h1><p>${escapeHtml(message)}</p></body></html>`,
-    { status, headers: { "Content-Type": "text/html; charset=utf-8" } }
-  );
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+  console.warn(`[auth] sign-in failed (status ${status}): ${message}`);
+  return new Response(null, {
+    status: 302,
+    headers: { Location: authOutcomeLoginUrl("signin_failed") },
+  });
 }
 
 /** Which fail-closed rule a normalization failure came from. */
