@@ -231,6 +231,12 @@
  * bringing the pinned array to 294 entries; the delegation sequence
  * is unchanged (same handler, same position).
  *
+ * Issue #2457 added five — GET /admin/tenants and POST
+ * /admin/tenants/:tenantId/queues/resolve, /dump, /cancel-all,
+ * /clear-table (in handleAdminTenantQueueRoutes, after serviceUser,
+ * before schedules) — bringing the pinned array to 299 entries and
+ * the delegation sequence to 32 calls.
+ *
  * LANDMARK RULE (#405): all position assertions anchor to DELEGATION
  * CALLS - the only landmarks a thin router has.
  */
@@ -270,6 +276,7 @@ const HANDLER_FILE: Record<string, string> = {
   "handleScreenerResearchRoutes": "screenerResearch.ts",
   "handleMaintenanceRoutes": "maintenance.ts",
   "handleServiceUserRoutes": "serviceUser.ts",
+  "handleAdminTenantQueueRoutes": "adminTenantQueues.ts",
   "handleSchedulesRoutes": "schedules.ts"
 };
 
@@ -304,6 +311,7 @@ const EXPECTED_DELEGATIONS = [
   "handleScreenerResearchRoutes",
   "handleMaintenanceRoutes",
   "handleServiceUserRoutes",
+  "handleAdminTenantQueueRoutes",
   "handleSchedulesRoutes"
 ];
 
@@ -580,6 +588,11 @@ const EXPECTED_INVENTORY = [
   "handleServiceUserRoutes :: endsWith(\"/admin/service-user/provision\")",
   "handleServiceUserRoutes :: endsWith(\"/admin/service-user/revoke\")",
   "handleServiceUserRoutes :: endsWith(\"/admin/service-user/status\")",
+  "handleAdminTenantQueueRoutes :: endsWith(\"/admin/tenants\")",
+  "handleAdminTenantQueueRoutes :: endsWith(\"/queues/resolve\")",
+  "handleAdminTenantQueueRoutes :: endsWith(\"/queues/dump\")",
+  "handleAdminTenantQueueRoutes :: endsWith(\"/queues/cancel-all\")",
+  "handleAdminTenantQueueRoutes :: endsWith(\"/queues/clear-table\")",
   "handleSchedulesRoutes :: endsWith(\"/schedules\")",
   "handleSchedulesRoutes :: endsWith(\"/api/schedules\")",
   "handleSchedulesRoutes :: === \"/schedules\"",
