@@ -20,6 +20,7 @@
  * normalized by src/services/workflowRuns.ts (secret-shaped keys
  * redacted, long values clipped) and the raw rows are never returned.
  */
+import { createAsyncJobPorts } from "../../data/createAsyncJobPorts";
 import { listJobOutcomes } from "../../services/jobOutcomes";
 import { listScreeningActivity } from "../../services/screeningActivity";
 import type { SqlStorage } from "../../orm";
@@ -61,13 +62,13 @@ function num(value: unknown): number | null {
 
 /** Read the job tree with payloads — the only read that needs them. */
 export function readWorkflowRunJobs(sql: WorkflowRunsSql, sessionId: string, limit: number): WorkflowRunJobRow[] {
-  const rows = Array.from(
-    sql.exec(
-      "SELECT job_id, capability, display_name, status, payload_json, result_json, error, created_at, updated_at, started_at, completed_at, parent_job_id, job_kind, channel, not_before, stage, chain_id FROM mas_async_jobs WHERE session_id = ? ORDER BY created_at DESC LIMIT ?",
-      sessionId,
-      Math.max(1, Math.min(limit, 500)),
-    ),
-  ) as Array<Record<string, unknown>>;
+  // #2358 (#1976 step 4a): the SELECT serves through the async-job
+  // read port (workflowRunRows in src/data/asyncJobPorts.ts); the
+  // row projection below stays this route's domain logic.
+  const rows = createAsyncJobPorts(sql as never).read.workflowRunRows(
+    sessionId,
+    Math.max(1, Math.min(limit, 500)),
+  ) as unknown as Array<Record<string, unknown>>;
   return rows.map((row) => ({
     job_id: String(row.job_id ?? ""),
     capability: String(row.capability ?? ""),

@@ -5,6 +5,17 @@
  * these functions through the context builder in orchestrator.ts;
  * each function receives its dependencies explicitly via
  * AsyncJobsContext.
+ *
+ * Issue #2358 (#1976 step 4a): every storage statement of this
+ * module now serves through the async-job ports
+ * (src/data/asyncJobPorts.ts — Queue / Read / Maintenance roles,
+ * composed by src/data/createAsyncJobPorts.ts over the context's
+ * sql handle). This module keeps the domain logic: display-name
+ * derivation, chain stamping, follow-up planning, the executor's
+ * capability dispatch, and the claim's orchestration. The claim
+ * itself is the port's guarded UPDATE (audit R-7: NOT
+ * transaction-wrapped — serialization + the guard + the
+ * rowsWritten verification are the mechanism, pinned as-is).
  */
 
 import type { AgentContext, ScheduleOptions } from "agents";
@@ -33,6 +44,7 @@ import {
   resolveNlqMode,
 } from "../../config/nlqModes";
 import { getUserDid } from "../did";
+import { createAsyncJobPorts, type AsyncJobPorts } from "../../data/createAsyncJobPorts";
 import { createOptionsDiscoveryPorts } from "../../data/createOptionsDiscoveryPorts";
 import { createDiscoveryService } from "../../services/discoveryService";
 import { buildDataProviderPorts } from "../../data/buildDataProviderPorts";
@@ -103,6 +115,21 @@ const ASYNC_JOB_KINDS: readonly AsyncJobKind[] = ["main", "report", "delivery", 
 const ASYNC_JOB_CHANNELS: readonly AsyncJobChannel[] = ["email", "slack", "webhook"];
 const PIPELINE_STAGES: readonly PipelineStage[] = ["feed", "generate", "store", "serve", "deliver"];
 
+/** The family's ports over the context's sql handle (#2358). */
+function ports(ctx: AsyncJobsContext): AsyncJobPorts {
+  return createAsyncJobPorts(ctx.agentCtx.storage.sql as never);
+}
+
+/**
+ * Issue #2358: the family's ONE DDL home is the queue port's
+ * ensureSchema (base table + session index + gate index + the
+ * probed graph migration). OrchestratorAgent.ensureTables calls
+ * this in place of its former inline CREATE TABLE block.
+ */
+export function ensureAsyncJobTables(sql: AgentContext["storage"]["sql"]): void {
+  createAsyncJobPorts(sql as never).queue.ensureSchema();
+}
+
 /**
  * Issue #1123: additive job-graph migration for mas_async_jobs —
  * parent_job_id / job_kind / channel, probed and added when missing so
@@ -112,30 +139,17 @@ const PIPELINE_STAGES: readonly PipelineStage[] = ["feed", "generate", "store", 
  * stage-chain columns — not_before (per-stage timing), stage and
  * chain_id (stage identity) — all nullable, so legacy rows read as
  * unchained.
+ *
+ * @deprecated Superseded by the queue port's ensureSchema
+ * (src/data/asyncJobPorts.ts, composed by
+ * src/data/createAsyncJobPorts.ts) — #2358 (#1976 step 4a). Kept
+ * as a delegation shim for the existing call sites and pins: it
+ * runs the port's full schema ensure (base + indexes + the same
+ * probed migration), which is idempotent and a no-op beyond the
+ * migration on an existing table.
  */
 export function ensureAsyncJobGraphColumns(sql: AgentContext["storage"]["sql"]): void {
-  const cols = Array.from(sql.exec("PRAGMA table_info(mas_async_jobs)")) as Array<{ name?: unknown }>;
-  const names = new Set(cols.map((c) => String(c?.name ?? "")));
-  if (!names.has("parent_job_id")) {
-    sql.exec("ALTER TABLE mas_async_jobs ADD COLUMN parent_job_id TEXT");
-  }
-  if (!names.has("job_kind")) {
-    sql.exec("ALTER TABLE mas_async_jobs ADD COLUMN job_kind TEXT NOT NULL DEFAULT 'main'");
-  }
-  if (!names.has("channel")) {
-    sql.exec("ALTER TABLE mas_async_jobs ADD COLUMN channel TEXT");
-  }
-  if (!names.has("not_before")) {
-    sql.exec("ALTER TABLE mas_async_jobs ADD COLUMN not_before TEXT");
-  }
-  if (!names.has("stage")) {
-    sql.exec("ALTER TABLE mas_async_jobs ADD COLUMN stage TEXT");
-  }
-  if (!names.has("chain_id")) {
-    sql.exec("ALTER TABLE mas_async_jobs ADD COLUMN chain_id TEXT");
-  }
-  sql.exec("CREATE INDEX IF NOT EXISTS idx_mas_async_jobs_parent ON mas_async_jobs(parent_job_id)");
-  sql.exec("CREATE INDEX IF NOT EXISTS idx_mas_async_jobs_chain ON mas_async_jobs(chain_id)");
+  createAsyncJobPorts(sql as never).queue.ensureSchema();
 }
 
 /** Issue #1123: map a row's graph columns onto record fields, tolerating
@@ -207,24 +221,15 @@ function recordStageTransition(
 export async function submitAsyncJob(ctx: AsyncJobsContext,
   job: AsyncJobSubmission,
 ): Promise<{ jobId: string; status: "queued"; statusUrl: string }> {
-  const sql = ctx.ensureTables();
+  ctx.ensureTables();
+  const queue = ports(ctx).queue;
   const payloadJson = JSON.stringify(job.payload);
   if (new TextEncoder().encode(payloadJson).byteLength > 17_000_000) {
     throw new Error("Async job payload exceeds the 17 MB serialized storage limit.");
   }
   const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-  sql.exec(
-    "DELETE FROM mas_async_jobs WHERE session_id = ? AND status IN ('completed', 'failed') AND created_at < ?",
-    ctx.sessionKey(),
-    cutoff,
-  );
-  sql.exec(
-    `DELETE FROM mas_async_jobs WHERE job_id IN (
-      SELECT job_id FROM mas_async_jobs WHERE session_id = ?
-      AND status IN ('completed', 'failed') ORDER BY created_at DESC LIMIT -1 OFFSET 500
-    )`,
-    ctx.sessionKey(),
-  );
+  queue.pruneTerminalBefore(ctx.sessionKey(), cutoff);
+  queue.pruneTerminalToCap(ctx.sessionKey(), 500);
   const jobId = crypto.randomUUID();
   const now = new Date().toISOString();
   // Consolidation C4 (#1329): a generic http.request job whose payload
@@ -252,25 +257,20 @@ export async function submitAsyncJob(ctx: AsyncJobsContext,
                 : job.capability === "feed.snapshot"
                   ? `Feed snapshot: ${((job.payload as { symbols?: Array<{ symbol?: string }> }).symbols ?? []).map((s) => s.symbol).filter(Boolean).join(", ").slice(0, 100) || "universe"}`
                   : `Task: ${(job.payload as { title?: string }).title ?? job.capability}`);
-  // Single-line column list: the shared MockSqlStorage INSERT parser does
-  // not span newlines inside the column list (tests would silently drop
-  // the row) — keep this statement on one line.
-  sql.exec(
-    "INSERT INTO mas_async_jobs (job_id, session_id, capability, display_name, status, payload_json, created_at, updated_at, parent_job_id, job_kind, channel, not_before, stage, chain_id) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  queue.insertQueued({
     jobId,
-    ctx.sessionKey(),
-    job.capability,
+    sessionId: ctx.sessionKey(),
+    capability: job.capability,
     displayName,
     payloadJson,
-    now,
-    now,
-    job.parentJobId ?? null,
-    job.jobKind ?? "main",
-    job.channel ?? null,
-    job.runAt ?? null,
-    httpChainStage ?? null,
-    httpChainId ?? null,
-  );
+    nowIso: now,
+    parentJobId: job.parentJobId ?? null,
+    jobKind: job.jobKind ?? "main",
+    channel: job.channel ?? null,
+    notBefore: job.runAt ?? null,
+    stage: httpChainStage ?? null,
+    chainId: httpChainId ?? null,
+  });
 
   try {
     // Consolidation C3 (#1277): a job with a not-before time is armed
@@ -282,12 +282,10 @@ export async function submitAsyncJob(ctx: AsyncJobsContext,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    sql.exec(
-      "UPDATE mas_async_jobs SET status = 'failed', error = ?, updated_at = ?, completed_at = ? WHERE job_id = ? AND status = 'queued'",
+    queue.failQueued(
+      jobId,
       `Could not schedule async work: ${message}`,
       new Date().toISOString(),
-      new Date().toISOString(),
-      jobId,
     );
     throw error;
   }
@@ -297,10 +295,8 @@ export async function submitAsyncJob(ctx: AsyncJobsContext,
 }
 
 export async function recoverQueuedAsyncJobs(ctx: AsyncJobsContext): Promise<void> {
-  const pending = Array.from(ctx.ensureTables().exec(
-    "SELECT job_id, not_before FROM mas_async_jobs WHERE session_id = ? AND status = 'queued' ORDER BY created_at ASC LIMIT 100",
-    ctx.sessionKey(),
-  )) as Array<{ job_id: string; not_before?: string | null }>;
+  ctx.ensureTables();
+  const pending = ports(ctx).read.listQueued(ctx.sessionKey());
   for (const row of pending) {
     const jobId = row.job_id;
     try {
@@ -323,26 +319,16 @@ export async function recoverQueuedAsyncJobs(ctx: AsyncJobsContext): Promise<voi
 }
 
 export function getAsyncJob(ctx: AsyncJobsContext, jobId: string): AsyncJobRecord | undefined {
-  const sql = ctx.ensureTables();
-  const rows = Array.from(sql.exec(
-    `SELECT job_id, session_id, capability, display_name, status, result_json, response_status,
-            error, created_at, updated_at, started_at, completed_at, parent_job_id, job_kind, channel, not_before, stage, chain_id
-     FROM mas_async_jobs WHERE job_id = ? AND session_id = ?`,
-    jobId,
-    ctx.sessionKey(),
-  )) as Array<Record<string, unknown>>;
-  const row = rows[0];
+  ctx.ensureTables();
+  const row = ports(ctx).read.getRow(jobId, ctx.sessionKey()) as Record<string, unknown> | undefined;
   if (!row) return undefined;
   if (row.status === "running" && typeof row.started_at === "string" &&
     Date.now() - Date.parse(row.started_at) > 2 * 60 * 60 * 1000) {
     const completedAt = new Date().toISOString();
-    sql.exec(
-      `UPDATE mas_async_jobs SET status = 'failed',
-       error = 'Execution stopped before a result was recorded; the outcome may be unknown. Verify external side effects before submitting again.',
-       updated_at = ?, completed_at = ? WHERE job_id = ? AND status = 'running'`,
-      completedAt,
-      completedAt,
+    ports(ctx).queue.reapStaleRunning(
       jobId,
+      "Execution stopped before a result was recorded; the outcome may be unknown. Verify external side effects before submitting again.",
+      completedAt,
     );
     return getAsyncJob(ctx, jobId);
   }
@@ -372,13 +358,11 @@ export function getAsyncJob(ctx: AsyncJobsContext, jobId: string): AsyncJobRecor
 }
 
 export function listAsyncJobs(ctx: AsyncJobsContext, limit = 50): AsyncJobRecord[] {
-  const rows = Array.from(ctx.ensureTables().exec(
-    `SELECT job_id, session_id, capability, display_name, status, result_json, error, created_at, updated_at, started_at, completed_at, parent_job_id, job_kind, channel, not_before, stage, chain_id
-     FROM mas_async_jobs WHERE session_id = ?
-     ORDER BY created_at DESC LIMIT ?`,
+  ctx.ensureTables();
+  const rows = ports(ctx).read.listRows(
     ctx.sessionKey(),
     Math.max(1, Math.min(100, Math.floor(limit))),
-  )) as Array<Record<string, unknown>>;
+  ) as unknown as Array<Record<string, unknown>>;
   return rows.map((row) => {
     if (row.status === "running") {
       const updated = getAsyncJob(ctx, String(row.job_id));
@@ -448,7 +432,7 @@ export async function recordScreenerRunMainJob(
   userLogin: string,
   options?: { chainReport?: boolean },
 ): Promise<string> {
-  const sql = ctx.ensureTables();
+  ctx.ensureTables();
   const jobId = crypto.randomUUID();
   const now = new Date().toISOString();
   const kindLabel = screenerKindLabel(outcome.kind);
@@ -458,17 +442,14 @@ export async function recordScreenerRunMainJob(
   // run's main job IS the chain's generate stage — stamped with the
   // stage + a fresh chain id the serve/deliver stages link back to.
   const chainId = outcome.stageChain ? crypto.randomUUID() : undefined;
-  // Single-line INSERT per the MockSqlStorage lesson (multi-line
-  // column lists silently no-op in the shared mock).
-  sql.exec(
-    "INSERT INTO mas_async_jobs (job_id, session_id, capability, display_name, status, payload_json, result_json, error, created_at, updated_at, completed_at, job_kind, stage, chain_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  ports(ctx).queue.insertTerminal({
     jobId,
-    ctx.sessionKey(),
-    "screener.run",
+    sessionId: ctx.sessionKey(),
+    capability: "screener.run",
     displayName,
-    outcome.success ? "completed" : "failed",
-    JSON.stringify({ outcome, userLogin }),
-    JSON.stringify({
+    status: outcome.success ? "completed" : "failed",
+    payloadJson: JSON.stringify({ outcome, userLogin }),
+    resultJson: JSON.stringify({
       status: outcome.success ? "completed" : "failed",
       kind: outcome.kind,
       trigger: outcome.trigger,
@@ -483,14 +464,12 @@ export async function recordScreenerRunMainJob(
       csvKey: outcome.csvKey,
       bridged: true,
     }),
-    outcome.success ? null : outcome.error ?? null,
-    now,
-    now,
-    now,
-    "main",
-    chainId ? "generate" : null,
-    chainId ?? null,
-  );
+    error: outcome.success ? null : outcome.error ?? null,
+    nowIso: now,
+    jobKind: "main",
+    stage: chainId ? "generate" : null,
+    chainId: chainId ?? null,
+  });
   ctx.audit("screener.run_bridged", "orchestrator", { jobId, kind: outcome.kind, success: outcome.success });
   // Issue #1333: every bridged run lands in the job-outcome sink
   // Autopilot Control renders as its job feed. The id is the run's
@@ -580,24 +559,17 @@ export async function retryAsyncJob(
   ctx: AsyncJobsContext,
   jobId: string,
 ): Promise<{ jobId: string; status: "queued"; statusUrl: string }> {
-  const sql = ctx.ensureTables();
-  const rows = Array.from(sql.exec(
-    `SELECT job_id, capability, display_name, status, payload_json, parent_job_id, job_kind, channel, stage, chain_id
-     FROM mas_async_jobs WHERE job_id = ? AND session_id = ?`,
-    jobId,
-    ctx.sessionKey(),
-  )) as Array<Record<string, unknown>>;
-  const row = rows[0];
+  ctx.ensureTables();
+  const row = ports(ctx).read.getRetrySource(jobId, ctx.sessionKey()) as unknown as
+    | Record<string, unknown>
+    | undefined;
   if (!row) {
     throw new Error(`Async job ${jobId} was not found in this session.`);
   }
   if (row.status !== "failed") {
     throw new Error(`Only a failed job can be retried; job ${jobId} is ${String(row.status)}.`);
   }
-  const prior = Array.from(sql.exec(
-    "SELECT job_id, status, payload_json FROM mas_async_jobs WHERE session_id = ?",
-    ctx.sessionKey(),
-  )) as Array<Record<string, unknown>>;
+  const prior = ports(ctx).read.listSessionPayloads(ctx.sessionKey()) as unknown as Array<Record<string, unknown>>;
   for (const candidate of prior) {
     if (candidate.job_id === jobId) continue;
     if (!["queued", "running", "completed"].includes(String(candidate.status))) continue;
@@ -637,17 +609,13 @@ export async function retryAsyncJob(
 }
 
 export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJobPayload): Promise<void> {
-  const sql = ctx.ensureTables();
+  ctx.ensureTables();
+  const family = ports(ctx);
   // Consolidation C3 (#1277): the not-before guard — a deferred stage
   // job whose alarm fired early (recovery re-arm, duplicate fire) is
   // re-armed for the remainder instead of being claimed early. A
   // stage never runs before its time.
-  const preRows = Array.from(sql.exec(
-    "SELECT status, not_before FROM mas_async_jobs WHERE job_id = ? AND session_id = ?",
-    jobId,
-    ctx.sessionKey(),
-  )) as Array<{ status: string; not_before?: string | null }>;
-  const preRow = preRows[0];
+  const preRow = family.read.getExecutionState(jobId, ctx.sessionKey());
   if (preRow?.status === "queued" && typeof preRow.not_before === "string") {
     const remainingSeconds = delaySecondsUntil(preRow.not_before, Date.now());
     if (remainingSeconds > 0) {
@@ -659,22 +627,13 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
     }
   }
   const now = new Date().toISOString();
-  const claimed = sql.exec(
-    `UPDATE mas_async_jobs SET status = 'running', started_at = ?, updated_at = ?
-     WHERE job_id = ? AND session_id = ? AND status = 'queued'`,
-    now,
-    now,
-    jobId,
-    ctx.sessionKey(),
-  );
-  if (claimed.rowsWritten !== 1) return;
+  // THE CLAIM (audit R-7, #2358): the queue port's guarded UPDATE —
+  // claim iff still queued. NOT transaction-wrapped, by ruling:
+  // serialization + the guard + this verification are the
+  // mechanism. false here is the honest not-claimed outcome.
+  if (!family.queue.claim(jobId, ctx.sessionKey(), now)) return;
 
-  const rows = Array.from(sql.exec(
-    "SELECT capability, payload_json, stage, chain_id FROM mas_async_jobs WHERE job_id = ? AND session_id = ?",
-    jobId,
-    ctx.sessionKey(),
-  )) as Array<{ capability: string; payload_json: string; stage?: string | null; chain_id?: string | null }>;
-  const job = rows[0];
+  const job = family.read.getClaimed(jobId, ctx.sessionKey());
   if (!job) throw new Error(`Async job ${jobId} disappeared after it was claimed.`);
   // Consolidation C3 (#1277): stage identity for transition recording
   // (in scope for both the completion and failure paths below).
@@ -1063,15 +1022,7 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
       throw new Error("Async job result exceeds the 12 MB serialized result limit.");
     }
     const completedAt = new Date().toISOString();
-    sql.exec(
-      `UPDATE mas_async_jobs SET status = 'completed', result_json = ?, response_status = ?,
-       updated_at = ?, completed_at = ? WHERE job_id = ? AND status = 'running'`,
-      serializedResult,
-      responseStatus ?? null,
-      completedAt,
-      completedAt,
-      jobId,
-    );
+    family.queue.complete(jobId, serializedResult, responseStatus ?? null, completedAt);
     ctx.audit("async_job.completed", "orchestrator", { jobId, capability: job.capability });
     // Consolidation C3 (#1277): a stage job's terminal state is
     // recorded per stage — a skipped or held stage says so, with its
@@ -1100,7 +1051,7 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
         const { planShardAdvance, chainRowsFromSql } = await import("../../services/shardJobs");
         const shardPayload = payload as unknown as import("../../services/shardJobs").ShardPayload;
         if (shardPayload?.chain) {
-          const rows = chainRowsFromSql(sql, jobChainId, ctx.sessionKey());
+          const rows = chainRowsFromSql(ctx.agentCtx.storage.sql as never, jobChainId, ctx.sessionKey());
           const completed = rows.find((r) => r.jobId === jobId);
           const specs = planShardAdvance({
             chain: shardPayload.chain,
@@ -1295,14 +1246,7 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const completedAt = new Date().toISOString();
-    sql.exec(
-      `UPDATE mas_async_jobs SET status = 'failed', error = ?, updated_at = ?, completed_at = ?
-       WHERE job_id = ? AND status = 'running'`,
-      message,
-      completedAt,
-      completedAt,
-      jobId,
-    );
+    family.queue.failRunning(jobId, message, completedAt);
     ctx.audit("async_job.failed", "orchestrator", { jobId, capability: job.capability, error: message });
     // Consolidation C3 (#1277): a failed stage is the chain's stop
     // point — recorded per stage with its reason; nothing downstream
@@ -1342,7 +1286,7 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
         // when one or more symbols exhausted their retries.
         try {
           const { planShardAdvance, chainRowsFromSql } = await import("../../services/shardJobs");
-          const rows = chainRowsFromSql(sql, jobChainId, ctx.sessionKey());
+          const rows = chainRowsFromSql(ctx.agentCtx.storage.sql as never, jobChainId, ctx.sessionKey());
           for (const spec of planShardAdvance({
             chain: failedPayload.chain,
             rows,
