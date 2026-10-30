@@ -293,7 +293,14 @@ describe("Issue #277 — source pins (no fabricated surfaces)", () => {
     expect(routesSrc()).toContain("/trading/settings/report-dispatch-hitl");
     expect(routesSrc()).toContain("/trading/reports/confirm");
     expect(agentSrc()).toContain("handleReportsRoutes(request, url, path, sessionId");
-    expect(agentSrc()).toContain("mas_report_confirmations");
+    // #2359 (#1976 step 4d) pin update: the confirmations DDL
+    // moved behind the orchestrator-table ports — the class
+    // now wires the table through the composition root
+    // (ensureSchema) instead of naming the CREATE TABLE. The
+    // pin's intent (the class owns the confirmations table's
+    // wiring alongside mas_settings) is unchanged.
+    expect(agentSrc()).toContain("createOrchestratorTablePorts(");
+    expect(agentSrc()).toContain(".confirmations.ensureSchema()");
     expect(agentSrc()).toContain("mas_settings");
   });
 

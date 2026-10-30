@@ -51,6 +51,17 @@
  * divergent persistScheduledReportSql INSERT is retired into
  * this seam (see its deprecation note).
  *
+ * Issue #2359 (#1976 step 4d, ADR 0022 D-A): the seam's
+ * STATEMENTS moved behind the canonical-report store ports
+ * (src/data/canonicalReportStorePorts.ts — the write port 3c
+ * deferred, the read port, and the usage-event port for the
+ * metering section below). This module keeps everything the
+ * contract is made of: the fan-out logic and outcome
+ * computation, the dedupe discipline, the owner refusal, the
+ * never-throws shapes and every log line. The ports hold the
+ * SQL — including the table DDL, whose ONE home is now the
+ * write adapter's ensureSchema.
+ *
  * This module is SDK-free and never throws into scheduled runs: every
  * public function fails closed to null/[] on bad input or SQL errors.
  */
@@ -58,6 +69,10 @@
 import type { SqlStorage } from "../orm";
 import type { ScheduledReportRecord } from "../types";
 import { DataFoundationCode } from "../aspects/errorCodes";
+import {
+  createCanonicalReportStorePorts,
+  type CanonicalReportStorePorts,
+} from "../data/createCanonicalReportStorePorts";
 import {
   indexCanonicalReport,
   INDEX_EXCLUDED_SOURCES,
@@ -101,92 +116,25 @@ export interface ScheduledReportInput {
   createdAt?: string;
 }
 
-/** Add a column to a table when it is missing (additive migration). */
-function ensureColumn(
-  sql: SqlStorage,
-  table: string,
-  column: string,
-  type: string
-): void {
-  const cols = Array.from(
-    sql.exec(`PRAGMA table_info(${table})`)
-  ) as Array<{ name?: unknown }>;
-  const names = cols.map((c) => String(c?.name ?? ""));
-  if (!names.includes(column)) {
-    sql.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
-  }
+/** The store ports over a caller's sql handle (#2359). */
+function storePorts(sql: SqlStorage): CanonicalReportStorePorts {
+  return createCanonicalReportStorePorts(sql as never);
 }
 
-/** Idempotent DDL for mas_reports — same shape as the ORM's own block. */
+/**
+ * Idempotent DDL for mas_reports — the write port's
+ * ensureSchema is the DDL's ONE home now (#2359); this name
+ * stays as the seam's ensure door for its many callers. The
+ * adapter carries the #876 additive column reconciliation
+ * (mas_reports has a multi-DDL history — #308, #389, #584 —
+ * so a DO's table can predate any subset of the current
+ * shape) and the guarded generation UNIQUE index (duplicates
+ * are logged loudly, never deleted; idempotency for such a
+ * DO degrades to the SELECT-then-INSERT check in
+ * storeReportAtGeneration until the rows are resolved).
+ */
 export function ensureScheduledReportsTable(sql: SqlStorage): void {
-  sql.exec(`CREATE TABLE IF NOT EXISTS ${SCHEDULED_REPORTS_TABLE} (
-    id TEXT PRIMARY KEY,
-    run_id TEXT NOT NULL,
-    title TEXT NOT NULL,
-    source TEXT NOT NULL,
-    summary TEXT NOT NULL,
-    body TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    generation_id TEXT
-  )`);
-  // Issue #876: reconcile EVERY expected column additively, not just the
-  // newest ones. mas_reports has a multi-DDL history (#308, #389, #584),
-  // so a DO's table can predate any subset of the current shape; a column
-  // the INSERTs name but the table lacks made every persist for that DO
-  // fail. Column order in CREATE TABLE above is unchanged — reconciliation
-  // only appends what is missing (ALTER cannot add PRIMARY KEY / NOT NULL
-  // constraints, so reconciled columns carry the plain TEXT type, exactly
-  // as the pre-#876 migrations did for generation_id / user_login).
-  ensureColumn(sql, SCHEDULED_REPORTS_TABLE, "id", "TEXT");
-  ensureColumn(sql, SCHEDULED_REPORTS_TABLE, "run_id", "TEXT");
-  ensureColumn(sql, SCHEDULED_REPORTS_TABLE, "title", "TEXT");
-  ensureColumn(sql, SCHEDULED_REPORTS_TABLE, "source", "TEXT");
-  ensureColumn(sql, SCHEDULED_REPORTS_TABLE, "summary", "TEXT");
-  ensureColumn(sql, SCHEDULED_REPORTS_TABLE, "body", "TEXT");
-  ensureColumn(sql, SCHEDULED_REPORTS_TABLE, "created_at", "TEXT");
-  // Additive migration for tables created before issue #308.
-  ensureColumn(sql, SCHEDULED_REPORTS_TABLE, "generation_id", "TEXT");
-  // #584 (EP-003): tenant scoping. Legacy rows predate the column.
-  // They are NOT backfilled to a synthetic owner: an unknown owner is
-  // not a tenant, and assigning it one would misattribute the row in a
-  // multi-tenant store. Unscoped (legacy, no-identity) reads still see
-  // them; every owner-scoped read correctly excludes them.
-  ensureColumn(sql, SCHEDULED_REPORTS_TABLE, "user_login", "TEXT");
-  // Issue #338 (design accepted 2026-10-23): R2-vs-DO storage split for
-  // report bodies. body_r2_key is the pointer to the canonical body in R2
-  // (reports/<reportId>.json in the REPORTS_BUCKET bucket); NULL means the
-  // body still lives inline in the body column (pre-migration rows and,
-  // until the S2 write-path slice lands, every new row too).
-  ensureColumn(sql, SCHEDULED_REPORTS_TABLE, "body_r2_key", "TEXT");
-  // Issue #2347: the recorded fan-out outcome (JSON, see
-  // CanonicalReportFanoutOutcome). NULL on rows stored before
-  // the contract landed — an absent outcome is a legacy row,
-  // never a fabricated success.
-  ensureColumn(sql, SCHEDULED_REPORTS_TABLE, "fanout_outcome", "TEXT");
-
-  sql.exec(
-    `CREATE INDEX IF NOT EXISTS idx_mas_reports_created ON ${SCHEDULED_REPORTS_TABLE} (created_at DESC)`
-  );
-  sql.exec(
-    `CREATE INDEX IF NOT EXISTS idx_mas_reports_user ON ${SCHEDULED_REPORTS_TABLE} (user_login)`
-  );
-  // Issue #876: the dedupe index is guarded. Creating a UNIQUE index over
-  // a column that already holds duplicate non-null values throws in
-  // SQLite; unguarded, that aborted ensure — and therefore EVERY report
-  // write for the DO — forever. The duplicates are logged loudly (never
-  // deleted here: reconciliation is additive only) and the ensure
-  // completes; idempotency for such a DO degrades to the SELECT-then-
-  // INSERT check in storeReportAtGeneration until the rows are resolved.
-  try {
-    sql.exec(
-      `CREATE UNIQUE INDEX IF NOT EXISTS idx_mas_reports_generation ON ${SCHEDULED_REPORTS_TABLE} (generation_id)`
-    );
-  } catch (err) {
-    console.error(
-      `[scheduledReports] ensureScheduledReportsTable: CREATE UNIQUE INDEX idx_mas_reports_generation failed (duplicate generation_id values already stored?); continuing without it: ${err instanceof Error ? err.message : String(err)}`,
-      err
-    );
-  }
+  storePorts(sql).write.ensureSchema();
 }
 
 /** Shape a report input into a ScheduledReportRecord (id assigned). */
@@ -319,21 +267,12 @@ function recordFanoutLegOutcome(
   patch: Partial<Pick<CanonicalReportFanoutOutcome, "vectorize" | "aiSearch" | "aiSearchCode">>
 ): void {
   try {
-    const rows = Array.from(
-      sql.exec(
-        `SELECT fanout_outcome FROM ${SCHEDULED_REPORTS_TABLE} WHERE id = ? LIMIT 1`,
-        reportId
-      )
-    ) as Array<Record<string, unknown>>;
-    const current = parseFanoutOutcome(rows[0]?.fanout_outcome);
+    const store = storePorts(sql).write;
+    const current = parseFanoutOutcome(store.getFanoutOutcomeRaw(reportId));
     if (!current) return;
     const next: CanonicalReportFanoutOutcome = { ...current, ...patch };
     next.code = fanoutCodeFor(next.body, next.vectorize, next.aiSearch);
-    sql.exec(
-      `UPDATE ${SCHEDULED_REPORTS_TABLE} SET fanout_outcome = ? WHERE id = ?`,
-      JSON.stringify(next),
-      reportId
-    );
+    store.updateFanoutOutcome(reportId, JSON.stringify(next));
   } catch (err) {
     console.error(
       `[scheduledReports] recordFanoutLegOutcome failed for report ${reportId} (${DataFoundationCode.REPORT_FANOUT_DEGRADED}): ${err instanceof Error ? err.message : String(err)}`,
@@ -350,13 +289,7 @@ export function getCanonicalReportFanoutOutcome(
   try {
     if (!reportId) return null;
     ensureScheduledReportsTable(sql);
-    const rows = Array.from(
-      sql.exec(
-        `SELECT fanout_outcome FROM ${SCHEDULED_REPORTS_TABLE} WHERE id = ? LIMIT 1`,
-        reportId
-      )
-    ) as Array<Record<string, unknown>>;
-    return parseFanoutOutcome(rows[0]?.fanout_outcome);
+    return parseFanoutOutcome(storePorts(sql).write.getFanoutOutcomeRaw(reportId));
   } catch (err) {
     console.error(
       `[scheduledReports] getCanonicalReportFanoutOutcome failed for report ${reportId}: ${err instanceof Error ? err.message : String(err)}`,
@@ -454,14 +387,7 @@ function existingReportIdForGeneration(
   generationId: string,
   owner: string
 ): string {
-  const existing = Array.from(
-    sql.exec(
-      `SELECT id FROM ${SCHEDULED_REPORTS_TABLE} WHERE generation_id = ? AND user_login = ? LIMIT 1`,
-      generationId,
-      owner
-    )
-  ) as Array<{ id?: unknown }>;
-  return existing[0] ? String(existing[0].id ?? "") : "";
+  return storePorts(sql).write.findIdByGeneration(generationId, owner);
 }
 
 /**
@@ -481,21 +407,7 @@ function existingReportRowForId(
   bodyR2Key: string | null;
 } | null {
   try {
-    const rows = Array.from(
-      sql.exec(
-        `SELECT title, source, summary, body, body_r2_key FROM ${SCHEDULED_REPORTS_TABLE} WHERE id = ? LIMIT 1`,
-        id
-      )
-    ) as Array<Record<string, unknown>>;
-    const row = rows[0];
-    if (!row) return null;
-    return {
-      title: typeof row.title === "string" ? row.title : "",
-      source: typeof row.source === "string" ? row.source : "",
-      summary: typeof row.summary === "string" ? row.summary : "",
-      body: typeof row.body === "string" ? row.body : "",
-      bodyR2Key: typeof row.body_r2_key === "string" ? row.body_r2_key : null,
-    };
+    return storePorts(sql).write.findStoredContent(id);
   } catch {
     return null;
   }
@@ -518,10 +430,13 @@ function reportOwnerOf(input: ScheduledReportInput): string {
 }
 
 /**
- * The one INSERT both store seams share (single line — MockSqlStorage's
- * INSERT regex has no dotAll flag). Issue #338: when bodyR2Key is set the
- * body column stores "" and the pointer names the R2 object holding the
- * body; otherwise the body is inline and the pointer is NULL.
+ * The one INSERT both store seams share — the write port's
+ * insertRow (#2359); the statement itself lives in the DO
+ * adapter (single line there — MockSqlStorage's INSERT regex
+ * has no dotAll flag). Issue #338: when bodyR2Key is set the
+ * body column stores "" and the pointer names the R2 object
+ * holding the body; otherwise the body is inline and the
+ * pointer is NULL.
  */
 function insertScheduledReportRow(
   sql: SqlStorage,
@@ -531,20 +446,19 @@ function insertScheduledReportRow(
   bodyR2Key: string | null,
   fanout: CanonicalReportFanoutOutcome
 ): void {
-  sql.exec(
-    `INSERT INTO ${SCHEDULED_REPORTS_TABLE} (id, run_id, title, source, summary, body, created_at, generation_id, user_login, body_r2_key, fanout_outcome) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    rec.id,
-    rec.runId,
-    rec.title,
-    rec.source,
-    rec.summary,
-    bodyR2Key ? "" : rec.body,
-    rec.createdAt,
+  storePorts(sql).write.insertRow({
+    id: rec.id,
+    runId: rec.runId,
+    title: rec.title,
+    source: rec.source,
+    summary: rec.summary,
+    body: bodyR2Key ? "" : rec.body,
+    createdAt: rec.createdAt,
     generationId,
     owner,
     bodyR2Key,
-    JSON.stringify(fanout)
-  );
+    fanoutOutcomeJson: JSON.stringify(fanout),
+  });
 }
 
 /**
@@ -586,11 +500,7 @@ export function storeReportAtGeneration(
           // so the row never carries a stale pre-#2347 (absent)
           // outcome after a redelivery.
           try {
-            sql.exec(
-              `UPDATE ${SCHEDULED_REPORTS_TABLE} SET fanout_outcome = ? WHERE id = ?`,
-              JSON.stringify(dedupedFanout),
-              id
-            );
+            storePorts(sql).write.updateFanoutOutcome(id, JSON.stringify(dedupedFanout));
           } catch (err) {
             console.error(
               `[scheduledReports] storeReportAtGeneration: recording the deduped fan-out outcome failed for report ${id}: ${err instanceof Error ? err.message : String(err)}`,
@@ -702,11 +612,7 @@ export async function storeReportAtGenerationWithR2(
         );
         if (row) {
           try {
-            sql.exec(
-              `UPDATE ${SCHEDULED_REPORTS_TABLE} SET fanout_outcome = ? WHERE id = ?`,
-              JSON.stringify(dedupedFanout),
-              id
-            );
+            storePorts(sql).write.updateFanoutOutcome(id, JSON.stringify(dedupedFanout));
           } catch (err) {
             console.error(
               `[scheduledReports] storeReportAtGenerationWithR2: recording the deduped fan-out outcome failed for report ${id}: ${err instanceof Error ? err.message : String(err)}`,
@@ -847,10 +753,7 @@ export async function deleteCanonicalReport(
         );
       }
     }
-    sql.exec(
-      `DELETE FROM ${SCHEDULED_REPORTS_TABLE} WHERE id = ?`,
-      reportId
-    );
+    storePorts(sql).write.deleteRow(reportId);
     return true;
   } catch (err) {
     console.error(
@@ -886,11 +789,7 @@ export async function resolveCanonicalReportBodyWithBackfill(
       httpMetadata: { contentType: "application/json" },
     });
     ensureScheduledReportsTable(sql);
-    sql.exec(
-      `UPDATE ${SCHEDULED_REPORTS_TABLE} SET body_r2_key = ?, body = '' WHERE id = ? AND body_r2_key IS NULL`,
-      key,
-      hit.id
-    );
+    storePorts(sql).write.backfillBodyPointer(hit.id, key);
   } catch (err) {
     console.error(
       `[scheduledReports] resolveCanonicalReportBodyWithBackfill: backfill failed for report ${hit.id}; serving inline (retried on next read): ${err instanceof Error ? err.message : String(err)}`,
@@ -937,15 +836,9 @@ export function getCanonicalReport(
   try {
     if (!reportId) return null;
     ensureScheduledReportsTable(sql);
-    const rows = Array.from(
-      sql.exec(
-        `SELECT id, run_id, title, source, summary, body, created_at, body_r2_key, fanout_outcome FROM ${SCHEDULED_REPORTS_TABLE} WHERE id = ? LIMIT 1`,
-        reportId
-      )
-    ) as Array<Record<string, unknown>>;
-    const r = rows[0];
+    const r = storePorts(sql).read.getRowById(reportId);
     if (!r) return null;
-    return scheduledReportHitFromRow(r);
+    return scheduledReportHitFromRow(r as unknown as Record<string, unknown>);
   } catch {
     return null;
   }
@@ -1131,17 +1024,6 @@ export function searchScheduledReports(
       .filter((t) => t.length > 2)
       .slice(0, 8);
     if (tokens.length === 0) return [];
-    const clause = tokens
-      .map(
-        () =>
-          `(LOWER(title) LIKE ? OR LOWER(summary) LIKE ? OR LOWER(body) LIKE ?)`
-      )
-      .join(" OR ");
-    const params: unknown[] = [];
-    for (const t of tokens) {
-      const like = `%${t}%`;
-      params.push(like, like, like);
-    }
     // #584 EP-003: tenant scoping. When the caller knows the user, filter
     // strictly. When unknown (undefined), preserve legacy behavior (all
     // rows): the deployment's identity strings are not yet unified
@@ -1152,17 +1034,10 @@ export function searchScheduledReports(
         ? opts.userLogin
         : undefined;
     const capped = Math.max(1, Math.min(Math.floor(limit) || SCHEDULED_REPORT_DEFAULT_LIMIT, 25));
-    const ownerClause = owner ? `user_login = ? AND ` : "";
-    const ownerParams: unknown[] = owner ? [owner] : [];
-    const rows = Array.from(
-      sql.exec(
-        `SELECT id, run_id, title, source, summary, body, created_at, body_r2_key, fanout_outcome FROM ${SCHEDULED_REPORTS_TABLE} WHERE ${ownerClause}(${clause}) ORDER BY created_at DESC LIMIT ?`,
-        ...ownerParams,
-        ...params,
-        capped
-      )
-    ) as Array<Record<string, unknown>>;
-    return rows.map(scheduledReportHitFromRow);
+    // The token LIKE clause is built in the read adapter (#2359);
+    // tokenization stays here as the seam's domain logic.
+    const rows = storePorts(sql).read.searchRows(tokens, owner, capped);
+    return rows.map((r) => scheduledReportHitFromRow(r as unknown as Record<string, unknown>));
   } catch {
     return [];
   }
@@ -1188,24 +1063,8 @@ export function listScheduledReports(
       1,
       Math.min(Math.floor(opts?.limit ?? 50) || 50, 100)
     );
-    let q = `SELECT id, run_id, title, source, summary, body, created_at, body_r2_key, fanout_outcome FROM ${SCHEDULED_REPORTS_TABLE}`;
-    const params: unknown[] = [];
-    const wheres: string[] = [];
-    if (owner) {
-      wheres.push(`user_login = ?`);
-      params.push(owner);
-    }
-    if (opts?.sourceFilter) {
-      wheres.push(`source = ?`);
-      params.push(opts.sourceFilter);
-    }
-    if (wheres.length > 0) q += ` WHERE ` + wheres.join(" AND ");
-    q += ` ORDER BY created_at DESC LIMIT ?`;
-    params.push(limit);
-    const rows = Array.from(sql.exec(q, ...params)) as Array<
-      Record<string, unknown>
-    >;
-    return rows.map(scheduledReportHitFromRow);
+    const rows = storePorts(sql).read.listRows(owner, opts?.sourceFilter, limit);
+    return rows.map((r) => scheduledReportHitFromRow(r as unknown as Record<string, unknown>));
   } catch {
     return [];
   }
@@ -1229,18 +1088,9 @@ export function getScheduledReportById(
       opts?.userLogin && typeof opts.userLogin === "string"
         ? opts.userLogin
         : undefined;
-    let q = `SELECT id, run_id, title, source, summary, body, created_at, body_r2_key, fanout_outcome FROM ${SCHEDULED_REPORTS_TABLE} WHERE id = ?`;
-    const params: unknown[] = [reportId];
-    if (owner) {
-      q += ` AND user_login = ?`;
-      params.push(owner);
-    }
-    q += ` LIMIT 1`;
-    const rows = Array.from(sql.exec(q, ...params)) as Array<
-      Record<string, unknown>
-    >;
-    if (rows.length === 0) return null;
-    return scheduledReportHitFromRow(rows[0]);
+    const row = storePorts(sql).read.getRowByIdForOwner(reportId, owner);
+    if (!row) return null;
+    return scheduledReportHitFromRow(row as unknown as Record<string, unknown>);
   } catch {
     return null;
   }
@@ -1301,20 +1151,11 @@ export interface UsageEvent {
   createdAt: string;
 }
 
-/** Idempotent DDL for usage_events. Never throws. */
+/** Idempotent DDL for usage_events. Never throws. The DDL's
+ *  ONE home is the usage port's ensureSchema (#2359). */
 export function ensureUsageEventsTable(sql: SqlStorage): void {
   try {
-    sql.exec(`CREATE TABLE IF NOT EXISTS ${USAGE_EVENTS_TABLE} (
-      id TEXT PRIMARY KEY,
-      user_login TEXT NOT NULL,
-      run_id TEXT NOT NULL,
-      category TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      detail_json TEXT
-    )`);
-    sql.exec(
-      `CREATE INDEX IF NOT EXISTS idx_usage_events_user ON ${USAGE_EVENTS_TABLE} (user_login, created_at DESC)`
-    );
+    storePorts(sql).usage.ensureSchema();
   } catch (err) {
     // Fails closed; callers treat a missing table as no events. Issue
     // #876: logged, not silent (same persistence-seam rule as mas_reports).
@@ -1340,15 +1181,14 @@ export function recordUsageEvent(
     const id = `use_${Date.now().toString(36)}_${Math.random()
       .toString(36)
       .slice(2, 8)}`;
-    sql.exec(
-      `INSERT INTO ${USAGE_EVENTS_TABLE} (id, user_login, run_id, category, created_at, detail_json) VALUES (?, ?, ?, ?, ?, ?)`,
+    storePorts(sql).usage.insertEvent({
       id,
-      input.userLogin,
-      input.runId,
-      input.category,
-      new Date().toISOString(),
-      input.detail === undefined ? null : JSON.stringify(input.detail)
-    );
+      userLogin: input.userLogin,
+      runId: input.runId,
+      category: input.category,
+      createdAt: new Date().toISOString(),
+      detailJson: input.detail === undefined ? null : JSON.stringify(input.detail),
+    });
     return id;
   } catch (err) {
     // Issue #876: never silent at a persistence seam — metering failures
@@ -1371,20 +1211,7 @@ export function listUsageEvents(
     if (!userLogin) return [];
     ensureUsageEventsTable(sql);
     const capped = Math.max(1, Math.min(Math.floor(limit) || 100, 500));
-    const rows = Array.from(
-      sql.exec(
-        `SELECT id, user_login, run_id, category, created_at FROM ${USAGE_EVENTS_TABLE} WHERE user_login = ? ORDER BY created_at DESC LIMIT ?`,
-        userLogin,
-        capped
-      )
-    ) as Array<Record<string, unknown>>;
-    return rows.map((r) => ({
-      id: String(r.id ?? ""),
-      userLogin: String(r.user_login ?? ""),
-      runId: String(r.run_id ?? ""),
-      category: String(r.category ?? ""),
-      createdAt: String(r.created_at ?? ""),
-    }));
+    return storePorts(sql).usage.listByUser(userLogin, capped);
   } catch {
     return [];
   }

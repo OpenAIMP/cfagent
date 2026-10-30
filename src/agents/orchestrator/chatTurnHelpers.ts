@@ -16,6 +16,7 @@ import type {
   AsyncJobSubmission,
   Env,
 } from "../../types";
+import { createOrmPorts } from "../../data/createOrmPorts";
 import { VectorMemory } from "../../memory/vector-memory";
 import { createObservabilitySink } from "../../observability/createObservabilityPorts";
 import { McpSystemFacade } from "../../patterns/facade";
@@ -162,9 +163,10 @@ export async function deriveTurn(ctx: ChatTurnHelpersContext, turnCtx: { message
 /** Grounding for the turn prompt: session facts + best-effort vector recall. */
 export async function assembleGrounding(ctx: ChatTurnHelpersContext, userText: string): Promise<{ memoryContext: string; vectorContext: string }> {
   const sql = ctx.ensureTables();
-  const activeMemories = Array.from(
-    sql.exec("SELECT key, value FROM mas_memory ORDER BY updated_at DESC LIMIT 8")
-  ) as Array<{ key: string; value: string }>;
+  // Issue #2359 (#1976 step 4d): the read serves through the
+  // step-3a memory port's listRecent (the identical
+  // newest-first, limit-8 projection) instead of raw SQL.
+  const activeMemories = createOrmPorts(sql as never).memory.listRecent(8);
   const memoryContext = activeMemories.length > 0
     ? `\nActive Persistent Memory (SQLite Session Facts):\n` + activeMemories.map((m) => `- ${m.key}: "${m.value}"`).join("\n")
     : "";

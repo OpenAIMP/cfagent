@@ -225,7 +225,12 @@ describe("seed transactions removed (#175)", () => {
     for (const id of [SEED_ID_STRIPE, SEED_ID_PAYPAL]) {
       const occurrences = orchestrator.split(id).length - 1;
       expect(occurrences, `${id} should appear exactly once (its DELETE) in orchestrator.ts`).toBe(1);
-      expect(orchestrator).toContain(`DELETE FROM mas_transactions WHERE id = ?", "${id}"`);
+      // #2359 (#1976 step 4d) pin update: the purge serves
+      // through step 3a's transactions port now — the seed id
+      // survives as the port delete's argument instead of a
+      // raw DELETE statement. The pin's intent is unchanged:
+      // the ids exist only as purge targets, never as seeds.
+      expect(orchestrator).toContain(`transactions.delete("${id}")`);
     }
     const samples = readFileSync("src/client/mcpEndpointsData.ts", "utf8");
     expect(samples).not.toContain(SEED_ID_STRIPE);

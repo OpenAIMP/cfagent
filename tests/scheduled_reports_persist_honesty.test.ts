@@ -358,15 +358,29 @@ describe("issue #876 — source pin", () => {
   });
 
   it("the generation UNIQUE INDEX creation sits inside a guarded try with logging", () => {
-    const ensureSrc = slice(
-      "export function ensureScheduledReportsTable",
-      "/** Shape a report input"
+    // ADAPTED for #2359 (#1976 step 4d, §7 — in-file
+    // justification): the ensure DDL moved behind the
+    // canonical-report write port; the seam's
+    // ensureScheduledReportsTable is now a delegate. The pin's
+    // invariant is unchanged — the UNIQUE INDEX creation sits
+    // inside a guarded try with the same log line — asserted
+    // at its new home, the write port's DO adapter.
+    const adapterSrc = readFileSync(
+      fileURLToPath(
+        new URL("../src/data/doSqliteCanonicalReportStoreAdapter.ts", import.meta.url)
+      ),
+      "utf-8"
     );
+    const start = adapterSrc.indexOf("ensureSchema(): void");
+    expect(start).toBeGreaterThan(-1);
+    const ensureSrc = adapterSrc.slice(start, adapterSrc.indexOf("findIdByGeneration", start));
     const idxPos = ensureSrc.indexOf("CREATE UNIQUE INDEX");
     expect(idxPos).toBeGreaterThan(-1);
     expect(ensureSrc.lastIndexOf("try {", idxPos)).toBeGreaterThan(-1);
     expect(ensureSrc.indexOf("catch (err)", idxPos)).toBeGreaterThan(idxPos);
     expect(ensureSrc).toContain("console.error");
     expect(ensureSrc).toContain("idx_mas_reports_generation");
+    // The seam keeps its public ensure door as the delegate.
+    expect(src).toContain("storePorts(sql).write.ensureSchema()");
   });
 });

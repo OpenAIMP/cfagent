@@ -403,29 +403,39 @@ describe("3c contract: seam-parity source pins", () => {
   const scheduledSrc = readFileSync("src/services/scheduledReports.ts", "utf8");
 
   it("exactly one INSERT INTO mas_reports exists in src/, in the shared insert helper, carrying body_r2_key + fanout_outcome", () => {
+    // ADAPTED for #2359 (#1976 step 4d, §7 — in-file
+    // justification): the seam's statements moved behind the
+    // canonical-report WRITE port, completing this contract's
+    // deferred half. The invariant this pin exists for is
+    // unchanged — exactly ONE INSERT INTO mas_reports in src/,
+    // in the ONE shared insert path, carrying body_r2_key +
+    // fanout_outcome — its home is now the write port's DO
+    // adapter (insertRow), and the seam itself holds none.
+    const adapterSrc = readFileSync(
+      "src/data/doSqliteCanonicalReportStoreAdapter.ts",
+      "utf8"
+    );
     const files = [
       "src/services/scheduledReports.ts",
       "src/data/ormFacade.ts",
       "src/data/doSqliteOrmAdapters.ts",
       "src/data/ormRepositoryCore.ts",
+      "src/data/doSqliteCanonicalReportStoreAdapter.ts",
     ];
     let total = 0;
     for (const f of files) {
       const text = readFileSync(f, "utf8");
-      total += (text.match(/INSERT INTO (?:\$\{SCHEDULED_REPORTS_TABLE\}|mas_reports)/g) ?? []).length;
+      total += (text.match(/INSERT INTO (?:\$\{TABLE\}|\$\{SCHEDULED_REPORTS_TABLE\}|mas_reports)/g) ?? []).length;
     }
-    // scheduledReports: the one shared INSERT (the generic
-    // Repository INSERT in ormRepositoryCore is a template over
-    // table names, not a mas_reports-specific write path — it
-    // is counted separately below).
+    expect(total).toBe(1);
     expect(
       (scheduledSrc.match(/INSERT INTO \$\{SCHEDULED_REPORTS_TABLE\}/g) ?? []).length,
-    ).toBe(1);
-    const insertStart = scheduledSrc.indexOf("INSERT INTO ${SCHEDULED_REPORTS_TABLE}");
-    const insertText = scheduledSrc.slice(insertStart, insertStart + 400);
+    ).toBe(0);
+    const insertStart = adapterSrc.indexOf("INSERT INTO ${TABLE}");
+    expect(insertStart).toBeGreaterThan(-1);
+    const insertText = adapterSrc.slice(insertStart, insertStart + 400);
     expect(insertText).toContain("body_r2_key");
     expect(insertText).toContain("fanout_outcome");
-    void total;
   });
 
   it("persistScheduledReportSql delegates to the seam and is deprecated with its successor named", () => {
