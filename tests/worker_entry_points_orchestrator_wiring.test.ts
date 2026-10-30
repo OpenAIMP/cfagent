@@ -40,6 +40,37 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { ETradeRestClient } from "../src/trading/etrade/client";
+
+/**
+ * §7 adaptation (#2389): approvals now settle through the broker
+ * client's placeOrder — the platform no longer settles locally. The
+ * two approval tests below stub that placement seam with a
+ * broker-confirmed result; the worker-entry wiring under test is
+ * exercised for real (restored by the file's restoreAllMocks).
+ */
+function stubBrokerPlacement() {
+  return vi.spyOn(ETradeRestClient.prototype, "placeOrder").mockImplementation(async (params: any) => ({
+    success: true,
+    orderId: params.orderId,
+    executionId: "et_order_wiring",
+    brokerOrderRef: "et_order_wiring",
+    authorizerDid: params.userLogin,
+    status: "executed",
+    symbol: params.symbol,
+    action: params.action,
+    quantity: params.quantity,
+    executionPrice: params.limitPrice ?? 100,
+    totalSettled: (params.limitPrice ?? 100) * params.quantity,
+    didAttestation: {
+      proposerDid: "did:agent:openaimp:trading",
+      authorizerDid: params.userLogin,
+      signature: ["sig", "0xbrokerwiring"].join("_"),
+    },
+    message: "E*TRADE Execution Confirmed: Broker Order ID et_order_wiring",
+    timestamp: new Date().toISOString(),
+  }) as any);
+}
 
 // src/server.ts re-exports the agent classes, whose real module graph
 // pulls in `cloudflare:` protocol imports the node test loader cannot
@@ -251,6 +282,7 @@ function rawEmailMessage(from: string, subject: string, text: string, authResult
 
 describe("issue #815: worker email export routes through the orchestrator DO", () => {
   it("an emailed signed-link approval acts on the real pending preview in the orchestrator's ledger", async () => {
+    stubBrokerPlacement();
     const orm = makeOrm(OWNER_INSTANCE);
     seedPreviewedTrade(orm, OWNER_INSTANCE, "ord_815_email_1");
 
@@ -415,6 +447,7 @@ describe("issue #815: voice WebSocket turns route through the orchestrator DO", 
   });
 
   it("a voice approval turn transitions the seeded preview in the orchestrator's ledger", async () => {
+    stubBrokerPlacement();
     const orm = makeOrm(VOICE_LOGIN);
     seedPreviewedTrade(orm, VOICE_LOGIN, "ord_815_voice_1");
     const forwarded: ForwardedCall[] = [];
