@@ -48,6 +48,10 @@ function mkTick(symbol: string, price: number): any {
 function bareAgent(): any {
   const agent = Object.create(TickerAgent.prototype);
   agent.env = {};
+  // onConnect arms the tick schedule (issue #2443); the scheduler is
+  // stubbed here so connection tests do not need a real one. The
+  // onStart tests below override this stub with a recording one.
+  agent.scheduleEvery = async () => ({ id: "stub-schedule", callback: "pushTicks" });
   return agent;
 }
 
@@ -62,8 +66,28 @@ describe("TickerAgent (Issue #2230)", () => {
     vi.unstubAllGlobals();
   });
 
-  it("installs one 5s pushTicks schedule on start", async () => {
+  it("onStart with zero listeners installs nothing (issue #2443: lazy-arm)", async () => {
     const agent = bareAgent();
+    agent.getConnections = () => [];
+    agent.listSchedules = async () => [];
+    const cancelled: string[] = [];
+    agent.cancelSchedule = async (id: string) => {
+      cancelled.push(id);
+      return true;
+    };
+    const calls: Array<[number, string]> = [];
+    agent.scheduleEvery = async (secs: number, cb: string) => {
+      calls.push([secs, cb]);
+    };
+    await agent.onStart();
+    expect(calls).toEqual([]);
+    expect(cancelled).toEqual([]);
+  });
+
+  it("onStart with listeners present re-arms the 5s pushTicks schedule (issue #2443)", async () => {
+    const agent = bareAgent();
+    const conn = new FakeConnection();
+    agent.getConnections = () => [conn];
     const calls: Array<[number, string]> = [];
     agent.scheduleEvery = async (secs: number, cb: string) => {
       calls.push([secs, cb]);
