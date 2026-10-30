@@ -11,7 +11,7 @@ import type { AgentContext } from "agents";
 import { createOrchestratorTablePorts, type OrchestratorTablePorts } from "../../data/createOrchestratorTablePorts";
 import type { DatabaseORM } from "../../orm";
 import type { AgentName, Env } from "../../types";
-import { getValidTokens } from "../../security/etradeOAuth";
+import { getValidTokens, etradeIdentityFromLogin } from "../../security/etradeOAuth";
 import { ETradeRestClient } from "../../trading";
 import { AGENT_DIDS } from "../did";
 import {
@@ -100,7 +100,12 @@ export function incrementAutopilotOrdersToday(ctx: AutopilotContext): void {
 /** Best-effort broker balance snapshot; null when unavailable. */
 export async function fetchBrokerBalanceSnapshot(ctx: AutopilotContext, userLogin: string, requestedEnv: unknown): Promise<unknown | null> {
   try {
-    const valid = await getValidTokens(ctx.env, userLogin, requestedEnv as any);
+    // Issue #2442 S3: the snapshot verdict resolves identity via the
+    // alias record, so it agrees with the panel instead of missing
+    // internal-id and alias-login keys. The data leg below (the
+    // client) is untouched here; S2 (#2441) owns the client.
+    const identity = await etradeIdentityFromLogin(ctx.env, userLogin);
+    const valid = await getValidTokens(ctx.env, userLogin, requestedEnv as any, identity);
     if (!valid) return null;
     const client = new ETradeRestClient(ctx.env, userLogin, requestedEnv as any);
     const accounts = await client.fetchAccounts();

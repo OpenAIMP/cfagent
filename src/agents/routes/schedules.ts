@@ -38,7 +38,7 @@
 
 import type { AgentContext, Schedule, ScheduleCriteria } from "agents";
 import { resolveEnvironmentConfig } from "../../config/environment";
-import { getStoredTokens, isTokenExpiredEt } from "../../security/etradeOAuth";
+import { getStoredTokens, isTokenExpiredEt, etradeIdentityFromLogin } from "../../security/etradeOAuth";
 import { isLoginShaped } from "../../security/serviceIdentity";
 import { findDuplicateSchedule } from "../../services/scheduleDedupe";
 import { runStorageRetention } from "../../security/storageRetention";
@@ -560,7 +560,14 @@ export async function handleSchedulesRoutes(
           return Response.json({ success: false, error: "An authenticated E*TRADE account is required to create screening schedules." }, { status: 401 });
         }
         if (ctx.accountScopedScheduleCallbacks.has(callback)) {
-          const storedTokens = await getStoredTokens(ctx.env, trustedUserLogin, trustedEnvironment);
+          // Issue #2442 S3: the trusted login (Worker-forwarder
+          // established, never caller-supplied) resolves to its session
+          // identity via the alias record, so a token stored under an
+          // internal-id or alias-login key passes the preflight exactly
+          // as it passes the panel check. Unresolvable yields an empty
+          // identity, keeping today's login-only lookup.
+          const identity = await etradeIdentityFromLogin(ctx.env, trustedUserLogin);
+          const storedTokens = await getStoredTokens(ctx.env, trustedUserLogin, trustedEnvironment, identity);
           if (!storedTokens || isTokenExpiredEt(storedTokens.storedAt)) {
             return Response.json({
               success: false,
