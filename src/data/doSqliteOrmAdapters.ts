@@ -32,7 +32,11 @@ import type { MessagePort } from "./messagePorts";
 import { ChainedAuditRepository, Repository } from "./ormRepositoryCore";
 import type { SqlStorage } from "./repositoryPorts";
 import type { SettingsReadPort } from "./settingsReadPorts";
-import type { TransactionLedgerPort } from "./transactionLedgerPorts";
+import type {
+  TransactionCompletionFields,
+  TransactionLedgerPort,
+  TransactionRejectionFields,
+} from "./transactionLedgerPorts";
 
 /* Column maps — verbatim from the pre-port ORM constructor. */
 export const CATEGORY_COLUMN_MAP = {
@@ -308,6 +312,13 @@ export class DoSqliteMemoryAdapter
   }
 }
 
+/** Rows matched by an UPDATE cursor (the async-job adapter's
+ *  idiom: consume the cursor, then read rowsWritten). */
+function updateRowsWritten(cursor: unknown): number {
+  const c = cursor as { rowsWritten?: number };
+  return typeof c.rowsWritten === "number" ? c.rowsWritten : 0;
+}
+
 /** mas_transactions adapter: repository + INSERT OR REPLACE drafts. */
 export class DoSqliteTransactionLedgerAdapter
   extends Repository<TransactionRecord>
@@ -332,6 +343,57 @@ export class DoSqliteTransactionLedgerAdapter
       ...values,
     );
     return record;
+  }
+
+  /** #2360: the route's four status transitions, statements
+   *  verbatim from routes/payments.ts (single-line form per
+   *  the MockSqlStorage lesson). No status guard on any of
+   *  them — the legacy UPDATEs have none. */
+  completeWithGateway(id: string, fields: TransactionCompletionFields): number {
+    const cursor = this.sql.exec(
+      "UPDATE mas_transactions SET status = 'completed', gateway_ref = ?, checkout_url = ?, authorizer_did = ?, note = ?, updated_at = ? WHERE id = ?",
+      fields.gatewayRef,
+      fields.checkoutUrl,
+      fields.authorizerDid,
+      fields.note,
+      fields.updatedAt,
+      id,
+    );
+    Array.from(cursor as Iterable<unknown>);
+    return updateRowsWritten(cursor);
+  }
+
+  rejectWithNote(id: string, fields: TransactionRejectionFields): number {
+    const cursor = this.sql.exec(
+      "UPDATE mas_transactions SET status = 'rejected', authorizer_did = ?, note = ?, updated_at = ? WHERE id = ?",
+      fields.authorizerDid,
+      fields.note,
+      fields.updatedAt,
+      id,
+    );
+    Array.from(cursor as Iterable<unknown>);
+    return updateRowsWritten(cursor);
+  }
+
+  completeByIdOrGatewayRef(ref: string, updatedAt: string): number {
+    const cursor = this.sql.exec(
+      "UPDATE mas_transactions SET status = 'completed', updated_at = ? WHERE id = ? OR gateway_ref = ?",
+      updatedAt,
+      ref,
+      ref,
+    );
+    Array.from(cursor as Iterable<unknown>);
+    return updateRowsWritten(cursor);
+  }
+
+  completeById(id: string, updatedAt: string): number {
+    const cursor = this.sql.exec(
+      "UPDATE mas_transactions SET status = 'completed', updated_at = ? WHERE id = ?",
+      updatedAt,
+      id,
+    );
+    Array.from(cursor as Iterable<unknown>);
+    return updateRowsWritten(cursor);
   }
 }
 
