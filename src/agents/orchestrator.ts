@@ -1123,19 +1123,13 @@ export class OrchestratorAgent extends PortThink {
     // browser ran its own envelope.
     tablePorts.autopilot.ensureSchema();
     // Server-owned settings (issue #277): per-key runtime flags readable by
-    // the agent and writable through the /trading/settings routes. Same
-    // shape as mas_autopilot; DELETE+INSERT is used for upsert so the
-    // MockSqlStorage harness (which does not parse INSERT OR REPLACE)
-    // stays byte-compatible with real SQLite.
-    // Issue #2359: this DDL deliberately STAYS here — mas_settings
-    // is owner gate G-7, not part of step 4d.
-    sql.exec(`
-      CREATE TABLE IF NOT EXISTS mas_settings (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      )
-    `);
+    // the agent and writable through the /trading/settings routes.
+    // Issue #2390 (step 4g, gate G-7 ruled): the mas_settings DDL
+    // is owned by the dedicated settings port's adapter — this
+    // composition invokes its ensureSchema() and the class file
+    // no longer carries the CREATE. (Issue #2359 deliberately
+    // left the DDL here pending exactly this ruling.)
+    createOrmPorts(sql).settings.ensureSchema();
     // Issue #277: pending HITL confirmations for research-report dispatch.
     // Payloads are stored verbatim at creation time; the actual email or
     // webhook send happens only when a human approves via
