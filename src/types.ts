@@ -105,6 +105,15 @@ export interface Env {
   // provider from IAAA_ENABLED_PROVIDERS). No code change, no secret.
   // IAAA_WIRING_ENABLED: "1" or "true" (case-insensitive) = on; anything else = off.
   IAAA_WIRING_ENABLED?: string;
+  // Issue #2444 — wired session freshness gate (DO request meter).
+  // Milliseconds a cached wired session may be served without a fresh
+  // store read. Default 30s when unset; "0" disables gating (the
+  // rollback lever). SECURITY TRADE-OFF: revocation/step-up
+  // propagation is delayed up to the window (CISO domain, #945 open
+  // item) — the window value needs owner/CISO sign-off before merge.
+  // NOTE: removing this var does NOT disable gating (the code default
+  // is 30s); only "0" disables it.
+  IAAA_WIRED_FRESHNESS_MS?: string;
   // Issue #2419 — externalized polling cadences (AOP). All optional;
   // absence means the pollingConfig defaults apply. Values are
   // milliseconds, except CHAT_AUTO_REFRESH_FLOOR_S (seconds, matching
