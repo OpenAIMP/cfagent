@@ -22,6 +22,8 @@ import {
   canonicalResearchEmailBody,
   canonicalResearchWebhookBody,
 } from "../../services/scheduledReports";
+import { createCanonicalReportStorePorts } from "../../data/createCanonicalReportStorePorts";
+import { createOrchestratorTablePorts } from "../../data/createOrchestratorTablePorts";
 import { runCanonicalIndexBackfillPage } from "../../services/reportSemanticIndex";
 import { unauthenticatedResponse } from "./routeIdentity";
 
@@ -160,12 +162,11 @@ export async function handleReportsRoutes(
   // so they leave the queue instead of lingering past their window.
   if (path.endsWith("/trading/reports/pending") && request.method === "GET") {
     try {
-      const sql = ctx.ensureTables();
-      const rows = Array.from(
-        sql.exec(
-          "SELECT id, kind, payload_json, created_at FROM mas_report_confirmations WHERE status = 'pending' ORDER BY created_at DESC"
-        )
-      ) as any[];
+      // Issue #2359 (#1976 step 4d): the read serves through
+      // the report-confirmation port (same projection, same
+      // newest-first order) instead of raw SQL.
+      const rows = createOrchestratorTablePorts(ctx.ensureTables() as never)
+        .confirmations.listPending() as any[];
       const ttlMs = ctx.reportConfirmationTtlMs();
       const nowMs = Date.now();
       const live = rows.filter((row) => {
@@ -234,19 +235,16 @@ export async function handleReportsRoutes(
         return Response.json({ error: "runId is required." }, { status: 400 });
       }
       const sql = ctx.ensureTables();
-      const reports = Array.from(
-        sql.exec("SELECT id FROM mas_reports WHERE run_id = ?", runId)
-      ) as any[];
-      if (reports.length === 0) {
+      // Issue #2359 (#1976 step 4d): both halves of the join
+      // serve through their ports — the canonical-report read
+      // port for the run's row id, the confirmation port for
+      // its confirmations (same projections and order).
+      const reportId = createCanonicalReportStorePorts(sql as never).read.findIdByRunId(runId);
+      if (!reportId) {
         return Response.json({ confirmations: [] });
       }
-      const reportId = String(reports[0].id);
-      const rows = Array.from(
-        sql.exec(
-          "SELECT id, kind, status, created_at, decided_at, decided_by, payload_json FROM mas_report_confirmations WHERE report_id = ? ORDER BY created_at DESC",
-          reportId
-        )
-      ) as any[];
+      const rows = createOrchestratorTablePorts(sql as never)
+        .confirmations.listByReportId(reportId) as any[];
       return Response.json({
         confirmations: rows.map((row) => {
           let payload: any = {};
