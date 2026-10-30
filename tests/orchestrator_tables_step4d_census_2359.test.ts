@@ -184,10 +184,14 @@ describe("4d family census: surface-1 execution sites", () => {
     }
     // orchestrator.ts remainder: the ADR-out legacy ai-chat
     // lift (2 SELECTs + DROP) and the G-7 mas_settings CREATE.
-    expect(count(read("src/agents/orchestrator.ts"), STORAGE_EXEC_PATTERN)).toBe(4);
-    // reportDispatch.ts remainder: the G-7 mas_settings pair
-    // (one read + delete/insert), untouched by this slice.
-    expect(count(read("src/agents/orchestrator/reportDispatch.ts"), STORAGE_EXEC_PATTERN)).toBe(3);
+    // #2390 (step 4g) pin update: the mas_settings CREATE
+    // retired to the dedicated settings port's adapter — 4 -> 3.
+    expect(count(read("src/agents/orchestrator.ts"), STORAGE_EXEC_PATTERN)).toBe(3);
+    // reportDispatch.ts remainder at 4d: the G-7 mas_settings
+    // pair (one read + delete/insert), untouched by 4d.
+    // #2390 (step 4g) pin update: the pair delegates to the
+    // settings port — 3 -> 0.
+    expect(count(read("src/agents/orchestrator/reportDispatch.ts"), STORAGE_EXEC_PATTERN)).toBe(0);
   });
 
   it("the data layer carries exactly the moved statements; ports and in-memory adapters carry none", () => {
