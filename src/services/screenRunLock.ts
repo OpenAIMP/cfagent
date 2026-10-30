@@ -19,7 +19,7 @@
  * `isScreenRunning` probe instead of acquiring it (a chain outlives
  * any submission-scoped lease).
  *
- * DEPRECATED (#2361, #1976 step 4e): the lock now lives behind the
+ * DEPRECATED (#2361, #1976 step 4e): superseded by the
  * ScreenRunLockPort in src/data/screenRunLockPorts.ts (DO adapter:
  * src/data/doSqliteScreenRunLockAdapter.ts; composition:
  * src/data/createScreenRunLockPorts.ts), and ScreenerAgent consumes
