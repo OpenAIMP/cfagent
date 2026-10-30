@@ -456,7 +456,7 @@ const MATRIX: MatrixRow[] = [
     className: "TickerAgent",
     cells: {
       identity: IMPL(
-        "A single shared instance, 'ticker' (TICKER_INSTANCE_NAME, ticker-agent.ts:83), addressed directly by server.ts (idFromName(TICKER_INSTANCE_NAME), src/server.ts:3113). No per-user identity by design: the tape is public, with no auth and no audit (the #2230 posture recorded in the class header).",
+        "A single shared instance, 'ticker' (TICKER_INSTANCE_NAME, ticker-agent.ts:109), addressed directly by server.ts (idFromName(TICKER_INSTANCE_NAME), src/server.ts:3113). No per-user identity by design: the tape is public, with no auth and no audit (the #2230 posture recorded in the class header).",
       ),
       state: NA(
         "No durable agent state: subscriptions live in per-connection state and quotes in an in-memory cache refreshed on demand; zero ctx.storage use in the class (pinned below).",
@@ -465,13 +465,13 @@ const MATRIX: MatrixRow[] = [
         "The public quotes WebSocket (/api/market/quotes/ws plus aliases): server.ts forwards the upgrade request to the shared instance's stub, which drives onConnect. Deliberately NOT routeAgentRequest — its onBeforeConnect would 401 the public tape (class header; src/server.ts:3107-3113).",
       ),
       scheduling: IMPL(
-        "The tick cadence is a durable SDK schedule installed by onStart: scheduleEvery(TICKER_PUSH_INTERVAL_SECONDS, 'pushTicks') (ticker-agent.ts:86-90), idempotent across wakes.",
+        "The tick cadence is a durable SDK schedule that follows listener presence (#2443): armed on first connect, cancelled on last disconnect, reconciled on start (armed with listeners present, cancelled with none — which retires schedules a pre-fix build armed). scheduleEvery is idempotent, so re-arming never duplicates; cadence from TICKER_PUSH_INTERVAL_S (default TICKER_PUSH_INTERVAL_SECONDS).",
       ),
       recovery: NA(
-        "Nothing durable to recover: the tick schedule is re-installed idempotently on every wake, per-connection state is restored by the SDK across hibernation, and the quote cache is refresh-on-demand.",
+        "Nothing durable to recover: the tick schedule is reconciled on every wake (armed with listeners, cancelled without), per-connection state is restored by the SDK across hibernation, and the quote cache is refresh-on-demand.",
       ),
       "sdk-state": NA(
-        "The Agent state API is unused. The Connection.setState calls (ticker-agent.ts:101+) are per-connection state — the SDK's connection-state mechanism, recorded under websockets — not agent state.",
+        "The Agent state API is unused. The Connection.setState calls (ticker-agent.ts:207+) are per-connection state — the SDK's connection-state mechanism, recorded under websockets — not agent state.",
       ),
       sessions: NA(
         "portHooks never set and no turn ever runs (class header); there is no transcript.",
@@ -480,9 +480,9 @@ const MATRIX: MatrixRow[] = [
         "Binding TICKER_AGENT (migration v11, #2230); direct stub addressing from server.ts; not routed through routeAgentRequest and no A2A surface (registry) — both deliberate, recorded in the class header.",
       ),
       websockets: IMPL(
-        "The fleet's one real WebSocket lifecycle implementation: onConnect (:96) reads header carriers into per-connection state, onMessage (:122) handles subscribe/unsubscribe/ping, onClose is inherited; protocol messages are disabled (shouldSendProtocolMessages returns false) because clients are plain WebSockets, not useAgent clients.",
+        "The fleet's one real WebSocket lifecycle implementation: onConnect reads header carriers into per-connection state and arms the schedule, onMessage handles subscribe/unsubscribe/ping, onClose cancels on last disconnect (excluding the closing connection, which the SDK still counts during onClose); protocol messages are disabled (shouldSendProtocolMessages returns false) because clients are plain WebSockets, not useAgent clients.",
       ),
-      "sdk-scheduling": IMPL("this.scheduleEvery in onStart (ticker-agent.ts:89)."),
+      "sdk-scheduling": IMPL("this.scheduleEvery in onConnect/onStart-reconcile and this.cancelSchedule in onClose/onStart-reconcile/pushTicks (ticker-agent.ts, #2443)."),
       fibers: FIBERS_GAP,
       skills: SKILLS_GAP(`portHooks never set and no turn ever runs (class header), ${SKILLS_NO_TURN_NOTE}`),
     },

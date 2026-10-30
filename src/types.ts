@@ -127,6 +127,11 @@ export interface Env {
   CHAT_AUTO_REFRESH_FLOOR_S?: string;
   GOAL_TRACK_POLL_MS?: string;
   GOAL_TRACK_DEADLINE_MS?: string;
+  // Issue #2443 — TickerAgent push cadence, seconds. Optional;
+  // absence means the TICKER_PUSH_INTERVAL_SECONDS default (5s)
+  // applies. Changing this value changes live tick cadence and is a
+  // product call. Rollback is unsetting the var and redeploying.
+  TICKER_PUSH_INTERVAL_S?: string;
   // #1169 S2 — flag-gated corpus serving. Same idiom as IAAA above:
   // "1"/"true"/"on" (case-insensitive) = on; absence = OFF (the var is
   // deliberately NOT in wrangler.jsonc — S2 ships default-off).
