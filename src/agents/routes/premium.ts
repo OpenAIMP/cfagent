@@ -63,6 +63,12 @@ import {
   type PaymentsScopedModes,
   type PaymentsSurfaceMode,
 } from "../../config/agenticPaymentsModes";
+import { createCanonicalReportStorePorts } from "../../data/createCanonicalReportStorePorts";
+import { createCommercialAdapter } from "../../data/createCommercialPorts";
+import { createSubscriptionAdapter } from "../../data/createSubscriptionPorts";
+import type { StoreTier } from "../../data/commercialPorts";
+import { resolveEffectiveTier } from "../../data/subscriptionPorts";
+import type { MeteredGateOptions } from "../../services/meteredPaymentGate";
 
 /** The subset of OrchestratorAgent surface the premium handlers need. */
 export interface PremiumRouteContext {
@@ -208,6 +214,55 @@ function premiumPaymentService(
 ): ETradeAgenticPaymentService {
   const payerBound = !request.headers.get("x-user-login");
   return new ETradeAgenticPaymentService(ctx.getOrm(), ctx.env, sessionId, undefined, { payerBound });
+}
+
+/**
+ * Issue #2408 (Phase 1.2): build the metered-gate options for one
+ * premium request. The meter is the usage port over the premium
+ * host's already-bound agent DO sql (the same seam
+ * researchPublish meters through) — no new store, no SessionStore
+ * involvement. Without ctx.sql there is no meter, and the gate
+ * refuses served calls (fail-closed); the production host always
+ * supplies sql via makePremiumRouteContext. The tier resolver is
+ * wired ONLY for session traffic (x-user-login present, set by
+ * the worker from the verified session): it reads the stored
+ * commercial tier + subscription overlay through the existing
+ * adapters (two indexed D1 point reads; unbound AGENT_DB →
+ * null → Free default, no reads). Anonymous payer-bound traffic
+ * wires no resolver: no login exists to resolve, so the tier
+ * defaults to Free with zero store reads, and the verified
+ * payment remains the entitlement evidence.
+ */
+export function premiumMeteredGateOptions(
+  ctx: PremiumRouteContext,
+  request: Request,
+  category: string
+): MeteredGateOptions {
+  // The scheduledReports.storePorts precedent: the composition
+  // root takes the host's sql handle; the cast matches that seam.
+  const meter = ctx.sql ? createCanonicalReportStorePorts(ctx.sql as never).usage : undefined;
+  const login = request.headers.get("x-user-login");
+  return {
+    meter,
+    category,
+    ...(login ? { resolveTier: (userLogin: string) => resolvePremiumTier(ctx.env, userLogin) } : {}),
+  };
+}
+
+/**
+ * Issue #2408: the premium gate's tier resolution, reusing the
+ * ONE existing rule (resolveEffectiveTier) and the existing
+ * commercial/subscription adapters. Unbound store → null (the
+ * gate defaults to Free); a present-but-failing store throws
+ * and the gate refuses (money-path fail direction).
+ */
+async function resolvePremiumTier(env: Env, userLogin: string): Promise<StoreTier | null> {
+  const store = createCommercialAdapter(env as { AGENT_DB?: unknown });
+  const subs = createSubscriptionAdapter(env as { AGENT_DB?: unknown });
+  if (!store || !subs) return null;
+  const record = await store.getAccount(userLogin);
+  const subscriptions = await subs.listSubscriptions(userLogin);
+  return resolveEffectiveTier(record, subscriptions, Date.now());
 }
 
 /**
@@ -386,7 +441,8 @@ export async function handlePremiumRoutes(
               }
             : {}),
         };
-      }
+      },
+      premiumMeteredGateOptions(ctx, request, tier.id)
     );
   }
 
@@ -458,7 +514,8 @@ export async function handlePremiumRoutes(
           receipt,
           report,
         };
-      }
+      },
+      premiumMeteredGateOptions(ctx, request, tier.id)
     );
   }
 
@@ -601,7 +658,8 @@ export async function handlePremiumRoutes(
           count: signals.length,
           signals,
         };
-      }
+      },
+      premiumMeteredGateOptions(ctx, request, tier.id)
     );
   }
 
