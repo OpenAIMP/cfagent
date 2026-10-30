@@ -29,6 +29,29 @@ import {
   resolveCanonicalReportBody,
   type ScheduledReportHit,
 } from "../../services/scheduledReports";
+import { createFeatureFlagPort } from "../../features/createFeatureFlagPort";
+import { checkPaymentBudgetViaDoor } from "./meshDoors";
+import {
+  buildPaidScreenSubmission,
+  resolvePaidScreenAccount,
+  type PaidScreenStorePorts,
+} from "../../services/paidScreenSubmission";
+import {
+  startPaymentWorkflowViaBinding,
+  type PaymentWorkflowBinding,
+} from "../../services/paymentWorkflowSubmission";
+import {
+  createPriceCatalogueAdapter,
+  ensurePriceCatalogueSchema,
+} from "../../data/createPriceCataloguePorts";
+import {
+  createCommercialAdapter,
+  ensureCommercialSchema,
+} from "../../data/createCommercialPorts";
+import {
+  createSubscriptionAdapter,
+  ensureSubscriptionSchema,
+} from "../../data/createSubscriptionPorts";
 
 /**
  * Ports the NLQ-port constructors receive from the class. The schedule
@@ -73,6 +96,61 @@ export interface NlqPortsContext {
   workflowAwaitDeadlineMs?: number;
   sleep?: (ms: number) => Promise<void>;
   nowMs?: () => number;
+  /**
+   * Issue #2378 (Agent Mesh S10, G5) paid-path seams. All
+   * optional; the production defaults derive from `env`
+   * exactly as the routes derive theirs (flag port, catalogue
+   * adapter, commercial/subscription adapters, the
+   * PAYMENT_WORKFLOW binding).
+   */
+  /** Monetization (Flagship) flag read for the paid branch. Absent → createFeatureFlagPort(env).isEnabled("monetization"). */
+  monetizationOn?: () => Promise<boolean>;
+  /**
+   * Stored catalogue price (USD) for the stock family.
+   * Absent → the price-catalogue adapter's getPrice("stock") —
+   * null when the catalogue is unbound or carries no stock
+   * price, and the paid path then fails closed before any
+   * budget check or workflow start (no amount is invented).
+   */
+  paidScreenPriceUSD?: () => Promise<number | null>;
+  /**
+   * PaymentsAgent budget check behind the S5 door machinery.
+   * Absent → checkPaymentBudgetViaDoor(env, actingLogin, input)
+   * — the door stamps the spend-attribution agentId and
+   * carries the acting login as the separate requester.
+   */
+  paidBudgetCheck?: (
+    actingLogin: string,
+    input: { operation: string; amountCents: number },
+  ) => Promise<{ allowed: boolean; reason?: string }>;
+  /**
+   * Checkout contact email for a chat paid request. NO
+   * production default exists: no verified email is carried
+   * by a chat turn in this codebase (the routes take the
+   * caller's checkout contact for the same reason), so until
+   * a chat email source is composed in, the paid branch
+   * refuses honestly when monetization is on rather than
+   * inventing one.
+   */
+  checkoutEmail?: () => string | null | Promise<string | null>;
+  /**
+   * Commercial + subscription stores for the fail-closed
+   * account resolution. Absent → the env adapters; an
+   * explicit null (or unbound AGENT_DB) leaves the resolver
+   * store-less, which it refuses. Tests pin explicit stores.
+   */
+  paidScreenStores?: PaidScreenStorePorts | null;
+  /** PAYMENT_WORKFLOW binding seam — the only place a payment workflow is started from. Absent → env.PAYMENT_WORKFLOW. */
+  paymentWorkflowBinding?: PaymentWorkflowBinding | null;
+  /**
+   * Best-effort PaymentWorkflow instance status read — the
+   * workflow's own status surface. Absent → the binding's
+   * get(id).status(); null when unreadable, and the await
+   * then relies on the D1 collation + deadline alone.
+   */
+  paymentWorkflowStatus?: (
+    workflowId: string,
+  ) => Promise<{ status: string; output?: unknown } | null>;
 }
 
 /**
@@ -143,6 +221,21 @@ export function nlqSchedulingPort(ctx: NlqPortsContext): NLQSchedulingPort {
  *
  * maxItems 10: the port's consumers take up to ten standout
  * picks (the watchlist_save fallback's top-10).
+ *
+ * Issue #2378 (Agent Mesh S10, #2225 G5): with the
+ * monetization flag ON, the same port is the chat PAID path:
+ * a PaymentsAgent budget check through the S5 door runs
+ * first (a refusal ends the request — no workflow start, no
+ * free fallback), then the request is submitted through the
+ * fail-closed caller seam (paymentWorkflowSubmission) as a
+ * PaymentWorkflow run — one charge per run-request, the run
+ * id IS the screener job id — and the result is awaited and
+ * read back exactly as the free workflow path reads it. The
+ * gate's disposition inside the workflow governs as
+ * configured; this port neither bypasses nor re-interprets
+ * it. Scheduled runs never take this branch (they are
+ * subscription/credits only, and they do not enter through
+ * this port at all).
  */
 export function nlqStockScreenPort(ctx: NlqPortsContext): NLQStockScreenPort {
   return {
@@ -156,6 +249,14 @@ export function nlqStockScreenPort(ctx: NlqPortsContext): NLQStockScreenPort {
       const universe = typeof (filters as { universe?: unknown })?.universe === "string"
         ? ((filters as { universe?: string }).universe as ScreenerRunRequest["universe"])
         : undefined;
+      // Issue #2378 (Agent Mesh S10, #2225 G5): when the
+      // monetization flag is on, a chat screen is a PAID
+      // request — it takes the paid branch (budget check →
+      // caller seam → PaymentWorkflow run) and never the free
+      // paths below. Flag off → exactly the pre-S10 behavior.
+      if (await chatMonetizationOn(ctx)) {
+        return runChatPaidScreen(ctx, { filters, userLogin: login, universe });
+      }
       const viaWorkflow = await runChatScreenViaWorkflow(ctx, { filters, userLogin: login, universe });
       if (viaWorkflow) return viaWorkflow;
       return ctx.getScreenerAgent(userLogin).runScreen({
@@ -182,23 +283,26 @@ const CHAT_SCREEN_AWAIT_DEADLINE_MS = 15 * 60_000;
 /** The parent workflow's child-poll cadence for chat runs (its durable sleeps; granularity only). */
 const CHAT_SCREEN_PARENT_POLL_INTERVAL_MS = 5_000;
 
+/** The pieces of one chat screen run, shared by the free (S8) and paid (S10) chat paths. */
+interface ChatScreenCommandParts {
+  command: WorkflowJobCommand;
+  jobId: string;
+  tenantId: string;
+  shards: WorkflowJobCommand["shards"];
+  startedAtIso: string;
+}
+
 /**
- * Start one chat screen as a ScreenerScreenWorkflow run and
- * await its outcome. Returns null ONLY when no run was
- * started (port unavailable / start failed) — the caller
- * then falls back to the direct call. Once a run exists,
- * every outcome (success, stage failure, await expiry)
- * returns as a result; falling back after a start would run
- * the screen twice.
+ * Build the parent ScreenerScreenWorkflow command for one
+ * chat screen. Extracted unchanged from the S8 path (#2369)
+ * so the S10 paid path submits the IDENTICAL command shape
+ * through the PaymentWorkflow — the payment run starts the
+ * screener under this command's job id once covered/paid.
  */
-async function runChatScreenViaWorkflow(
+function buildChatScreenCommand(
   ctx: NlqPortsContext,
   req: { filters: StockScreenerFilter; userLogin: string; universe?: string },
-): Promise<NLQStockScreenRunResult | null> {
-  const ports: WorkflowPort | null =
-    ctx.workflowPort !== undefined ? ctx.workflowPort : createWorkflowPorts(ctx.env);
-  if (!ports) return null;
-
+): ChatScreenCommandParts {
   const universeId = req.universe ?? "TECH";
   const shards: WorkflowJobCommand["shards"] =
     universeId === "ALL"
@@ -225,6 +329,28 @@ async function runChatScreenViaWorkflow(
     maxItems: 10,
     pollIntervalMs: CHAT_SCREEN_PARENT_POLL_INTERVAL_MS,
   };
+  return { command, jobId, tenantId, shards, startedAtIso };
+}
+
+/**
+ * Start one chat screen as a ScreenerScreenWorkflow run and
+ * await its outcome. Returns null ONLY when no run was
+ * started (port unavailable / start failed) — the caller
+ * then falls back to the direct call. Once a run exists,
+ * every outcome (success, stage failure, await expiry)
+ * returns as a result; falling back after a start would run
+ * the screen twice.
+ */
+async function runChatScreenViaWorkflow(
+  ctx: NlqPortsContext,
+  req: { filters: StockScreenerFilter; userLogin: string; universe?: string },
+): Promise<NLQStockScreenRunResult | null> {
+  const ports: WorkflowPort | null =
+    ctx.workflowPort !== undefined ? ctx.workflowPort : createWorkflowPorts(ctx.env);
+  if (!ports) return null;
+
+  const { command, jobId, tenantId, shards, startedAtIso } = buildChatScreenCommand(ctx, req);
+  const nowMs = ctx.nowMs ?? (() => Date.now());
 
   let handle;
   try {
@@ -287,6 +413,314 @@ async function runChatScreenViaWorkflow(
         rows,
         jobId,
         terminalNote: "did not complete within the chat await window",
+      });
+    }
+    await sleep(pollIntervalMs);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Issue #2378 (Agent Mesh S10, #2225 G5): the chat paid path.        */
+/*                                                                     */
+/* Order of operations (each step fail-closed, in this order):         */
+/*   1. catalogue price (no stored price → refuse; never invent)       */
+/*   2. PaymentsAgent budget check via the S5 door (refusal →          */
+/*      refuse; zero workflow starts, no free fallback)                */
+/*   3. checkout email (none resolvable → refuse, the route's          */
+/*      400 in chat shape)                                             */
+/*   4. fail-closed account resolution (tenant-checked stores)         */
+/*   5. submit through the caller seam → one PaymentWorkflow run;      */
+/*      the run id IS the screener job id (one charge per              */
+/*      run-request; a retry adopts the same instance)                 */
+/*   6. await the run on its own status surface + the D1               */
+/*      collation; the result is the screener run's stored             */
+/*      read-back, exactly as the free chat path assembles it.         */
+/* The monetization gate's disposition inside the workflow             */
+/* governs exactly as configured — this path neither bypasses          */
+/* nor re-interprets it.                                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The budget-guard operation a chat screen is charged
+ * against. It is on PaymentsAgent's GUARD_ALLOWLIST, so the
+ * guard evaluates the NLQ surface's spend limits. The amount
+ * is the stored catalogue price for the stock family, in
+ * cents; spend attribution is the door's (the orchestrator
+ * agentic-spend bucket), the acting login its requester.
+ */
+const CHAT_PAID_BUDGET_OPERATION = "nlq.execute";
+
+/** The monetization flag read for the paid branch (the routes' composition). */
+async function chatMonetizationOn(ctx: NlqPortsContext): Promise<boolean> {
+  if (ctx.monetizationOn) return ctx.monetizationOn();
+  return createFeatureFlagPort(ctx.env).isEnabled("monetization");
+}
+
+/** Production price source: the operator price catalogue (schema ensured, as the routes ensure). */
+async function defaultPaidScreenPriceUSD(
+  env: NlqPortsContext["env"],
+): Promise<number | null> {
+  const adapter = createPriceCatalogueAdapter(env as { AGENT_DB?: unknown });
+  if (!adapter) return null;
+  await ensurePriceCatalogueSchema(adapter.db);
+  return adapter.getPrice("stock");
+}
+
+/** Production budget check: the S5 door (check_payment_budget's machinery, in-process). */
+async function defaultPaidBudgetCheck(
+  ctx: NlqPortsContext,
+  actingLogin: string,
+  input: { operation: string; amountCents: number },
+): Promise<{ allowed: boolean; reason?: string }> {
+  const verdict = await checkPaymentBudgetViaDoor(ctx.env, actingLogin, input);
+  return {
+    allowed: verdict.allowed,
+    ...(verdict.reason !== undefined ? { reason: verdict.reason } : {}),
+  };
+}
+
+/** Production account stores: the env adapters (null when AGENT_DB is unbound). */
+async function defaultPaidScreenStores(
+  env: NlqPortsContext["env"],
+): Promise<PaidScreenStorePorts | null> {
+  const commercial = createCommercialAdapter(env as { AGENT_DB?: unknown });
+  const subscriptions = createSubscriptionAdapter(env as { AGENT_DB?: unknown });
+  if (!commercial || !subscriptions) return null;
+  await Promise.all([
+    ensureCommercialSchema(commercial.db),
+    ensureSubscriptionSchema(subscriptions.db),
+  ]);
+  return { commercial, subscriptions };
+}
+
+/**
+ * Production payment-status read: the PAYMENT_WORKFLOW
+ * binding's own instance status. Best-effort — any failure
+ * reads as null and the await falls back to the D1 collation
+ * plus the deadline.
+ */
+async function defaultPaymentWorkflowStatus(
+  env: NlqPortsContext["env"],
+  workflowId: string,
+): Promise<{ status: string; output?: unknown } | null> {
+  const binding = env.PAYMENT_WORKFLOW as unknown as
+    | {
+        get?: (
+          id: string,
+        ) => Promise<{ status?: () => Promise<{ status: string; output?: unknown }> }>;
+      }
+    | undefined;
+  if (!binding || typeof binding.get !== "function") return null;
+  const instance = await binding.get(workflowId);
+  if (!instance || typeof instance.status !== "function") return null;
+  const st = await instance.status();
+  return { status: st.status, ...(st.output !== undefined ? { output: st.output } : {}) };
+}
+
+/**
+ * One chat paid request: budget check → seam → PaymentWorkflow
+ * run → awaited read-back. Throws (fail-closed, before any
+ * start) on every pre-submission refusal; after submission,
+ * every outcome returns as an honest result.
+ */
+async function runChatPaidScreen(
+  ctx: NlqPortsContext,
+  req: { filters: StockScreenerFilter; userLogin: string; universe?: string },
+): Promise<NLQStockScreenRunResult> {
+  const { command, jobId, tenantId, shards, startedAtIso } = buildChatScreenCommand(ctx, req);
+
+  // 1. Price from the operator catalogue — fail closed
+  // before the budget check when no valid stored price
+  // exists; no amount is ever invented.
+  const priceUSD = await (ctx.paidScreenPriceUSD
+    ? ctx.paidScreenPriceUSD()
+    : defaultPaidScreenPriceUSD(ctx.env));
+  if (typeof priceUSD !== "number" || !Number.isFinite(priceUSD) || priceUSD <= 0) {
+    throw new Error(
+      "Chat paid screen cannot proceed: no valid stored price for family \"stock\" in the operator price catalogue " +
+        "(fail-closed — prices are operator-set, never invented). No budget check ran, no workflow was started, and no screen ran.",
+    );
+  }
+
+  // 2. PaymentsAgent budget check FIRST, through the S5
+  // door, under the S5/S9 attribution discipline. A refusal
+  // ends the request here: no workflow start, and no free
+  // fallback — monetization on never runs a screen for free.
+  const amountCents = Math.round(priceUSD * 100);
+  const budgetInput = { operation: CHAT_PAID_BUDGET_OPERATION, amountCents };
+  const verdict = await (ctx.paidBudgetCheck
+    ? ctx.paidBudgetCheck(req.userLogin, budgetInput)
+    : defaultPaidBudgetCheck(ctx, req.userLogin, budgetInput));
+  if (!verdict.allowed) {
+    throw new Error(
+      `Chat paid screen refused by the PaymentsAgent budget check: ${verdict.reason ?? "no reason given"} ` +
+        `(operation "${CHAT_PAID_BUDGET_OPERATION}", amount ${amountCents} cents). No workflow was started and no screen ran.`,
+    );
+  }
+
+  // 3. Checkout contact. The submission params refuse to
+  // build without an email; no verified email source exists
+  // for a chat turn today, so this refuses honestly until
+  // one is composed in through the seam.
+  const email = ((await ctx.checkoutEmail?.()) ?? "").trim();
+  if (!email) {
+    throw new Error(
+      "Chat paid screen requires a checkout email when monetization is on, and no checkout email source is configured for chat " +
+        "in this deployment. No workflow was started and no screen ran.",
+    );
+  }
+
+  // 4. Fail-closed account resolution (tenant-checked) from
+  // the commercial + subscription stores, exactly as the
+  // routes resolve it.
+  const stores =
+    ctx.paidScreenStores !== undefined
+      ? ctx.paidScreenStores
+      : await defaultPaidScreenStores(ctx.env);
+  const { account } = await resolvePaidScreenAccount(
+    stores ?? { commercial: null, subscriptions: null },
+    { userId: req.userLogin, email, tenantId, nowMs: (ctx.nowMs ?? Date.now)() },
+  );
+
+  // 5. Submit through the fail-closed caller seam: one
+  // PaymentWorkflow run per run-request; the binding throws
+  // when unconfigured rather than running the screen free.
+  const params = buildPaidScreenSubmission({
+    runRequestId: jobId,
+    family: "stock",
+    trigger: "manual",
+    tenantId,
+    userId: req.userLogin,
+    email,
+    account,
+    screenerCommand: command,
+  });
+  const binding =
+    ctx.paymentWorkflowBinding !== undefined
+      ? (ctx.paymentWorkflowBinding ?? undefined)
+      : (ctx.env.PAYMENT_WORKFLOW as unknown as PaymentWorkflowBinding | undefined);
+  const started = await startPaymentWorkflowViaBinding(binding, params);
+
+  // 6. Await: the payment run starts the screener under the
+  // same job id once coverage/payment lands.
+  return awaitChatPaidScreenOutcome(ctx, {
+    shards,
+    userLogin: req.userLogin,
+    startedAtIso,
+    jobId,
+    tenantId,
+    workflowId: started.workflowId,
+  });
+}
+
+/** The PaymentWorkflowOutcome status out of an instance status output, when present. */
+function paymentOutcomeStatus(output: unknown): string | null {
+  if (output && typeof output === "object" && "status" in output) {
+    const s = (output as { status?: unknown }).status;
+    return typeof s === "string" ? s : null;
+  }
+  return null;
+}
+
+/**
+ * The honest terminal note for a payment run that ended
+ * without starting the screen. Wording states what happened
+ * and what did NOT happen (no screen, no confirmed charge);
+ * the failure-compensation rule (a one-time replacement-run
+ * credit, never a cash refund) is named where it applies.
+ */
+function paymentTerminalNote(outcome: string | null, instanceStatus: string, runRequestId: string): string {
+  switch (outcome) {
+    case "payment_required":
+      return `payment run ${runRequestId} is still awaiting payment (checkout outstanding) — no screen was started and no charge was confirmed`;
+    case "coverage_required":
+      return `payment run ${runRequestId} requires subscription or credit coverage before it can start — no screen was started`;
+    case "approval_rejected":
+      return `payment run ${runRequestId} was rejected at approval — no screen was started and no charge was made`;
+    case "expired":
+      return `payment run ${runRequestId} expired before payment completed — no screen was started and no charge was confirmed`;
+    case "screener_failed_credit_issued":
+      return `payment run ${runRequestId} was covered/paid but the screener failed to start — a one-time replacement-run credit was issued for it (never a cash refund)`;
+    default:
+      return `payment run ${runRequestId} ended (workflow status "${instanceStatus}"${outcome ? `, outcome "${outcome}"` : ""}) without starting the screen`;
+  }
+}
+
+/**
+ * Await a submitted chat payment run: poll the D1 collation
+ * for the screener job id (the read-back the free path uses)
+ * and the payment instance's own status surface. A terminal
+ * payment outcome other than "started" returns promptly with
+ * its honest note; "started" keeps polling the collation —
+ * the screen runs under its own workflow from there.
+ */
+async function awaitChatPaidScreenOutcome(
+  ctx: NlqPortsContext,
+  args: {
+    shards: WorkflowJobCommand["shards"];
+    userLogin: string;
+    startedAtIso: string;
+    jobId: string;
+    tenantId: string;
+    workflowId: string;
+  },
+): Promise<NLQStockScreenRunResult> {
+  const readHistory =
+    ctx.readWorkflowJobHistory ?? ((t: string, c: string) => readJobHistory(ctx.env, t, c));
+  const sleep =
+    ctx.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const nowMs = ctx.nowMs ?? (() => Date.now());
+  const pollIntervalMs = ctx.workflowPollIntervalMs ?? CHAT_SCREEN_POLL_INTERVAL_MS;
+  const deadline = nowMs() + (ctx.workflowAwaitDeadlineMs ?? CHAT_SCREEN_AWAIT_DEADLINE_MS);
+  const readPaymentStatus =
+    ctx.paymentWorkflowStatus ??
+    ((id: string) => defaultPaymentWorkflowStatus(ctx.env, id));
+  for (;;) {
+    const rows = await readHistory(args.tenantId, args.jobId).catch(() => null);
+    const collation = collationFromRows(rows, args.jobId);
+    if (collation) {
+      return assembleChatScreenResult(ctx, {
+        shards: args.shards,
+        userLogin: args.userLogin,
+        startedAtIso: args.startedAtIso,
+        collation,
+        rows,
+        jobId: args.jobId,
+        terminalNote: "completed",
+      });
+    }
+    const pStatus = await readPaymentStatus(args.workflowId).catch(() => null);
+    if (
+      pStatus &&
+      (pStatus.status === "complete" || pStatus.status === "errored" || pStatus.status === "terminated")
+    ) {
+      const outcome = paymentOutcomeStatus(pStatus.output);
+      if (outcome !== "started") {
+        return assembleChatScreenResult(ctx, {
+          shards: args.shards,
+          userLogin: args.userLogin,
+          startedAtIso: args.startedAtIso,
+          collation: null,
+          rows,
+          jobId: args.jobId,
+          terminalNote: paymentTerminalNote(outcome, pStatus.status, args.jobId),
+        });
+      }
+      // Outcome "started": the screener is running under its
+      // own workflow; keep polling the collation until the
+      // deadline, exactly as the free path awaits its run.
+    }
+    if (nowMs() >= deadline) {
+      return assembleChatScreenResult(ctx, {
+        shards: args.shards,
+        userLogin: args.userLogin,
+        startedAtIso: args.startedAtIso,
+        collation: null,
+        rows,
+        jobId: args.jobId,
+        terminalNote:
+          `payment run ${args.jobId} (payment workflow ${args.workflowId}) produced no screen result within the chat await window — ` +
+          "no second run was started",
       });
     }
     await sleep(pollIntervalMs);
