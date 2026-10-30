@@ -6,9 +6,10 @@
  * - the durable access-request store (request access, admin decides)
  * - issuer → provider display lookup (registry-backed, never user input)
  *
- * The member permission boundary is pinned against the Slice 3 grants:
- * member may create/read/cancel tasks, read/edit/export artifacts, and
- * propose actions — and must NOT connect or use integrations.
+ * The member permission boundary is pinned against the Slice 3 grants
+ * as amended by #2450: member may create/read/cancel tasks,
+ * read/edit/export artifacts, propose actions, and connect
+ * integrations — and must NOT use or manage integrations.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -83,7 +84,7 @@ describe("ensureTenantMember (#1274 auto-member)", () => {
     ]);
   });
 
-  it("member may propose and read artifacts but must NOT connect integrations", async () => {
+  it("member may propose, read artifacts, and connect integrations but must NOT use them or assign roles", async () => {
     const store = createMemoryMembershipStore();
     const userId = "v1:memberboundary00000000000000000000000000000000000000000000001";
     await ensureTenantMember(store, { internalUserId: userId, tenantId: TENANT, nowMs: NOW });
@@ -94,13 +95,22 @@ describe("ensureTenantMember (#1274 auto-member)", () => {
       nowMs: NOW,
     });
     expect(allowed.decision).toBe("allow");
-    const denied = await authorize(store, {
+    // #2450: the blanket member grant gives every member connect.
+    const connected = await authorize(store, {
       actorInternalUserId: userId,
       tenantId: TENANT,
       permission: "integration:connect",
       nowMs: NOW,
     });
-    expect(denied.decision).toBe("deny");
+    expect(connected.decision).toBe("allow");
+    // integration:use stays admin-held under #2450.
+    const deniedUse = await authorize(store, {
+      actorInternalUserId: userId,
+      tenantId: TENANT,
+      permission: "integration:use",
+      nowMs: NOW,
+    });
+    expect(deniedUse.decision).toBe("deny");
     const deniedManage = await authorize(store, {
       actorInternalUserId: userId,
       tenantId: TENANT,

@@ -136,11 +136,14 @@ describe("server.ts gate wiring (#1749)", () => {
     // The pin's intent is preserved in the new shape: an explicit
     // clock at every gated route, and the grace-expired denial
     // named at every gated route.
+    // #2450: each gateway call also carries the per-user denial
+    // store, so a tenant-admin's per-member connect denial is
+    // enforced at the same four gates.
     const gates = server.match(/evaluateRoutePep\(\{/g) ?? [];
     expect(gates.length).toBe(4);
     // Each of the four gateway calls carries its own explicit clock.
     const clocked = server.match(
-      /evaluateRoutePep\(\{\s*env,\s*session,\s*tenantId: resolveIaaaTenant\(env\),\s*permission: "integration:connect",\s*membershipStore: createKvMembershipStore\(sessionStore\(env\)\),\s*nowMs: Date\.now\(\),/g,
+      /evaluateRoutePep\(\{\s*env,\s*session,\s*tenantId: resolveIaaaTenant\(env\),\s*permission: "integration:connect",\s*membershipStore: createKvMembershipStore\(sessionStore\(env\)\),\s*permissionDenialStore: createKvPermissionDenialStore\(sessionStore\(env\)\),\s*nowMs: Date\.now\(\),/g,
     ) ?? [];
     expect(clocked.length).toBe(4);
     const denials = server.match(/legacy_pdp_grace_expired/g) ?? [];
