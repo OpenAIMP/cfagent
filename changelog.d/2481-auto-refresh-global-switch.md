@@ -1,0 +1,3 @@
+### Added
+
+- **Global per-tenant auto-refresh switch (#2481):** the dynamic-panel toggle is now backed by a per-tenant setting in the tenant store (`agent_tenant_settings`, migration 0026), served by `GET` / `POST /api/tenant/settings/auto-refresh` with the tenant resolved server-side; the app shell loads it at boot into a single client module, and every periodic live-data refresh system-wide (quotes WebSocket/poll, landing tape, options flows, options-latest, async jobs, screener auto-load, goal tracking, Chat global refresh) is gated by it — ON refreshes at the existing cadences, OFF performs no periodic refresh at all (manual refresh and initial loads still work). Absent row defaults to OFF.

@@ -31,6 +31,7 @@
 
 import { startPolling } from "./polling";
 import { getPollingConfig } from "./pollingConfig";
+import { isAutoRefreshEnabled, subscribeAutoRefresh } from "./autoRefresh";
 
 export interface OptionsLatestSnapshot {
   ok: boolean;
@@ -47,6 +48,28 @@ const listeners = new Set<OptionsLatestListener>();
 let stopPolling: (() => void) | null = null;
 let inFlight: Promise<void> | null = null;
 let lastSnapshot: OptionsLatestSnapshot | null = null;
+let autoRefreshUnsub: (() => void) | null = null;
+
+/**
+ * Issue #2481 — start the shared poller only while the global
+ * auto-refresh switch is ON; stop it the moment the switch flips
+ * OFF. The initial fetch on first subscribe is not periodic and
+ * is unaffected, and refreshOptionsLatest() (manual refresh)
+ * always fetches.
+ */
+function startPollerIfEnabled(): void {
+  if (stopPolling || listeners.size === 0 || !isAutoRefreshEnabled()) return;
+  const cadenceMs = getPollingConfig().optionsLatestPollMs;
+  stopPolling = startPolling(() => void fetchAndNotify(), {
+    fastMs: cadenceMs,
+    idleMs: cadenceMs,
+  });
+}
+
+function stopPoller(): void {
+  stopPolling?.();
+  stopPolling = null;
+}
 
 function notify(snapshot: OptionsLatestSnapshot): void {
   lastSnapshot = snapshot;
@@ -98,19 +121,22 @@ export function subscribeOptionsLatest(
     listener(lastSnapshot);
   }
   if (listeners.size === 1) {
-    const cadenceMs = getPollingConfig().optionsLatestPollMs;
     void fetchAndNotify();
-    stopPolling = startPolling(() => void fetchAndNotify(), {
-      fastMs: cadenceMs,
-      idleMs: cadenceMs,
-    });
+    startPollerIfEnabled();
+    if (!autoRefreshUnsub) {
+      autoRefreshUnsub = subscribeAutoRefresh((state) => {
+        if (state.enabled) startPollerIfEnabled();
+        else stopPoller();
+      });
+    }
   }
   return () => {
     listeners.delete(listener);
     if (listeners.size === 0) {
-      stopPolling?.();
-      stopPolling = null;
+      stopPoller();
       lastSnapshot = null;
+      autoRefreshUnsub?.();
+      autoRefreshUnsub = null;
     }
   };
 }
