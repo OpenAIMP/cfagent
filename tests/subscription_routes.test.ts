@@ -286,6 +286,9 @@ describe("subscription checkout + purchase", () => {
     const { ctx, env } = await setup({ monetization: true, stripe: true });
     const plan = await createPlan(ctx, { name: "Pro", priceUSD: 20, periodDays: 30, includedRuns: 10 });
     const stripe = stubStripe({ status: "open", payment_status: "unpaid" });
+    // #2219: checkout/purchase derive the tenant from the resolved account,
+    // so the account row must exist before the mint.
+    await call(ctx, "POST", "/payments/agentic/commercial/account", "op1", { userId: "u1", tenantId: "t1", tier: "Free" });
     const checkout = await bodyOf(
       await call(ctx, "POST", "/payments/agentic/commercial/subscription/checkout", "u1", { planId: plan.id, tenantId: "t1", email: "u1@example.com" }),
     );
