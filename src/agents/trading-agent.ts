@@ -43,6 +43,7 @@ import type {
 } from "../actors/actorPorts";
 import { tool, type ToolSet } from "ai";
 import { getServiceUserLogin } from "../security/serviceIdentity";
+import { recordBlockingAudit } from "../security/auditChain";
 import { z } from "zod";
 import { resolveAiModelName } from "./model";
 import type { Env } from "../types";
@@ -1151,15 +1152,76 @@ export class TradingAgent extends PortThink {
     // Issue #1185: settle under the caller's explicit login or this
     // instance's own owner login — settleTradingOrder fails closed
     // when neither exists.
+    const userLogin = input.userLogin ?? this.instanceUserLogin() ?? undefined;
+    // Issue #2178 (Q7 S2): fail-closed validation BEFORE any audit
+    // row — an invalid call is not an approval decision and must not
+    // create one (mirrors settleTradingOrder's own guards).
+    if (!input?.orderId || typeof input.orderId !== "string") {
+      throw new TradingServiceError("invalid_input", "settleTradingOrder requires an orderId.");
+    }
+    if (!input.authorizerDid || typeof input.authorizerDid !== "string") {
+      throw new TradingServiceError(
+        "invalid_input",
+        "settleTradingOrder requires an authorizerDid — anonymous approvals are refused.",
+      );
+    }
+    if (input.decision !== "approved" && input.decision !== "rejected") {
+      throw new TradingServiceError(
+        "invalid_input",
+        `settleTradingOrder decision must be "approved" or "rejected".`,
+      );
+    }
+    if (!userLogin) {
+      throw new TradingServiceError("invalid_input", "settleTradingOrder requires an explicit userLogin.");
+    }
+    const events = this.getOrm().events;
+    // Decision audit BEFORE settle: a throwing store blocks execution.
+    recordBlockingAudit(events, {
+      id: crypto.randomUUID(),
+      sessionId: userLogin,
+      type: "trade.approval_decision",
+      agent: "trading",
+      payload: {
+        orderId: input.orderId,
+        authorizerDid: input.authorizerDid,
+        decision: input.decision,
+        door: "rpc-approval",
+      },
+      createdAt: new Date().toISOString(),
+    });
+    const result = await settleTradingOrder(
     // Issue #2375: thread this instance's ORM — door previews drafted
     // into this instance's store, so the settle must look there.
-    return settleTradingOrder(
       this.env,
       this.config(),
-      { ...input, userLogin: input.userLogin ?? this.instanceUserLogin() ?? undefined },
+      { ...input, userLogin },
       "rpc-approval",
       this.getOrm(),
     );
+    // Result audit AFTER settle. Execution already happened and
+    // cannot be undone — but a failed audit write surfaces as a
+    // throw naming the unrecorded execution, never as success.
+    try {
+      recordBlockingAudit(events, {
+        id: crypto.randomUUID(),
+        sessionId: userLogin,
+        type: "trade.order_executed",
+        agent: "trading",
+        payload: {
+          orderId: input.orderId,
+          authorizerDid: input.authorizerDid,
+          decision: input.decision,
+          door: "rpc-approval",
+        },
+        createdAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      throw new TradingServiceError(
+        "internal_error",
+        `Trade execution for order ${input.orderId} completed but the execution audit write failed; the execution may be unrecorded: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    return result;
   }
 
   /**
@@ -1229,6 +1291,25 @@ export class TradingAgent extends PortThink {
         `decideTradeApproval decision must be "approved" or "rejected".`,
       );
     }
+    // Issue #2178 (Q7 S2): decision audit BEFORE delivery. A throwing
+    // store propagates, so an unaudited decision never reaches the
+    // workflow and cannot take effect. The delivery carries no owner
+    // login, so the session is the instance owner's when known and an
+    // explicit "unknown" marker otherwise — never a defaulted
+    // "system" identity (G-AUD-3).
+    recordBlockingAudit(this.getOrm().events, {
+      id: crypto.randomUUID(),
+      sessionId: this.instanceUserLogin() ?? "unknown",
+      type: "trade.approval_decision",
+      agent: "trading",
+      payload: {
+        workflowId: input.workflowId,
+        authorizerDid: input.authorizerDid,
+        decision: input.decision,
+        reason: input.reason,
+      },
+      createdAt: new Date().toISOString(),
+    });
     await this.sendWorkflowEvent(TRADE_WORKFLOW_BINDING, input.workflowId, {
       type: "approval",
       payload: {
