@@ -679,14 +679,28 @@ describe("characterization 4d [seam]: canonical report store", () => {
     expect(second?.fanout.outcome).toBe("deduped");
     expect(listScheduledReports(sql, { userLogin: "alice" })).toHaveLength(1);
     expect(getCanonicalReport(sql, first!.reportId)?.title).toBe("Daily screen");
-    // AS FOUND (pinned, not fixed by this slice): the dedupe SELECT
-    // is tenant-scoped, but the generation UNIQUE index is global —
-    // a second tenant storing the same generation id misses the
-    // dedupe check and the INSERT hits the index, so the seam
-    // returns null (logged REPORT_FANOUT_FAILED) and no row lands.
-    const other = storeReportAtGeneration(sql, input({ userLogin: "bob" }));
-    expect(other).toBeNull();
-    expect(listScheduledReports(sql, {})).toHaveLength(1);
+    // INVERTED for #2398 (§7 — this was the #2359 as-found pin):
+    // the generation UNIQUE index is tenant-scoped now —
+    // (user_login, generation_id), matching the dedupe SELECT —
+    // so a second tenant storing the same generation id lands
+    // its OWN row (a stored outcome, no REPORT_FANOUT_FAILED),
+    // and the first tenant's row is untouched.
+    const other = storeReportAtGeneration(sql, input({ userLogin: "bob", title: "Bob screen" }));
+    expect(other?.created).toBe(true);
+    expect(other?.reportId).not.toBe(first?.reportId);
+    expect(other?.fanout.outcome).toBe("stored_inline");
+    const otherOutcome = await settledFanout(sql, other!.reportId);
+    expect(otherOutcome?.outcome).toBe("stored_inline");
+    expect(listScheduledReports(sql, {})).toHaveLength(2);
+    expect(listScheduledReports(sql, { userLogin: "alice" })).toHaveLength(1);
+    expect(listScheduledReports(sql, { userLogin: "bob" })).toHaveLength(1);
+    expect(getCanonicalReport(sql, other!.reportId)?.title).toBe("Bob screen");
+    expect(getCanonicalReport(sql, first!.reportId)?.title).toBe("Daily screen");
+    // And bob's own re-store dedupes against HIS row, not alice's.
+    const bobAgain = storeReportAtGeneration(sql, input({ userLogin: "bob", title: "Bob changed" }));
+    expect(bobAgain?.created).toBe(false);
+    expect(bobAgain?.reportId).toBe(other?.reportId);
+    expect(listScheduledReports(sql, {})).toHaveLength(2);
   });
 
   it("refuses an owner-less write (null, no row) and bad input", () => {
