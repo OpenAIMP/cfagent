@@ -58,6 +58,12 @@ describe("shared /api/options/latest subscription (#2470 S4)", () => {
     };
     vi.stubGlobal("fetch", vi.fn((input: unknown) => fetchImpl(input)));
     (window as any).__POLLING_CONFIG__ = { optionsLatestPollMs: 1000 };
+    // Issue #2481: the shared poller is gated by the global
+    // auto-refresh switch; this #2470 pin covers ON. The mirror
+    // survives loadShared's resetModules, so the fresh module
+    // instance reads ON; OFF gating is pinned separately in the
+    // auto-refresh suite.
+    window.localStorage.setItem("cfagent_global_autorefresh_enabled", "true");
   });
 
   afterEach(() => {
@@ -69,6 +75,7 @@ describe("shared /api/options/latest subscription (#2470 S4)", () => {
     offs = [];
     vi.unstubAllGlobals();
     delete (window as any).__POLLING_CONFIG__;
+    window.localStorage.removeItem("cfagent_global_autorefresh_enabled");
     vi.useRealTimers();
   });
 
