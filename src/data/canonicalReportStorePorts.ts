@@ -88,9 +88,12 @@ export interface InsertCanonicalReportRow {
 
 export interface CanonicalReportWritePort {
   /** The table's ONE DDL home: base CREATE + additive column
-   *  reconciliation + indexes (the generation UNIQUE index is
-   *  guarded exactly as the legacy ensure guarded it).
-   *  Idempotent. */
+   *  reconciliation + indexes. The generation UNIQUE index is
+   *  TENANT-scoped — (user_login, generation_id), the same
+   *  pair the dedupe lookup scopes on (#2398) — guarded
+   *  exactly as the legacy ensure guarded it, with a shape
+   *  reconciliation that swaps a pre-#2398 global index for
+   *  the tenant-scoped one. Idempotent. */
   ensureSchema(): void;
   /** The dedupe lookup: the row id stored for a (generation,
    *  owner) pair, or "" when none. Tenant-scoped. */
@@ -99,7 +102,10 @@ export interface CanonicalReportWritePort {
   findStoredContent(id: string): CanonicalReportStoredContent | null;
   /** THE shared INSERT (body_r2_key + fanout_outcome columns;
    *  a set pointer stores "" in the body column). Insert-or-
-   *  throw: the generation UNIQUE index is the backstop. */
+   *  throw: the tenant-scoped generation UNIQUE index
+   *  (user_login, generation_id) is the backstop — a duplicate
+   *  WITHIN a tenant throws; another tenant's row with the
+   *  same generation id is a different report and lands. */
   insertRow(row: InsertCanonicalReportRow): void;
   /** Record (overwrite) a row's fan-out outcome JSON — the
    *  dedupe record and the leg-settle updates both land here;
