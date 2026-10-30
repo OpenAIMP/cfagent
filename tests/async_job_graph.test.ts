@@ -206,7 +206,11 @@ describe("buildJobTree (jobs panel)", () => {
 describe("wiring pins", () => {
   it("orchestrator.ensureTables runs the graph migration", () => {
     const src = readFileSync("src/agents/orchestrator.ts", "utf8");
-    expect(src).toContain("ensureAsyncJobGraphColumns");
+    // #2358 (#1976 step 4a): the graph migration moved into the
+    // async-job queue port's schema ensure; ensureTables runs it
+    // via ensureAsyncJobTables (base table + indexes + the probed
+    // graph migration in one ensure).
+    expect(src).toContain("ensureAsyncJobTables");
   });
   it("types expose the job-kind and channel unions", () => {
     const src = readFileSync("src/types.ts", "utf8");
