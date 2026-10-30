@@ -80,7 +80,11 @@ describe("step-4a family census (#2358)", () => {
     // pin's 4a-specific claim (the async-jobs third left in
     // 4a) is subsumed; the exact current count is pinned by
     // the 4d family census as well.
-    expect(countIn("src/agents/orchestrator.ts")).toBe(4);
+    // #2390 (step 4g) pin update: the G-7 mas_settings CREATE
+    // retired to the dedicated settings port's adapter — the
+    // class file's count drops 4 -> 3 (the ADR-out legacy
+    // ai-chat lift remains).
+    expect(countIn("src/agents/orchestrator.ts")).toBe(3);
   });
 
   it("the family's statements live in the data layer at exact counts", () => {

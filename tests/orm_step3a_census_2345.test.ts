@@ -49,8 +49,11 @@ const DATA_LAYER_FILES: Array<[string, number]> = [
   // [file, storage-exec sites at the step-3a landing]
   ["src/data/ormRepositoryCore.ts", 7],
   // 9 at 3a; 13 since #2360 (step 4d-2) added the ledger
-  // port's four route-transition statements to this adapter.
-  ["src/data/doSqliteOrmAdapters.ts", 13],
+  // port's four route-transition statements to this adapter;
+  // 17 since #2390 (step 4g) added the dedicated settings
+  // port's write surface (ensure + DELETE/INSERT set + delete)
+  // beside the read adapter in the same module.
+  ["src/data/doSqliteOrmAdapters.ts", 17],
   ["src/data/doSqliteMarketplaceAdapter.ts", 2],
   ["src/data/ormFacade.ts", 13],
   ["src/data/ormSchema.ts", 4],

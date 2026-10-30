@@ -7,11 +7,14 @@
  * adapter and re-exports this class.
  *
  * Adapter move only (step-2 audit §2.7): the class carries its
- * killswitch methods with it — the mas_settings statements are
- * byte-identical, same key, same fail-closed read; nothing
- * about the settings family's ownership changes (gate G-7
- * untouched). The get-then-put and supersede-then-put pairs
- * are NOT wrapped in the transaction aspect (audit §4).
+ * killswitch methods with it — same key, same fail-closed
+ * read. Since step 4g (#2390) executed the G-7 ruling, the
+ * killswitch read/write route through the dedicated settings
+ * port (settingsReadPorts.ts; composed via
+ * createSettingsPorts) instead of issuing mas_settings
+ * statements here; the settings adapter owns the table. The
+ * get-then-put and supersede-then-put pairs are NOT wrapped
+ * in the transaction aspect (audit §4).
  */
 import {
   ENRICHMENT_KILLSWITCH_KEY,
@@ -22,6 +25,8 @@ import {
   type EnrichmentRunRecord,
   type EnrichmentRunStore,
 } from "../enrichment/enrichmentPorts";
+import { createSettingsPort } from "./createSettingsPorts";
+import type { SettingsPort } from "./settingsReadPorts";
 
 export interface EnrichmentSqlExecutor {
   exec(query: string, ...params: unknown[]): Iterable<unknown>;
@@ -47,10 +52,15 @@ const GET_RUN_SQL =
   `SELECT record_json FROM ${RUNS_TABLE} WHERE id = ?`;
 
 export class SqlEnrichmentStore implements EnrichmentRunStore {
+  /** The settings port over the same handle (killswitch key only). */
+  private readonly settings: SettingsPort;
+
   constructor(
     private readonly sql: EnrichmentSqlExecutor,
     private readonly audit?: EnrichmentAuditFn,
-  ) {}
+  ) {
+    this.settings = createSettingsPort(sql);
+  }
 
   ensureTables(): void {
     this.sql.exec(CREATE_RUNS_SQL);
@@ -93,14 +103,9 @@ export class SqlEnrichmentStore implements EnrichmentRunStore {
   /** Fail-closed: an unreadable settings read reports halted. */
   getKillswitchState(): EnrichmentKillswitchState {
     try {
-      const rows = Array.from(
-        this.sql.exec(
-          `SELECT value FROM mas_settings WHERE key = ?`,
-          ENRICHMENT_KILLSWITCH_KEY,
-        ),
-      ) as Array<{ value: string }>;
-      if (rows.length === 0) return "clear";
-      return parseKillswitchValue(rows[0].value);
+      const value = this.settings.get(ENRICHMENT_KILLSWITCH_KEY);
+      if (value === null) return "clear";
+      return parseKillswitchValue(value);
     } catch (err) {
       console.error(
         "[Enrichment] Killswitch read failed; halting enrichment (fail-closed):",
@@ -115,12 +120,9 @@ export class SqlEnrichmentStore implements EnrichmentRunStore {
     setBy: string,
     reason: string,
   ): EnrichmentKillswitchState {
-    this.sql.exec(`DELETE FROM mas_settings WHERE key = ?`, ENRICHMENT_KILLSWITCH_KEY);
-    this.sql.exec(
-      `INSERT INTO mas_settings (key, value, updated_at) VALUES (?, ?, ?)`,
+    this.settings.set(
       ENRICHMENT_KILLSWITCH_KEY,
       state === "halted" ? "on" : "off",
-      new Date().toISOString(),
     );
     // Best-effort audit: never blocks an operator stop.
     try {

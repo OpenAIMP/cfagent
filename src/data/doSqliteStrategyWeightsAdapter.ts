@@ -5,10 +5,13 @@
  * layer statement-for-statement. The service module keeps
  * the pure policy and delegates its store functions here.
  *
- * The mas_settings CREATE here is one of the three measured
- * DDL ensurers for that table (G-7 remainder): it is the
- * weights family's pre-existing ensure, moved with the store
- * — no settings VALUE is read or written by this adapter.
+ * The mas_settings CREATE this adapter used to carry was one
+ * of the three measured DDL ensurers for that table (G-7
+ * remainder). Step 4g (#2390) retired it: the dedicated
+ * settings port's adapter (doSqliteOrmAdapters.ts) is the
+ * table's single ensurer now, composed alongside this store
+ * in createStrategyClusterPorts. No settings VALUE is read or
+ * written by this adapter.
  */
 import {
   weightsV2Key,
@@ -23,9 +26,6 @@ export class DoSqliteStrategyWeightsStore implements StrategyWeightsStore {
 
   ensureTables(): void {
     const sql = this.sql;
-    sql.exec(
-      `CREATE TABLE IF NOT EXISTS mas_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)`
-    );
     sql.exec(`CREATE TABLE IF NOT EXISTS mas_strategy_weights_v2 (
     strategy TEXT NOT NULL,
     regime TEXT NOT NULL,

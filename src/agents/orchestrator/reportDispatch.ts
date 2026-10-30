@@ -9,6 +9,8 @@
 
 import type { AgentContext } from "agents";
 import { createOrchestratorTablePorts, type OrchestratorTablePorts } from "../../data/createOrchestratorTablePorts";
+import { createSettingsPort } from "../../data/createSettingsPorts";
+import type { SettingsPort } from "../../data/settingsReadPorts";
 import type { DatabaseORM } from "../../orm";
 import type { Env } from "../../types";
 import { ETradeEmailTradingService } from "../../trading";
@@ -45,24 +47,28 @@ export interface ReportDispatchContext {
   sendReportWebhook: (title: string, query: string, sheets: Array<{ name: string; rows: Array<Record<string, unknown>> }>, userLogin: string) => Promise<{ success: boolean; status?: number; error?: string; notConfigured?: boolean }>;
 }
 
+/**
+ * The settings doors delegate to the dedicated settings port
+ * (#2390, step 4g — the G-7 ruling): mas_settings is owned by
+ * its adapter (src/data/doSqliteOrmAdapters.ts, composed via
+ * createSettingsPorts); these functions keep the ctx-shaped
+ * façade the routes consume. ctx.ensureTables() still runs
+ * first, exactly as before.
+ */
+function settingsPort(ctx: ReportDispatchContext): SettingsPort {
+  return createSettingsPort(ctx.ensureTables() as never);
+}
+
 export function readSettingRaw(ctx: ReportDispatchContext, key: string): string | null {
   try {
-    const sql = ctx.ensureTables();
-    const rows = Array.from(
-      sql.exec("SELECT value FROM mas_settings WHERE key = ?", key)
-    ) as Array<{ value: string }>;
-    return rows[0]?.value ?? null;
+    return settingsPort(ctx).get(key);
   } catch {
     return null;
   }
 }
 
 export function writeSetting(ctx: ReportDispatchContext, key: string, value: string): void {
-  const sql = ctx.ensureTables();
-  const now = new Date().toISOString();
-  // DELETE+INSERT (not INSERT OR REPLACE) so MockSqlStorage stays compatible.
-  sql.exec("DELETE FROM mas_settings WHERE key = ?", key);
-  sql.exec("INSERT INTO mas_settings (key, value, updated_at) VALUES (?, ?, ?)", key, value, now);
+  settingsPort(ctx).set(key, value);
 }
 
 /** Issue #277: true when report dispatch requires human confirmation.
@@ -83,8 +89,8 @@ export function setReportDispatchHitl(ctx: ReportDispatchContext, enabled: boole
  * lives once in mas_reports and is referenced by reportId.
  */
 /** The family's ports over the context's sql handle (#2359).
- *  Only the confirmations port is used here: the settings pair
- *  above stays raw — mas_settings is owner gate G-7. */
+ *  Only the confirmations port is used here; the settings pair
+ *  above composes the settings port (#2390, gate G-7 ruled). */
 function ports(ctx: ReportDispatchContext): OrchestratorTablePorts {
   return createOrchestratorTablePorts(ctx.ensureTables() as never);
 }
