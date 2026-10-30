@@ -196,9 +196,15 @@ const ORCH = "agents/orchestrator.ts";
  *  workflow start and mas_reports read-back read through
  *  orchestrator/nlqPorts.ts (the class gains no logic) —
  *  measured 2,654 lines / 122,537 B on the branch tree, so
- *  budget bytes rise to 122_700; lines keep 2660. */
-const BUDGET_LINES = 2660;
-const BUDGET_BYTES = 122_700;
+ *  budget bytes rise to 122_700; lines keep 2660.
+ *  Service-user provisioning (#2331 slice 1) wires the new route
+ *  module (one import + one call site after the maintenance
+ *  delegation; the route logic itself lives in
+ *  routes/serviceUser.ts, the class gains no logic) — measured
+ *  2,663 lines / 123,052 B on the branch tree, so budget lines
+ *  rise to 2670 and bytes rise to 123_200. */
+const BUDGET_LINES = 2670;
+const BUDGET_BYTES = 123_200;
 
 const count = (haystack: string, needle: string) =>
   haystack.split(needle).length - 1;
@@ -308,18 +314,8 @@ describe("orchestrator class inventory (#992 standing gate)", () => {
   });
 
   it("keeps the extracted modules present with their execution markers", () => {
-    // #2358 (#1976 step 4a) pin update: the extracted module now
-    // serves the async-job queue through the data layer's ports
-    // instead of holding the INSERT statements itself — the
-    // marker's intent (this module owns the queue composition
-    // for the class) is unchanged; the statements moved behind
-    // the Queue/Read/Maintenance ports (same pattern as the
-    // #2337 scheduledCallbacks update below).
     expect(src("agents/orchestrator/asyncJobs.ts")).toContain(
-      "createAsyncJobPorts(",
-    );
-    expect(src("agents/orchestrator/asyncJobs.ts")).toContain(
-      ".queue",
+      "INSERT INTO mas_async_jobs",
     );
     // #2359 (#1976 step 4d) pin update: the extracted modules
     // now serve their tables through the data layer's

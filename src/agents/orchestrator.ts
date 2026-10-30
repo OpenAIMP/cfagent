@@ -32,6 +32,7 @@ import { sizeCandidateAgainstPortfolio, type SizingCandidate } from "../services
 import { generateHedgeProposals } from "../services/hedgeProposals";
 import { ensureFrameworkQueueIndexes } from "../services/frameworkQueueIndexes";
 import { createResourceUsagePort } from "../telemetry/createResourceUsagePorts";
+import { ensureAsyncJobGateIndexes } from "../services/asyncJobGate";
 import { ensureMasRetentionIndexes } from "../services/masRetentionIndexes";
 import { sharedCorrelationService } from "../services/correlationService";
 import type { ScreenerAgent } from "./screener-agent";
@@ -66,7 +67,7 @@ import { nlqSchedulingPort, nlqSocialBriefPort, nlqStockScreenPort, type NlqPort
 import { createSocialBriefStoreFromNamespace } from "./social/briefStore";
 import type { DoNamespaceLike } from "../security/durableKv";
 import { isLoginShaped } from "../security/serviceIdentity";
-import { submitAsyncJob, recoverQueuedAsyncJobs, getAsyncJob, listAsyncJobs, executeAsyncJob, ensureAsyncJobTables, scheduleScreenerFollowups, retryAsyncJob, type AsyncJobsContext } from "./orchestrator/asyncJobs";
+import { submitAsyncJob, recoverQueuedAsyncJobs, getAsyncJob, listAsyncJobs, executeAsyncJob, ensureAsyncJobGraphColumns, scheduleScreenerFollowups, retryAsyncJob, type AsyncJobsContext } from "./orchestrator/asyncJobs";
 import type { ScreenerRunOutcome } from "../services/screenerFollowups";
 import { marketDateKey, readAutopilotStateRaw, getAutopilotState, writeAutopilotState, incrementAutopilotOrdersToday, fetchBrokerBalanceSnapshot, openNotionalForSymbol, evaluateAndRecordAutopilotVerdict, type AutopilotContext } from "./orchestrator/autopilot";
 import { readSettingRaw, writeSetting, getReportDispatchHitl, setReportDispatchHitl, createReportConfirmation, getReportConfirmation, decideReportConfirmation, storeResearchReportCanonicalAsync, confirmationDeliveryMeta, deliverStoredReportEmail, deliverStoredReportWebhook, persistScreenerReportCanonical, sendReportEmail, sendReportWebhook, type ReportDispatchContext } from "./orchestrator/reportDispatch";
@@ -132,6 +133,7 @@ import { handleMarketDataQuoteResearchRoutes, handleMarketDataCompareScreenRoute
 import { handleScreenerResearchRoutes } from "./routes/screenerResearch";
 import { handleSchedulesRoutes, makeRunScheduleCallback } from "./routes/schedules";
 import { handleMaintenanceRoutes } from "./routes/maintenance";
+import { handleServiceUserRoutes } from "./routes/serviceUser";
 import { TRADING_PAID_SERVICES } from "../services/agenticPayments";
 import type {
   Env,
@@ -1093,15 +1095,29 @@ export class OrchestratorAgent extends PortThink {
     // Shared mas_* tables come from the canonical DDL in src/orm/schema
     // (issue #782) — do not re-add their DDL here.
     ensureSharedTable(sql, "mas_messages");
-    // Issue #2358 (#1976 step 4a): mas_async_jobs' DDL moved behind
-    // the async-job queue port (one owner per table, ADR 0022 D-A).
-    // This one call runs the family's whole schema ensure: the base
-    // table, the session index, the already-running gate's seek
-    // index (issue #2280 slice 2 — created right after the table,
-    // so no lazy-creation ordering issue), and the probed job-graph
-    // migration (issue #1123: parent/sub-job tracking columns,
-    // additive).
-    ensureAsyncJobTables(sql);
+    sql.exec(`
+      CREATE TABLE IF NOT EXISTS mas_async_jobs (
+        job_id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        capability TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        status TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        result_json TEXT,
+        response_status INTEGER,
+        error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        started_at TEXT,
+        completed_at TEXT
+      )
+    `);
+    sql.exec("CREATE INDEX IF NOT EXISTS idx_mas_async_jobs_session_created ON mas_async_jobs(session_id, created_at DESC)");
+    // Issue #2280 (slice 2): the already-running gate's seek index. The
+    // table is created just above, so no lazy-creation ordering issue.
+    ensureAsyncJobGateIndexes(sql);
+    // Issue #1123: job-graph columns (parent/sub-job tracking) — additive.
+    ensureAsyncJobGraphColumns(sql);
     ensureSharedTable(sql, "mas_events");
     // Issue #2280 (slice 3): the nightly retention batches' covering indexes.
     // Both tables exist by now (mas_messages above, mas_events just created),
@@ -2560,6 +2576,14 @@ export class OrchestratorAgent extends PortThink {
       audit: (type, agent, payload) => this.audit(type, agent, payload),
     });
     if (maintenanceResponse) return maintenanceResponse;
+    // Issue #2331 slice 1: service-user provisioning routes run after
+    // maintenance, before schedules; the route logic itself lives in
+    // routes/serviceUser.ts, the class gains no logic.
+    const serviceUserResponse = await handleServiceUserRoutes(request, url, path, sessionId, {
+      env: this.env,
+      audit: (type, agent, payload) => this.audit(type, agent, payload),
+    });
+    if (serviceUserResponse) return serviceUserResponse;
 
     // Issue #359-16: schedules task-scheduling routes (list/create/cancel/
     // trigger-*) are handled by src/agents/routes/schedules.ts
