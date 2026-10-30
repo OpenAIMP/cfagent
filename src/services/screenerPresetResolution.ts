@@ -20,6 +20,7 @@
  * (the same table the #1495 CRUD routes read). Only exec() is needed,
  * so tests can substitute an in-memory fake.
  */
+import { createOrchestratorTablePorts } from "../data/createOrchestratorTablePorts";
 import {
   parseOptionScreenerFilter,
   parseStockScreenerFilter,
@@ -38,29 +39,24 @@ export type ResolvedPresetFilter =
     }
   | { ok: false; error: string };
 
-interface PresetRow {
-  asset_class: unknown;
-  criteria_json: unknown;
-}
-
 export function resolvePresetFilter(
   sql: PresetSql,
   userLogin: string,
   presetId: string
 ): ResolvedPresetFilter {
-  let rows: PresetRow[];
+  // Issue #2359 (#1976 step 4d): the lookup serves through the
+  // screener-preset port (the table's port home), composed over
+  // the caller's handle — the signature and the error contract
+  // are unchanged.
+  let row: { asset_class: unknown; criteria_json: unknown } | null;
   try {
-    rows = Array.from(
-      sql.exec(
-        "SELECT asset_class, criteria_json FROM mas_screener_presets WHERE id = ? AND user_login = ?",
-        presetId,
-        userLogin
-      )
-    ) as PresetRow[];
+    row = createOrchestratorTablePorts(sql as never).presets.getResolutionRow(
+      presetId,
+      userLogin
+    );
   } catch {
     return { ok: false, error: "Failed to load preset." };
   }
-  const row = rows[0];
   if (!row) return { ok: false, error: "Preset not found." };
   if (row.asset_class !== "stocks" && row.asset_class !== "options") {
     return { ok: false, error: "Preset has an unknown asset class." };
