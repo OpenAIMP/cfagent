@@ -28,7 +28,8 @@ import { tool, type ToolSet } from "ai";
 import { z } from "zod";
 import { resolveAiModelName } from "./model";
 import type { Env } from "../types";
-import { DatabaseORM } from "../orm";
+import { createResearchStorePorts } from "../data/createResearchStorePorts";
+import type { ResearchStorePorts } from "../data/researchStorePorts";
 import {
   ResearchConfigService,
   RESEARCH_CONFIG_DEFAULTS,
@@ -243,75 +244,32 @@ export class ResearchAgent extends PortThink {
     };
   }
 
-  private orm: DatabaseORM | null = null;
+  private researchPortsCache: ResearchStorePorts | null = null;
 
-  private getOrm(): DatabaseORM {
-    if (!this.orm) {
-      this.orm = new DatabaseORM({
-        exec: (sql: string, params?: unknown[]) => {
-          const stmt = (this.ctx.storage.sql as any).exec(sql, ...(params ?? []));
-          return [...stmt];
-        },
-      } as any);
+  /**
+   * Issue #2361 (#1976 step 4e): this agent's private tables behind
+   * the ResearchStore port family — the standard composition root
+   * replaces the hand-rolled facade shim (and the dead DatabaseORM
+   * construction that rode it; it had no callers). Composition
+   * executes no DDL, and the family's ensureSchema creates ONLY
+   * these agent-private tables: the shared ORM schema is never
+   * touched from this class (the step-3a R-7 invariant, preserved
+   * by construction and pinned in the 4e conformance suite).
+   */
+  private researchPorts(): ResearchStorePorts {
+    if (!this.researchPortsCache) {
+      this.researchPortsCache = createResearchStorePorts(this.ctx.storage.sql);
     }
-    return this.orm;
-  }
-
-  private storageSql(): { exec: (sql: string, ...params: unknown[]) => Iterable<unknown> } {
-    const storage = this.ctx.storage.sql as any;
-    return {
-      exec: (sql: string, ...params: unknown[]) => storage.exec(sql, ...params) as Iterable<unknown>,
-    };
+    return this.researchPortsCache;
   }
 
   private ensureTables(): void {
-    const sql = this.storageSql();
-    sql.exec(`CREATE TABLE IF NOT EXISTS research_settings (
-      key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL
-    )`);
-    sql.exec(`CREATE TABLE IF NOT EXISTS research_runs (
-      run_id TEXT PRIMARY KEY, trigger TEXT NOT NULL, user_login TEXT NOT NULL,
-      created_at TEXT NOT NULL, rules_version TEXT NOT NULL, status TEXT NOT NULL,
-      ideas_count INTEGER NOT NULL, report_json TEXT NOT NULL
-    )`);
-    sql.exec(`CREATE TABLE IF NOT EXISTS research_evaluations (
-      id TEXT PRIMARY KEY, run_id TEXT NOT NULL, evaluated_at TEXT NOT NULL,
-      evaluation_json TEXT NOT NULL
-    )`);
-    // Issue #577: durable task ledger store (key/value, same idiom as
-    // research_settings — table is created in code, no wrangler migration).
-    sql.exec(`CREATE TABLE IF NOT EXISTS research_task_store (
-      key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL
-    )`);
+    this.researchPorts().ensureSchema();
   }
 
   /** mas_settings-idiom store over this agent's research_settings table. */
   private settingsStore(): ResearchSettingsStore {
-    const sql = this.storageSql();
-    return {
-      get: (key: string): string | null => {
-        try {
-          const rows = Array.from(
-            sql.exec("SELECT value FROM research_settings WHERE key = ?", key)
-          ) as Array<{ value?: unknown }>;
-          const v = rows[0]?.value;
-          return typeof v === "string" ? v : null;
-        } catch {
-          return null;
-        }
-      },
-      set: (key: string, value: string): void => {
-        const now = new Date().toISOString();
-        // DELETE+INSERT (not INSERT OR REPLACE) keeps MockSqlStorage compatible.
-        sql.exec("DELETE FROM research_settings WHERE key = ?", key);
-        sql.exec(
-          "INSERT INTO research_settings (key, value, updated_at) VALUES (?, ?, ?)",
-          key,
-          value,
-          now
-        );
-      },
-    };
+    return this.researchPorts().settings;
   }
 
   private configService(): ResearchConfigService {
@@ -321,49 +279,7 @@ export class ResearchAgent extends PortThink {
 
   /** Issue #577: ledger store over this agent's research_task_store table. */
   private taskStore(): ResearchTaskStore {
-    const sql = this.storageSql();
-    return {
-      get: (key: string): string | null => {
-        try {
-          const rows = Array.from(
-            sql.exec("SELECT value FROM research_task_store WHERE key = ?", key)
-          ) as Array<{ value?: unknown }>;
-          const v = rows[0]?.value;
-          return typeof v === "string" ? v : null;
-        } catch {
-          return null;
-        }
-      },
-      set: (key: string, value: string): void => {
-        const now = new Date().toISOString();
-        // DELETE+INSERT (not INSERT OR REPLACE) keeps MockSqlStorage compatible.
-        sql.exec("DELETE FROM research_task_store WHERE key = ?", key);
-        sql.exec(
-          "INSERT INTO research_task_store (key, value, updated_at) VALUES (?, ?, ?)",
-          key,
-          value,
-          now
-        );
-      },
-      delete: (key: string): void => {
-        sql.exec("DELETE FROM research_task_store WHERE key = ?", key);
-      },
-      list: (prefix: string): Array<{ key: string; value: string }> => {
-        try {
-          const rows = Array.from(
-            sql.exec(
-              "SELECT key, value FROM research_task_store WHERE key LIKE ?",
-              `${prefix}%`
-            )
-          ) as Array<{ key?: unknown; value?: unknown }>;
-          return rows
-            .filter((r) => typeof r.key === "string" && typeof r.value === "string")
-            .map((r) => ({ key: r.key as string, value: r.value as string }));
-        } catch {
-          return [];
-        }
-      },
-    };
+    return this.researchPorts().tasks;
   }
 
   private taskLedger(): ResearchTaskLedger {
@@ -653,7 +569,7 @@ export class ResearchAgent extends PortThink {
         eventsBySymbol: req.eventsBySymbol,
       });
       const created = persistDiscoveredGoals(
-        this.storageSql(),
+        this.ctx.storage.sql,
         userLogin,
         out.proposals
       );
@@ -968,13 +884,7 @@ export class ResearchAgent extends PortThink {
     const { buildTrackRecord } = await import("../services/researchTrackRecord");
     try {
       this.ensureTables();
-      const sql = this.storageSql();
-      const runRows = Array.from(
-        sql.exec("SELECT report_json FROM research_runs ORDER BY created_at DESC")
-      ) as Array<{ report_json?: unknown }>;
-      const evalRows = Array.from(
-        sql.exec("SELECT evaluation_json FROM research_evaluations ORDER BY evaluated_at ASC")
-      ) as Array<{ evaluation_json?: unknown }>;
+      const ports = this.researchPorts();
       const parse = (v: unknown): unknown => {
         if (typeof v !== "string") return null;
         try {
@@ -984,8 +894,8 @@ export class ResearchAgent extends PortThink {
         }
       };
       return buildTrackRecord(
-        runRows.map((r) => parse(r.report_json)),
-        evalRows.map((r) => parse(r.evaluation_json))
+        ports.runs.listReportJsonValues().map(parse),
+        ports.evaluations.listEvaluationJsonValues().map(parse)
       );
     } catch {
       return buildTrackRecord([], []);
@@ -1000,11 +910,7 @@ export class ResearchAgent extends PortThink {
   async evaluateRun(runId: string, userLogin?: string): Promise<ResearchEvaluation | null> {
     try {
       this.ensureTables();
-      const sql = this.storageSql();
-      const rows = Array.from(
-        sql.exec("SELECT report_json FROM research_runs WHERE run_id = ?", runId)
-      ) as Array<{ report_json?: unknown }>;
-      const raw = rows[0]?.report_json;
+      const raw = this.researchPorts().runs.getReportJsonValue(runId);
       if (typeof raw !== "string") return null;
       const report = JSON.parse(raw) as ResearchReport;
       // Issue #2327: the evaluation is attributed to the caller when
@@ -1078,19 +984,18 @@ export class ResearchAgent extends PortThink {
         config
       );
       const id = `eval_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-      sql.exec(
-        "INSERT INTO research_evaluations (id, run_id, evaluated_at, evaluation_json) VALUES (?, ?, ?, ?)",
+      this.researchPorts().evaluations.insertEvaluation({
         id,
         runId,
-        evaluation.evaluatedAt,
-        JSON.stringify(evaluation)
-      );
+        evaluatedAt: evaluation.evaluatedAt,
+        evaluationJson: JSON.stringify(evaluation),
+      });
       // #584 EP-009: meter the evaluation — attributed to tenant + task.
       try {
         const { recordUsageEvent } = await import(
           "../services/scheduledReports"
         );
-        recordUsageEvent(this.storageSql(), {
+        recordUsageEvent(this.ctx.storage.sql, {
           userLogin: login,
           runId,
           category: "research_evaluation",
@@ -1179,16 +1084,11 @@ export class ResearchAgent extends PortThink {
     const failed: string[] = [];
     try {
       this.ensureTables();
-      const sql = this.storageSql();
-      const runs = Array.from(
-        sql.exec("SELECT run_id, created_at FROM research_runs")
-      ) as Array<{ run_id?: unknown; created_at?: unknown }>;
-      const evalRows = Array.from(
-        sql.exec("SELECT run_id FROM research_evaluations")
-      ) as Array<{ run_id?: unknown }>;
+      const ports = this.researchPorts();
+      const runs = ports.runs.listRunRefs();
       const evaluatedIds = new Set(
-        evalRows
-          .map((r) => r.run_id)
+        ports.evaluations
+          .listEvaluatedRunIds()
           .filter((id): id is string => typeof id === "string")
       );
       const { selectRunsDueForEvaluation } = await import(
@@ -1197,10 +1097,10 @@ export class ResearchAgent extends PortThink {
       const due = selectRunsDueForEvaluation(
         runs
           .filter(
-            (r): r is { run_id: string; created_at: string } =>
-              typeof r.run_id === "string" && typeof r.created_at === "string"
+            (r): r is { runId: string; createdAt: string } =>
+              typeof r.runId === "string" && typeof r.createdAt === "string"
           )
-          .map((r) => ({ runId: r.run_id, createdAt: r.created_at })),
+          .map((r) => ({ runId: r.runId, createdAt: r.createdAt })),
         evaluatedIds,
         nowMs,
         minAgeMs,
@@ -1233,22 +1133,16 @@ export class ResearchAgent extends PortThink {
       });
       await this.ctx.storage.put(HISTORY_KEY, history.slice(0, MAX_HISTORY));
 
-      const sql = this.storageSql();
-      const reportJson = JSON.stringify(report);
-      sql.exec("DELETE FROM research_runs WHERE run_id = ?", report.runId);
-      sql.exec(
-        `INSERT INTO research_runs
-           (run_id, trigger, user_login, created_at, rules_version, status, ideas_count, report_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        report.runId,
-        report.trigger,
-        report.userLogin,
-        report.createdAt,
-        report.rulesVersion,
-        report.ideas.length > 0 ? "published" : "no_qualifying",
-        report.ideas.length,
-        reportJson
-      );
+      this.researchPorts().runs.replaceRun({
+        runId: report.runId,
+        trigger: report.trigger,
+        userLogin: report.userLogin,
+        createdAt: report.createdAt,
+        rulesVersion: report.rulesVersion,
+        status: report.ideas.length > 0 ? "published" : "no_qualifying",
+        ideasCount: report.ideas.length,
+        reportJson: JSON.stringify(report),
+      });
     } catch {
       // Non-critical: a persistence failure must not fail the run itself.
     }
