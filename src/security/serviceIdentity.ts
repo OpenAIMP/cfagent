@@ -60,3 +60,20 @@ export function getServiceUserLogin(env: Env): string | null {
  * comes from `getServiceUserLogin` or from an authenticated session.
  */
 export const SHARED_ORCHESTRATOR_INSTANCE = "default_trader";
+
+/**
+ * #2331 slice 1 — the service user's stable internalUserId, derived
+ * deterministically from its login: `service:<login>`.
+ *
+ * The service user never logs in through OAuth, so it has no
+ * (issuer, subject) pair and no v1: identity hash, and no wired-login
+ * alias record is ever written for it (alias records are observations
+ * of wired logins only). Slice 2 dispatch resolves the service login
+ * to this same id through this helper — never through a second
+ * derivation, and never through the alias store. A bare login is
+ * never used as the id: real internal ids are UUIDs or v1: hashes,
+ * so the `service:` prefix cannot collide with a human identity.
+ */
+export function serviceUserInternalUserId(serviceLogin: string): string {
+  return `service:${serviceLogin}`;
+}
