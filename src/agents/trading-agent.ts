@@ -800,12 +800,22 @@ export interface SettleTradingOrderInput {
  * Shared by the synchronous approval door and the durable workflow, so
  * both paths enforce identical rules. Emits the A6 dispatch log line
  * under the caller's door name.
+ *
+ * #2375: the optional `orm` is the draft store the platform resolves
+ * against. Drafts are written at preview time through the ORM of
+ * whichever surface previewed them — for door previews, the order
+ * owner's TradingAgent instance store — so an agent-side settle must
+ * thread its own instance ORM in, or the platform cannot find the
+ * draft. Callers without an instance store (the channel-email settle,
+ * which reaches this core through ETradeService) leave it undefined,
+ * unchanged.
  */
 export async function settleTradingOrder(
   env: Env,
   config: TradingAgentConfig,
   input: SettleTradingOrderInput,
   door: string,
+  orm?: DatabaseORM,
 ): Promise<unknown> {
   const started = Date.now();
   const correlationId = crypto.randomUUID();
@@ -838,6 +848,7 @@ export async function settleTradingOrder(
       config,
       input.provider,
       input.userLogin,
+      orm,
     );
     if (typeof platform.executeOrder !== "function") {
       throw new TradingServiceError(
@@ -1140,11 +1151,14 @@ export class TradingAgent extends PortThink {
     // Issue #1185: settle under the caller's explicit login or this
     // instance's own owner login — settleTradingOrder fails closed
     // when neither exists.
+    // Issue #2375: thread this instance's ORM — door previews drafted
+    // into this instance's store, so the settle must look there.
     return settleTradingOrder(
       this.env,
       this.config(),
       { ...input, userLogin: input.userLogin ?? this.instanceUserLogin() ?? undefined },
       "rpc-approval",
+      this.getOrm(),
     );
   }
 
