@@ -114,6 +114,10 @@ import {
   setSessionCookie,
 } from "./session";
 import { sessionStore } from "./session";
+import {
+  AUTH_OUTCOME_PARAM,
+  authOutcomeLoginUrl,
+} from "./authOutcome";
 import { createKvMembershipStore } from "./iaaaMembershipStore";
 import {
   parseBootstrapListWithGenesis,
@@ -741,25 +745,31 @@ export async function completeWiredLogin(
       })
     );
   }
+  // #2402: the success outcome travels on the redirect so the app
+  // boot can show a one-time "Signed in as …" confirmation. The /
+  // handler turns a just-created-but-unreadable session (the #2280
+  // loop) into the session_unreadable login notice instead.
   return new Response(null, {
     status: 302,
-    headers: { Location: "/", "Set-Cookie": setSessionCookie(sessionId) },
+    headers: {
+      Location: `/?${AUTH_OUTCOME_PARAM}=signed_in`,
+      "Set-Cookie": setSessionCookie(sessionId),
+    },
   });
 }
 
-/** Local error page (same shape as the legacy callback's error page). */
+/**
+ * #2402: a wired-tail failure no longer strands the user on a bare
+ * error page. It redirects to the login page carrying the generic
+ * signin_failed outcome; the technical message and status go to the
+ * server log only. Fail-closed semantics are unchanged: no session,
+ * no binding. (The legacy callback's error-page shape is retired
+ * with this change; its audit recording above is untouched.)
+ */
 function errorPage(message: string, status = 400): Response {
-  return new Response(
-    `<!DOCTYPE html><html><head><title>Authentication Error</title></head>` +
-      `<body><h1>Authentication Error</h1><p>${escapeHtml(message)}</p></body></html>`,
-    { status, headers: { "Content-Type": "text/html; charset=utf-8" } }
-  );
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+  console.warn(`[auth] sign-in failed (status ${status}): ${message}`);
+  return new Response(null, {
+    status: 302,
+    headers: { Location: authOutcomeLoginUrl("signin_failed") },
+  });
 }

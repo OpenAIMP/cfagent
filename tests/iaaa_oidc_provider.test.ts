@@ -116,12 +116,13 @@ describe("createOidcProvider startLogin", () => {
     expect(params.get("state")!.split(".")).toHaveLength(3);
   });
 
-  it("fails with an error page, never a redirect, when the client id is missing", async () => {
+  it("redirects to the login page with signin_failed, never to the provider, when the client id is missing", async () => {
     const provider = createOidcProvider(OPTIONS);
     const res = await provider.startLogin(makeEnv(false));
-    expect(res.status).toBe(500);
-    expect(res.headers.get("Location")).toBeNull();
-    expect(await res.text()).toContain("not configured");
+    // #2402: a bare error page is replaced by the login-page outcome;
+    // the technical cause stays in the server log.
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/login?auth_outcome=signin_failed");
   });
 });
 
@@ -147,7 +148,9 @@ describe("createOidcProvider handleCallback", () => {
       postLoginEnabled: true,
     });
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("/");
+    // #2402: the success outcome travels on the redirect for the
+    // one-time boot confirmation.
+    expect(res.headers.get("Location")).toBe("/?auth_outcome=signed_in");
     expect(res.headers.get("Set-Cookie")).toContain("session_id=");
     // Token exchange carried the code and client id (secret is sent but never logged — nothing is logged here).
     const tokenCall = captured.find((c) => c.url.includes("/oauth/token"));
@@ -170,29 +173,37 @@ describe("createOidcProvider handleCallback", () => {
     expect(events[1].tenantId).toBe("primary");
   });
 
-  it("rejects a provider error parameter and a missing code/state", async () => {
+  it("rejects a provider error parameter and a missing code/state with a login redirect", async () => {
     const provider = createOidcProvider(OPTIONS);
     const env = makeEnv();
     const errRes = await provider.handleCallback(
       env,
       new Request("https://agent.test/auth/callback/acme?error=access_denied")
     );
-    expect(errRes.status).toBe(400);
+    // #2402: every callback failure redirects to the login page with
+    // the generic outcome; fail-closed (no session, no binding) is
+    // unchanged, only the user-visible shape changes.
+    expect(errRes.status).toBe(302);
+    expect(errRes.headers.get("Location")).toBe("/login?auth_outcome=signin_failed");
     const missingRes = await provider.handleCallback(
       env,
       new Request("https://agent.test/auth/callback/acme")
     );
-    expect(missingRes.status).toBe(400);
+    expect(missingRes.status).toBe(302);
+    expect(missingRes.headers.get("Location")).toBe(
+      "/login?auth_outcome=signin_failed"
+    );
   });
 
-  it("rejects an invalid state with 403 before any upstream call", async () => {
+  it("rejects an invalid state with a login redirect before any upstream call", async () => {
     const captured = installFetch({});
     const provider = createOidcProvider(OPTIONS);
     const res = await provider.handleCallback(
       makeEnv(),
       new Request("https://agent.test/auth/callback/acme?code=x&state=bogus")
     );
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/login?auth_outcome=signin_failed");
     expect(captured).toHaveLength(0);
   });
 
@@ -202,7 +213,8 @@ describe("createOidcProvider handleCallback", () => {
     const env = makeEnv();
     const state = await createState(env);
     const res = await provider.handleCallback(env, await callbackRequest(env, state));
-    expect(res.status).toBe(502);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/login?auth_outcome=signin_failed");
   });
 
   it("fails closed on a missing subject — no session, no binding", async () => {
@@ -213,7 +225,8 @@ describe("createOidcProvider handleCallback", () => {
     const provider = createOidcProvider(OPTIONS);
     const state = await createState(env);
     const res = await provider.handleCallback(env, await callbackRequest(env, state));
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/login?auth_outcome=signin_failed");
     expect([...store.keys()].some((k) => k.includes("iaaa-binding:"))).toBe(false);
     expect([...store.keys()].filter((k) => /^sessions:[0-9a-f-]{36}$/.test(k))).toHaveLength(0);
   });
@@ -224,11 +237,17 @@ describe("createOidcProvider handleCallback", () => {
     installFetch({ userinfo: { sub: "s1", email_verified: true } });
     const state = await createState(env);
     const noEmail = await provider.handleCallback(env, await callbackRequest(env, state));
-    expect(noEmail.status).toBe(400);
+    expect(noEmail.status).toBe(302);
+    expect(noEmail.headers.get("Location")).toBe(
+      "/login?auth_outcome=signin_failed"
+    );
 
     installFetch({ userinfo: { sub: "s1", email: "user@acme.example", email_verified: false } });
     const unverified = await provider.handleCallback(env, await callbackRequest(env, state));
-    expect(unverified.status).toBe(400);
+    expect(unverified.status).toBe(302);
+    expect(unverified.headers.get("Location")).toBe(
+      "/login?auth_outcome=signin_failed"
+    );
   });
 
   it("normalizes display name from the login key when name is absent", async () => {

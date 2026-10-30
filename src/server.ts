@@ -133,6 +133,11 @@ import { serveStaticAsset } from "./security/staticAssets";
 import { withErrorBoundary } from "./security/workerErrorBoundary";
 import { handleLogout, renderLoginPage } from "./oauth";
 import {
+  AUTH_OUTCOME_PARAM,
+  authOutcomeLoginUrl,
+  parseAuthOutcome,
+} from "./security/authOutcome";
+import {
   disabledLoginResponse,
   enabledProviders,
   getProvider,
@@ -538,7 +543,12 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         .map((id) => getProvider(id))
         .filter((p): p is NonNullable<typeof p> => p !== null)
         .map((p) => ({ id: p.providerId, displayName: p.displayName ?? p.providerId }));
-      return new Response(renderLoginPage(env, enabled.length > 0 ? enabled : undefined), {
+      return new Response(
+        renderLoginPage(
+          env,
+          enabled.length > 0 ? enabled : undefined,
+          parseAuthOutcome(url.searchParams.get(AUTH_OUTCOME_PARAM))
+        ), {
         headers: {
           "Content-Type": "text/html; charset=utf-8",
           "Cache-Control": "no-store",
@@ -3750,6 +3760,21 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
     const session = auth?.session ?? null;
     if (path === "/" || path === "/index.html") {
       if (!session) {
+        // #2402: a just-created session that cannot be read back is
+        // the #2280 loop — never render the landing page and let the
+        // boot redirect silently again. This redirect is pure URL
+        // logic (no SessionStore read), so the message renders even
+        // under quota exhaustion. Any other no-session visit (never
+        // signed in, expired) keeps the landing page unchanged.
+        if (
+          parseAuthOutcome(url.searchParams.get(AUTH_OUTCOME_PARAM)) ===
+          "signed_in"
+        ) {
+          return new Response(null, {
+            status: 302,
+            headers: { Location: authOutcomeLoginUrl("session_unreadable") },
+          });
+        }
         return new Response(renderLandingPage(env.APP_NAME), {
           headers: {
             "Content-Type": "text/html; charset=utf-8",
@@ -3783,7 +3808,16 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         const flags = await getAllFeatureFlags(env, { userLogin: session.githubLogin });
         const safeFeatures = JSON.stringify(flags).replace(/</g, "\\u003c");
 
-        const userScript = `<script>window.__USER__=${safeUser};window.__FEATURES__=${safeFeatures};</script>`;
+        // #2402: one-time boot confirmation. The code is allowlisted
+        // here and the display name comes from the verified session,
+        // never from the URL; main.tsx strips the parameter on boot
+        // so a refresh never reshows it.
+        const bootOutcome =
+          parseAuthOutcome(url.searchParams.get(AUTH_OUTCOME_PARAM)) ===
+          "signed_in"
+            ? `window.__AUTH_OUTCOME__="signed_in";`
+            : "";
+        const userScript = `<script>window.__USER__=${safeUser};window.__FEATURES__=${safeFeatures};${bootOutcome}</script>`;
         const modified = html.replace("</head>", `${userScript}</head>`);
         // Re-issue the id that actually authenticated this request. With a
         // stale duplicate cookie in the header, the first value is not

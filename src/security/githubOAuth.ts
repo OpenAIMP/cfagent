@@ -20,6 +20,10 @@ import type { AuditStore } from "./iaaaAudit";
 import { logoutAuditTenant } from "./iaaaGates";
 import { revokeStoredTokens } from "./etradeOAuth";
 import { SERVER_PALETTE } from "../theme/serverPalette";
+import {
+  authOutcomeNoticeHtml,
+  type AuthOutcomeCode,
+} from "./authOutcome";
 
 /**
  * Audit seam for the logout hook (Phase 2b-part1). The caller —
@@ -145,8 +149,23 @@ export interface LoginPageProvider {
   displayName: string;
 }
 
-export function renderLoginPage(env: Env, providers?: LoginPageProvider[]): string {
+export function renderLoginPage(
+  env: Env,
+  providers?: LoginPageProvider[],
+  outcome?: AuthOutcomeCode | null
+): string {
   const multiProvider = Array.isArray(providers) && providers.length > 0;
+  // #2402: an outcome notice renders only when a failure code is
+  // passed; with no outcome the section below reproduces the
+  // previous bytes exactly (the no-arg page is golden-pinned).
+  const noticeStyle =
+    `border:1px solid ${SERVER_PALETTE.cardBorder};` +
+    `border-left:3px solid ${SERVER_PALETTE.danger};` +
+    `background:${SERVER_PALETTE.surfaceRaised};` +
+    `border-radius:12px;padding:0.85rem 1rem;margin-bottom:1.5rem;` +
+    `text-align:left;font-size:0.9rem;line-height:1.5;color:${SERVER_PALETTE.textSecondary}`;
+  const notice = authOutcomeNoticeHtml(outcome ?? null, noticeStyle);
+  const noticeSection = notice ? `    ${notice}\n\n` : "\n";
   const intro = multiProvider
     ? "Sign in with your authorized credentials to access your trading workspace."
     : "Sign in with your GitHub account to access your trading workspace.";
@@ -335,8 +354,7 @@ export function renderLoginPage(env: Env, providers?: LoginPageProvider[]): stri
     </div>
     <h1>Sign in to <span class="brand-gradient">${escapeHtml(env.APP_NAME || "NextGenTP")}</span></h1>
     <p class="subtitle">${intro}</p>
-
-    <div class="btn-stack">
+${noticeSection}    <div class="btn-stack">
       ${buttons}
     </div>
 

@@ -56,7 +56,9 @@ describe("completeWiredLogin", () => {
       auditTenantId: "primary",
     });
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("/");
+    // #2402: the success outcome travels on the redirect so the app
+    // boot can show the one-time confirmation.
+    expect(res.headers.get("Location")).toBe("/?auth_outcome=signed_in");
     const cookie = res.headers.get("Set-Cookie") ?? "";
     expect(cookie).toContain("session_id=");
     const sessions = sessionEntries(store);
@@ -111,7 +113,7 @@ describe("completeWiredLogin", () => {
     expect(ids[2]).not.toBe(ids[0]);
   });
 
-  it("a missing subject fails closed: error page, failure audit, no session, no binding", async () => {
+  it("a missing subject fails closed: login redirect, failure audit, no session, no binding", async () => {
     const { env, store } = makeEnv();
     const bindingStore = createMemoryIdentityBindingStore();
     const auditStore = createMemoryAuditStore();
@@ -121,7 +123,10 @@ describe("completeWiredLogin", () => {
       profile({ subject: "" }),
       { bindingStore, nowMs: 1, auditStore, auditTenantId: "primary" }
     );
-    expect(res.status).toBe(400);
+    // #2402: the failure redirects to the login page with the generic
+    // outcome; the technical cause stays in the server log.
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/login?auth_outcome=signin_failed");
     expect(sessionEntries(store)).toHaveLength(0);
     expect(
       await bindingStore.getByProvider("https://accounts.google.com", "")
@@ -141,7 +146,9 @@ describe("completeWiredLogin", () => {
       profile({ loginKey: "" }),
       { bindingStore, nowMs: 1 }
     );
-    expect(res.status).toBe(400);
+    // #2402: login redirect with the generic outcome, as above.
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/login?auth_outcome=signin_failed");
     expect(sessionEntries(store)).toHaveLength(0);
     expect(
       await bindingStore.getByProvider("https://accounts.google.com", "google-sub-1")
