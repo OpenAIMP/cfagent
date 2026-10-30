@@ -11,8 +11,11 @@
  *  - discovery alerts: DO-SQLite + in-memory (dedupe is a
  *    store-level invariant on both — the port contract);
  *  - IV history: DO-SQLite + in-memory + D1 (Drizzle over a
- *    node:sqlite-backed mock D1), plus the CUTOVER GATE pins:
- *    production composition defaults to the DO adapter;
+ *    node:sqlite-backed mock D1), plus the CUTOVER pins: since
+ *    the R-2 cutover the env-aware build defaults to the D1
+ *    adapter whenever AGENT_DB is bound (the flag is the
+ *    rollback lever), and a cold D1 store reads as the honest
+ *    warming-up state;
  *  - feed snapshots: DO-SQLite + in-memory (new twin);
  *  - structural pins: migration 0020 registered exactly once
  *    (14 still absent, gate G-3), 0020 DDL ↔ Drizzle parity,
@@ -55,6 +58,7 @@ import { SqlDiscoveryAlertStore } from "../src/data/doSqliteDiscoveryAlertAdapte
 import { InMemoryDiscoveryAlertStore } from "../src/data/inMemoryDiscoveryAlertAdapter";
 import type { IvHistoryStore } from "../src/data/ivHistoryPorts";
 import { computeIvStats } from "../src/data/ivHistoryPorts";
+import { getIvHistoryEntry } from "../src/trading/options/ivCollector";
 import { SqlIvHistoryStore } from "../src/data/doSqliteIvHistoryAdapter";
 import { InMemoryIvHistoryStore } from "../src/data/inMemoryIvHistoryAdapter";
 import {
@@ -534,8 +538,19 @@ ivSuite("D1 adapter", async () => {
 });
 
 describe("conformance ivHistory — CUTOVER GATE (R-2)", () => {
-  it("the env flag defaults OFF", () => {
-    expect(ivHistoryD1Enabled({})).toBe(false);
+  // §7 PIN INVERSIONS — the #2337 cutover slice executes the
+  // R-2 ruling recorded on the issue. Step 2 pinned "the flag
+  // defaults OFF / the builder defaults to DO" because the
+  // cutover waited on that ruling; the ruling accepts a
+  // warming-up restart (D1 starts empty, no backfill, the
+  // DO-side series are abandoned), so the pins below now state
+  // the post-cutover contract. Each inverted assertion is
+  // marked INVERTED; assertions whose expectation survived the
+  // cutover are unmarked.
+  it("the env flag is a rollback lever: D1 selected unless explicitly \"false\"", () => {
+    // INVERTED (step 2: "the env flag defaults OFF" — an unset
+    // flag meant DO; post-cutover an unset flag means D1).
+    expect(ivHistoryD1Enabled({})).toBe(true);
     expect(ivHistoryD1Enabled({ IV_HISTORY_D1_ENABLED: "false" })).toBe(false);
     expect(ivHistoryD1Enabled({ IV_HISTORY_D1_ENABLED: "true" })).toBe(true);
   });
@@ -546,13 +561,23 @@ describe("conformance ivHistory — CUTOVER GATE (R-2)", () => {
     expect(ports.ivHistory).toBeInstanceOf(SqlIvHistoryStore);
   });
 
-  it("the env builder defaults to the DO adapter and selects D1 only when flagged + bound", async () => {
+  it("the env builder defaults to D1 when AGENT_DB is bound; \"false\" or an absent binding keeps DO", async () => {
     const storage = new SqliteTestStorage();
+    // INVERTED (step 2: unflagged + bound composed DO; the
+    // post-cutover default for a bound environment is D1).
     const unflagged = await buildOptionsDiscoveryPorts(
       { AGENT_DB: new MockD1Database() },
       { sql: storage as never, storage: storage as never },
     );
-    expect(unflagged.ivHistory).toBeInstanceOf(SqlIvHistoryStore);
+    expect(unflagged.ivHistory).toBeInstanceOf(D1IvHistoryStore);
+    // NEW with the cutover: the rollback lever at the builder
+    // level — an explicit "false" is honoured even when the
+    // binding is present.
+    const optedOut = await buildOptionsDiscoveryPorts(
+      { IV_HISTORY_D1_ENABLED: "false", AGENT_DB: new MockD1Database() },
+      { sql: storage as never, storage: storage as never },
+    );
+    expect(optedOut.ivHistory).toBeInstanceOf(SqlIvHistoryStore);
     const flaggedNoDb = await buildOptionsDiscoveryPorts(
       { IV_HISTORY_D1_ENABLED: "true" },
       { sql: storage as never, storage: storage as never },
@@ -563,6 +588,63 @@ describe("conformance ivHistory — CUTOVER GATE (R-2)", () => {
       { sql: storage as never, storage: storage as never },
     );
     expect(flagged.ivHistory).toBeInstanceOf(D1IvHistoryStore);
+  });
+
+  it("cold D1 (the warming-up restart): the read path reports the honest empty state, never fabricated data", async () => {
+    const ports = await buildOptionsDiscoveryPorts(
+      { AGENT_DB: new MockD1Database() },
+      { sql: new SqliteTestStorage() as never, storage: new SqliteTestStorage() as never },
+    );
+    expect(ports.ivHistory).toBeInstanceOf(D1IvHistoryStore);
+    // The route's own single-symbol read logic (the
+    // /etrade/options/iv-history handler's getIvHistoryEntry)
+    // over the composed, still-empty D1 store: a name with no
+    // records is a state — observations 0, warmingUp true,
+    // latest/rank/percentile null — never an error, never a
+    // flat-filled series, never the abandoned DO data.
+    const entry = await getIvHistoryEntry(ports.ivHistory, "AAPL");
+    expect(entry).toEqual({
+      symbol: "AAPL",
+      observations: 0,
+      coveragePct: 0,
+      warmingUp: true,
+      latest: null,
+      ivRank: null,
+      ivPercentile: null,
+    });
+    expect(await ports.ivHistory.coverage("AAPL")).toEqual({
+      observations: 0,
+      firstDate: null,
+      lastDate: null,
+    });
+    expect(await ports.ivHistory.listSeries("AAPL")).toEqual([]);
+  });
+
+  it("post-cutover, a write through the composed port lands in the D1 table (the collector's store)", async () => {
+    const mock = new MockD1Database();
+    const doStorage = new SqliteTestStorage();
+    const ports = await buildOptionsDiscoveryPorts(
+      { AGENT_DB: mock },
+      { sql: doStorage as never, storage: doStorage as never },
+    );
+    // The collector writes through exactly this composed port
+    // (ScheduledTasksService's ivHistoryStore). The write must
+    // land in D1's agent_iv_history — and nowhere else.
+    expect(await ports.ivHistory.record(ivRecord("AAPL", "2026-10-22", 0.3))).toBe(true);
+    const rows = mock.sqlite
+      .prepare("SELECT symbol, date, atm_iv FROM agent_iv_history")
+      .all() as Array<{ symbol: string; date: string; atm_iv: number }>;
+    expect(rows).toEqual([{ symbol: "AAPL", date: "2026-10-22", atm_iv: 0.3 }]);
+    // The DO store the sync root would have composed stays
+    // empty: no dual-write, no silent shadow copy.
+    const doStore = new SqlIvHistoryStore(doStorage as never);
+    expect(await doStore.listSeries("AAPL")).toEqual([]);
+    // And the composed read sees the freshly collected day,
+    // still honestly flagged warming-up (1 < 60 observations).
+    const entry = await getIvHistoryEntry(ports.ivHistory, "AAPL");
+    expect(entry.observations).toBe(1);
+    expect(entry.warmingUp).toBe(true);
+    expect(entry.latest?.atmIv).toBe(0.3);
   });
 });
 

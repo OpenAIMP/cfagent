@@ -20,13 +20,21 @@
  * the sql handle get the identical adapters with sequential
  * application, exactly the legacy behaviour.
  *
- * IV HISTORY (cutover gate, R-2 on #2337): the sync root
- * always composes the DO adapter. The D1 adapter is selected
- * ONLY by buildOptionsDiscoveryPorts when the environment sets
- * IV_HISTORY_D1_ENABLED === "true" AND AGENT_DB is bound; the
- * production default is the DO adapter (pinned in the step-2
- * conformance suite). The read/write cutover waits on the
- * owner ruling recorded on the issue.
+ * IV HISTORY (cutover executed, R-2 on #2337): the env-aware
+ * build (buildOptionsDiscoveryPorts) selects the D1 adapter
+ * whenever AGENT_DB is bound; IV_HISTORY_D1_ENABLED ===
+ * "false" is the rollback lever that forces the DO adapter
+ * even when bound, and with no AGENT_DB binding the DO
+ * adapter is used regardless (tests/dev without a D1
+ * binding). The sync root always composes the DO adapter.
+ * The owner ruling recorded on the issue accepts the
+ * consequence: production D1 starts EMPTY — a warming-up
+ * restart, no backfill — and the DO-side series collected
+ * per instance are abandoned (a scoped exception to the
+ * 2026-10-13 365-day retention decision, this store only).
+ * Cold reads report the honest warming-up state
+ * (observations 0, warmingUp true, latest null); nothing
+ * falls back to the abandoned DO data.
  *
  * This module imports the transaction aspect (node:async_hooks)
  * through the adapters — it is SERVER-ONLY. Client-reachable
@@ -39,6 +47,7 @@ import {
   createD1IvHistoryDb,
   D1IvHistoryStore,
   ensureIvHistorySchema,
+  type IvHistoryDb,
 } from "./d1IvHistoryAdapter";
 import { SqlDiscoveryAlertStore } from "./doSqliteDiscoveryAlertAdapter";
 import { SqlDiscoveryRunStore } from "./doSqliteDiscoveryRunAdapter";
@@ -100,7 +109,8 @@ export interface OptionsDiscoveryPortInputs {
 /**
  * Compose the family's ports over a host's DO storage. IV
  * history is the DO adapter here unconditionally — see the
- * module header for the cutover gate.
+ * module header: the env-aware build below is where the D1
+ * cutover applies.
  */
 export function createOptionsDiscoveryPorts(
   inputs: OptionsDiscoveryPortInputs,
@@ -121,19 +131,54 @@ export function createOptionsDiscoveryPorts(
   };
 }
 
-/** Env flag selecting the D1 IV adapter (default: off — the DO
- *  adapter; see the module header's cutover gate). Mirrors the
- *  repo's `=== "true"` env-flag idiom (S2/knowledge flags). */
+/** Env selection for the D1 IV adapter after the R-2 cutover:
+ *  D1 is the default whenever AGENT_DB is bound, so this
+ *  predicate now answers "not explicitly opted out" — only
+ *  the exact string "false" forces the DO adapter (the
+ *  rollback lever). The name is kept from step 2: it still
+ *  reports whether D1 selection is in effect, and its single
+ *  caller and the conformance pins read it the same way. */
 export function ivHistoryD1Enabled(env: { IV_HISTORY_D1_ENABLED?: string }): boolean {
-  return env.IV_HISTORY_D1_ENABLED === "true";
+  return env.IV_HISTORY_D1_ENABLED !== "false";
+}
+
+/**
+ * Schema-ensure memoization for the D1 IV adapter, keyed by
+ * the AGENT_DB binding object: the first env-aware build for
+ * a binding runs the idempotent migration pass; later builds
+ * over the same binding reuse the settled promise, so hosts
+ * may compose per request (the production IV sites do)
+ * without re-running DDL per request. A FAILED ensure is not
+ * memoized — the entry is evicted when the promise rejects,
+ * so the next build retries instead of inheriting a
+ * transient failure for the isolate's lifetime.
+ */
+const ivHistorySchemaEnsures = new WeakMap<object, Promise<number[]>>();
+
+function ensureIvHistorySchemaMemoized(
+  binding: object,
+  db: IvHistoryDb,
+): Promise<number[]> {
+  const existing = ivHistorySchemaEnsures.get(binding);
+  if (existing) return existing;
+  const pending = ensureIvHistorySchema(db);
+  ivHistorySchemaEnsures.set(binding, pending);
+  pending.catch(() => {
+    if (ivHistorySchemaEnsures.get(binding) === pending) {
+      ivHistorySchemaEnsures.delete(binding);
+    }
+  });
+  return pending;
 }
 
 /**
  * The env-aware build: identical to createOptionsDiscoveryPorts
- * except IV history resolves through the D1 adapter when the
- * flag is on AND AGENT_DB is bound (schema-ensured here, once
- * per build — hosts memoize). With the flag off or the binding
- * absent, IV history is the DO adapter: today's behaviour.
+ * except IV history resolves through the D1 adapter when
+ * AGENT_DB is bound and the flag is not explicitly "false"
+ * (schema-ensured here, memoized per AGENT_DB binding — see
+ * ensureIvHistorySchemaMemoized). With the flag "false" (the
+ * rollback lever) or the binding absent, IV history is the
+ * DO adapter.
  */
 export async function buildOptionsDiscoveryPorts(
   env: { AGENT_DB?: unknown; IV_HISTORY_D1_ENABLED?: string },
@@ -142,7 +187,7 @@ export async function buildOptionsDiscoveryPorts(
   const ports = createOptionsDiscoveryPorts(inputs);
   if (ivHistoryD1Enabled(env) && env.AGENT_DB) {
     const db = createD1IvHistoryDb(env.AGENT_DB as D1Database);
-    await ensureIvHistorySchema(db);
+    await ensureIvHistorySchemaMemoized(env.AGENT_DB, db);
     ports.ivHistory = new D1IvHistoryStore(db);
   }
   return ports;

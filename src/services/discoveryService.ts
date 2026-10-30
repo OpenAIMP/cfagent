@@ -88,7 +88,11 @@ import {
   type DiscoverySetupStore,
   type StoredDiscoverySetupRun,
 } from "../trading";
-import { createOptionsDiscoveryPorts } from "../data/createOptionsDiscoveryPorts";
+import {
+  buildOptionsDiscoveryPorts,
+  createOptionsDiscoveryPorts,
+} from "../data/createOptionsDiscoveryPorts";
+import type { IvHistoryStore } from "../data/ivHistoryPorts";
 import type { DoTransactionStorage } from "../aspects/transactionAspect";
 import {
   classifyDiscoveryDeltas,
@@ -331,7 +335,8 @@ export async function runDiscovery(
 }
 
 /** Production wiring: ETrade chains (the unified service's own
- *  construction discipline), Yahoo bars, the SQL IV history and run
+ *  construction discipline), Yahoo bars, the env-aware IV history
+ *  store (D1 when AGENT_DB is bound, #2337) and the SQL run
  *  stores, and the live calendar service. */
 export function createDiscoveryService(args: {
   env: Env;
@@ -385,7 +390,25 @@ export function createDiscoveryService(args: {
     sql: args.sql,
     ...(txStorage ? { storage: txStorage } : {}),
   });
-  const ivStore = ports.ivHistory;
+  // #2337 cutover (R-2): IV stats read through the env-aware
+  // build's IV store — D1 when AGENT_DB is bound — not the
+  // sync root's DO store. createDiscoveryService is sync (its
+  // callers construct it inline), so the store resolves
+  // lazily on first use and is cached for the service
+  // instance — the ensureHistoryProvider shape below. A
+  // rejected resolution clears the cache so a later call
+  // retries, and the failure surfaces to the caller: there
+  // is no silent fallback to the abandoned DO series.
+  let ivHistoryPromise: Promise<IvHistoryStore> | null = null;
+  function ensureIvHistory(): Promise<IvHistoryStore> {
+    if (!ivHistoryPromise) {
+      ivHistoryPromise = buildOptionsDiscoveryPorts(args.env, {
+        sql: args.sql,
+        ...(txStorage ? { storage: txStorage } : {}),
+      }).then((built) => built.ivHistory);
+    }
+    return ivHistoryPromise;
+  }
   // Referenced so the config load (and its env validation) happens
   // at construction, like the unified service's constructor.
   void getEtapiConfig(args.env, args.overrideEnv);
@@ -430,7 +453,20 @@ export function createDiscoveryService(args: {
         userLogin: args.userLogin,
       }).fetchBars(symbol);
     },
-    ivStatsFor: async (symbol) => computeIvStats(await ivStore.listSeries(symbol)),
+    ivStatsFor: async (symbol) => {
+      let ivStore: IvHistoryStore;
+      try {
+        ivStore = await ensureIvHistory();
+      } catch (err) {
+        // Mirror fetchBars: a rejected cached resolution is
+        // cleared so a later call retries instead of
+        // inheriting a transient failure. The failure itself
+        // surfaces — it never degrades to the DO store.
+        ivHistoryPromise = null;
+        throw err;
+      }
+      return computeIvStats(await ivStore.listSeries(symbol));
+    },
     calendarFor: (symbol) => getSymbolEventCalendar(symbol),
     flowFor: (symbol) => fetchRealMarketFlowsForSymbol(symbol),
     runPipeline: (request) => runPanelPipeline(screener, request),
