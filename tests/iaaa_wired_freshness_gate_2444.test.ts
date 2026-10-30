@@ -114,7 +114,9 @@ describe("validateAndTouchWiredSession freshness gate (#2444)", () => {
 
   it("stale copy → freshRead + touch exactly as today", async () => {
     const cached = wiredSession();
-    const fresh = wiredSession();
+    // #2470 S2: the touch interval is 300s, so the fresh record's
+    // last activity must be more than 300s old for a touch to happen.
+    const fresh = wiredSession({ lastActivityMs: NOW_MS - 301_000 });
     const deps = depsFor({ fresh });
     const result = await validateAndTouchWiredSession(
       deps,
