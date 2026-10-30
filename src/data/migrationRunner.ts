@@ -1184,6 +1184,43 @@ CREATE INDEX IF NOT EXISTS agent_mesh_eval_results_task_idx ON agent_mesh_eval_r
 `,
 };
 
+/**
+ * Issue #2460 (Agent Mesh S19, G13c): one row per RSI proposal
+ * record, written and advanced by the proposal pipeline
+ * (src/services/meshProposalPipeline.ts) through the proposal
+ * store port. Evidence refs and the bar verdict are JSON text
+ * carrying scalar evidence only (run ids, trace ids, counts,
+ * codes). Retention: proposals are the improvement loop's own
+ * history — one row per drafted proposal, small by construction;
+ * no purge contract is declared in this slice (the table joins
+ * the retention review with the other AgentDB tables, #1701's
+ * contract).
+ */
+export const MIGRATION_0025_AGENT_MESH_PROPOSALS: DataMigration = {
+  version: 25,
+  name: "0025_agent_mesh_proposals",
+  sql: `
+CREATE TABLE IF NOT EXISTS agent_mesh_proposals (
+  id TEXT PRIMARY KEY,
+  signal_key TEXT NOT NULL,
+  title TEXT NOT NULL,
+  problem TEXT NOT NULL,
+  proposed_change TEXT NOT NULL,
+  expected_effect TEXT NOT NULL,
+  falsification_criterion TEXT NOT NULL,
+  evidence_refs_json TEXT NOT NULL,
+  state TEXT NOT NULL,
+  bar_verdict_json TEXT,
+  filed_issue_number INTEGER,
+  filed_issue_url TEXT,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agent_mesh_proposals_signal_idx ON agent_mesh_proposals (signal_key, created_at_ms);
+CREATE INDEX IF NOT EXISTS agent_mesh_proposals_state_idx ON agent_mesh_proposals (state, created_at_ms);
+`,
+};
+
 export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0001_AGENT_GOVERNANCE,
   MIGRATION_0002_AGENT_CHAINS_SCHEDULES,
@@ -1209,6 +1246,7 @@ export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0022_D1_REGULARIZATION,
   MIGRATION_0023_AGENT_MESH_TRACE_HOPS,
   MIGRATION_0024_AGENT_MESH_EVAL_RESULTS,
+  MIGRATION_0025_AGENT_MESH_PROPOSALS,
 ];
 
 function splitStatements(sqlText: string): string[] {
