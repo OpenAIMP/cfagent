@@ -26,7 +26,15 @@
  * Readers take a `ScreeningSettingRead` function so both sql-backed
  * stores (DO SqlStorage / DatabaseORM exec) and route contexts
  * (OrchestratorAgent.readSettingRaw) drive the same code.
+ *
+ * Storage note (#2390, step 4g): the factories below delegate
+ * to the dedicated settings port that owns mas_settings (gate
+ * G-7 ruling); this module keeps the flag semantics — keys,
+ * fail-safes, stage validation — and no longer issues
+ * statements against the table itself.
  */
+
+import { createSettingsPort } from "../data/createSettingsPorts";
 
 export const SCREENING_FLAG_KEYS = {
   rolloutStage: "screening.rolloutStage",
@@ -50,10 +58,25 @@ export const SCREENING_ROLLOUT_STAGES: ScreeningRolloutStage[] = [
 const TRUTHY = new Set(["on", "1", "true", "yes"]);
 const FALSY = new Set(["off", "0", "false", "no"]);
 
-function ensureSettingsTable(sql: { exec: (q: string, ...a: unknown[]) => Iterable<unknown> }): void {
-  sql.exec(
-    `CREATE TABLE IF NOT EXISTS mas_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)`
-  );
+/**
+ * The factories delegate to the dedicated settings port
+ * (#2390, step 4g — the G-7 ruling): mas_settings is owned by
+ * its adapter (src/data/doSqliteOrmAdapters.ts, composed via
+ * createSettingsPorts). The incumbent ensure-on-every-call
+ * shape is preserved through the port: each factory call runs
+ * the port's ensureSchema() before the operation, exactly as
+ * the retired local ensureSettingsTable did, so a read on a
+ * fresh instance (no table anywhere) still returns null
+ * rather than throwing. One behavioural sharpening, inherited
+ * from the port: the legacy reader returned "" for a stored
+ * NULL-ish value where the port returns the value or null —
+ * the table's value column is NOT NULL, so no stored row can
+ * distinguish the two.
+ */
+function settingsPortFor(sql: {
+  exec: (q: string, ...a: unknown[]) => Iterable<unknown>;
+}) {
+  return createSettingsPort(sql);
 }
 
 /** Build a settings reader over any exec-shaped sql store (DO SqlStorage or DatabaseORM). */
@@ -61,27 +84,20 @@ export function settingReadFromSql(sql: {
   exec: (q: string, ...a: unknown[]) => Iterable<unknown>;
 }): ScreeningSettingRead {
   return (key: string) => {
-    ensureSettingsTable(sql);
-    const rows = Array.from(
-      sql.exec(`SELECT value FROM mas_settings WHERE key = ?`, key)
-    ) as Array<{ value?: unknown }>;
-    return rows.length > 0 ? String(rows[0].value ?? "") : null;
+    const port = settingsPortFor(sql);
+    port.ensureSchema();
+    return port.get(key);
   };
 }
 
-/** Build a settings writer over any exec-shaped sql store (delete+insert idiom). */
+/** Build a settings writer over any exec-shaped sql store (delete+insert idiom, via the port). */
 export function settingWriteFromSql(sql: {
   exec: (q: string, ...a: unknown[]) => Iterable<unknown>;
 }): ScreeningSettingWrite {
   return (key: string, value: string) => {
-    ensureSettingsTable(sql);
-    sql.exec(`DELETE FROM mas_settings WHERE key = ?`, key);
-    sql.exec(
-      `INSERT INTO mas_settings (key, value, updated_at) VALUES (?, ?, ?)`,
-      key,
-      value,
-      new Date().toISOString()
-    );
+    const port = settingsPortFor(sql);
+    port.ensureSchema();
+    port.set(key, value);
   };
 }
 

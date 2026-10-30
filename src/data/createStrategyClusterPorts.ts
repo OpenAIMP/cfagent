@@ -14,7 +14,11 @@
  * settingsRead is the step-3a read-only settings port
  * (settingsReadPorts.ts, gate G-7): the cluster's settings
  * READS (adaptation budget overrides, the kill switch)
- * compose here; no settings write path exists in this family.
+ * compose here. Since step 4g (#2390) executed the G-7
+ * ruling, the root also exposes the dedicated settings port:
+ * the cluster's weights store no longer ensures mas_settings
+ * (that DDL duplicate retired), so the settings port's
+ * ensureSchema is the family's ensure path for the table.
  *
  * This module is SERVER-ONLY in effect (it wires the DO
  * adapters); client-reachable modules must import the port
@@ -24,19 +28,28 @@
 import { DoSqliteAdaptationAuditStore } from "./doSqliteAdaptationAuditAdapter";
 import { DoSqliteChallengerStore } from "./doSqliteChallengerAdapter";
 import { DoSqliteReselectionStore } from "./doSqliteReselectionAdapter";
-import { DoSqliteSettingsReadAdapter } from "./doSqliteOrmAdapters";
+import {
+  DoSqliteSettingsAdapter,
+  DoSqliteSettingsReadAdapter,
+} from "./doSqliteOrmAdapters";
 import { DoSqliteStrategyPolicyStore } from "./doSqliteStrategyPolicyAdapter";
 import { DoSqliteStrategyWeightsStore } from "./doSqliteStrategyWeightsAdapter";
 import { InMemoryAdaptationAuditStore } from "./inMemoryAdaptationAuditAdapter";
 import { InMemoryChallengerStore } from "./inMemoryChallengerAdapter";
-import { InMemorySettingsReadAdapter } from "./inMemoryOrmAdapters";
+import {
+  InMemorySettingsAdapter,
+  InMemorySettingsReadAdapter,
+} from "./inMemoryOrmAdapters";
 import { InMemoryReselectionStore } from "./inMemoryReselectionAdapter";
 import { InMemoryStrategyPolicyStore } from "./inMemoryStrategyPolicyAdapter";
 import { InMemoryStrategyWeightsStore } from "./inMemoryStrategyWeightsAdapter";
 import type { AdaptationAuditStore } from "./adaptationAuditPorts";
 import type { ChallengerSqlExecutor, ChallengerStore } from "./challengerPorts";
 import type { ReselectionStore } from "./reselectionPorts";
-import type { SettingsReadPort } from "./settingsReadPorts";
+import type {
+  SettingsPort,
+  SettingsReadPort,
+} from "./settingsReadPorts";
 import type { StrategyPolicyStore } from "./strategyPolicyPorts";
 import type { StrategyWeightsStore } from "./strategyWeightsPorts";
 
@@ -47,6 +60,7 @@ export interface StrategyClusterPorts {
   reselection: ReselectionStore;
   adaptationAudit: AdaptationAuditStore;
   settingsRead: SettingsReadPort;
+  settings: SettingsPort;
 }
 
 /** Compose the family's ports over a host's DO storage. */
@@ -60,6 +74,7 @@ export function createStrategyClusterPorts(
     reselection: new DoSqliteReselectionStore(sql as never),
     adaptationAudit: new DoSqliteAdaptationAuditStore(sql as never),
     settingsRead: new DoSqliteSettingsReadAdapter(sql as never),
+    settings: new DoSqliteSettingsAdapter(sql as never),
   };
 }
 
@@ -72,5 +87,6 @@ export function createInMemoryStrategyClusterPorts(): StrategyClusterPorts {
     reselection: new InMemoryReselectionStore(),
     adaptationAudit: new InMemoryAdaptationAuditStore(),
     settingsRead: new InMemorySettingsReadAdapter(),
+    settings: new InMemorySettingsAdapter(),
   };
 }

@@ -43,6 +43,7 @@ import {
   ADAPTATION_KILL_SWITCH_KEY,
   isAdaptationHalted,
 } from "../services/adaptationAudit";
+import { createSettingsPort } from "./createSettingsPorts";
 import type {
   GovernanceHaltRow,
   GovernanceProjectionWriter,
@@ -73,15 +74,16 @@ function writeDoKillSwitch(
   halted: boolean,
   nowMs: number,
 ): void {
-  // The mas_settings idiom elsewhere in the repo is DELETE+INSERT
-  // (the table's key is its primary key; a bare INSERT would fail
-  // on the second write).
-  doSql.exec(
-    `DELETE FROM mas_settings WHERE key = ?`,
-    ADAPTATION_KILL_SWITCH_KEY,
-  );
-  doSql.exec(
-    `INSERT INTO mas_settings (key, value, updated_at) VALUES (?, ?, ?)`,
+  // The DO-side write routes through the dedicated settings
+  // port (#2390, step 4g — the G-7 ruling): the port owns
+  // mas_settings and its set() is the incumbent DELETE+INSERT
+  // idiom (the table's key is its primary key; a bare INSERT
+  // would fail on the second write). The caller-supplied
+  // nowMs stays the row's timestamp. The dual-write ORDERING
+  // protocol in setGovernedHalt below is unchanged — the port
+  // neither joins nor reorders the two legs (two stores cannot
+  // join one transaction unit; the ordering is the mechanism).
+  createSettingsPort(doSql).set(
     ADAPTATION_KILL_SWITCH_KEY,
     halted ? "on" : "off",
     new Date(nowMs).toISOString(),

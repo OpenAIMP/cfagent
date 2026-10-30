@@ -31,7 +31,15 @@ import type { MemoryPort } from "./memoryPorts";
 import type { MessagePort } from "./messagePorts";
 import { ChainedAuditRepository, Repository } from "./ormRepositoryCore";
 import type { SqlStorage } from "./repositoryPorts";
-import type { SettingsReadPort } from "./settingsReadPorts";
+import type {
+  SettingsPort,
+  SettingsReadPort,
+} from "./settingsReadPorts";
+
+/** The mas_settings DDL — its single home is this adapter's
+ *  ensureSchema (step 4g, G-7 ruling). */
+export const MAS_SETTINGS_DDL =
+  "CREATE TABLE IF NOT EXISTS mas_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)";
 import type {
   TransactionCompletionFields,
   TransactionLedgerPort,
@@ -404,9 +412,9 @@ export class DoSqliteCanonicalReportAdapter extends Repository<CanonicalReportRe
   }
 }
 
-/** mas_settings read adapter (G-7: read-only in this slice). */
+/** mas_settings read adapter (step 3a; the read half of the family). */
 export class DoSqliteSettingsReadAdapter implements SettingsReadPort {
-  constructor(private readonly sql: SqlStorage) {}
+  constructor(protected readonly sql: SqlStorage) {}
 
   get(key: string): string | null {
     const rows = Array.from(
@@ -418,6 +426,41 @@ export class DoSqliteSettingsReadAdapter implements SettingsReadPort {
 
   has(key: string): boolean {
     return this.get(key) !== null;
+  }
+}
+
+/**
+ * mas_settings adapter (#2390, step 4g — the G-7 ruling): the
+ * dedicated settings port's DO implementation and the table's
+ * single owner. It is the ONLY module that writes mas_settings
+ * values or creates the table; the four former writers
+ * (reportDispatch, screeningFlags, governedHalt, the enrichment
+ * adapter) call this port. Reads share the step-3a adapter's
+ * exact semantics by extension.
+ */
+export class DoSqliteSettingsAdapter
+  extends DoSqliteSettingsReadAdapter
+  implements SettingsPort
+{
+  ensureSchema(): void {
+    this.sql.exec(MAS_SETTINGS_DDL);
+  }
+
+  set(key: string, value: string, updatedAt?: string): void {
+    // DELETE+INSERT (not INSERT OR REPLACE) so
+    // MockSqlStorage-shaped stores stay compatible — the
+    // incumbent idiom of all four legacy writers.
+    this.sql.exec("DELETE FROM mas_settings WHERE key = ?", key);
+    this.sql.exec(
+      "INSERT INTO mas_settings (key, value, updated_at) VALUES (?, ?, ?)",
+      key,
+      value,
+      updatedAt ?? new Date().toISOString(),
+    );
+  }
+
+  delete(key: string): void {
+    this.sql.exec("DELETE FROM mas_settings WHERE key = ?", key);
   }
 }
 
