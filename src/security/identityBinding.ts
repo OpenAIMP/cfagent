@@ -90,6 +90,13 @@ function normalize(value: string): string {
   return value.trim();
 }
 
+/**
+ * #2433 (step 5b): IdentityBindingStore is carried unchanged as
+ * the session family's binding sub-contract (SessionBindingPort
+ * in src/data/sessionPorts.ts). The production Kv construction
+ * is iaaaLogin.createKvBindingStore / createWiredBindingStore
+ * (flag-aware); this in-memory store remains the test leg.
+ */
 /** In-memory store for tests and for callers that have not wired a backend yet. */
 export function createMemoryIdentityBindingStore(): IdentityBindingStore {
   const byProvider = new Map<string, IdentityBinding>();

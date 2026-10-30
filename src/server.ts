@@ -8,7 +8,7 @@ import {
 import { getServiceUserLogin, isLoginShaped, SHARED_ORCHESTRATOR_INSTANCE } from "./security/serviceIdentity";
 import { getSessionCached, getSessionCachedFetchedAt, invalidateSessionCache } from "./security/sessionCache";
 import { resolveIdleTimeoutMs } from "./security/sessionPolicy";
-import { deleteSession, getSession, sessionStore, updateSession } from "./security/session";
+import { deleteSession, getSession, listSessionFamilyEntries, sessionStore, updateSession, wiredAccessRequestStore, wiredMembershipStore } from "./security/session";
 import { listStoreEntries, type DoNamespaceLike } from "./security/durableKv";
 import { zonedDateParts } from "./schedule";
 import { OPERATION_CATALOG } from "./orchestrate";
@@ -48,7 +48,6 @@ import {
   readMembershipById,
 } from "./security/iaaaMembershipStore";
 import { canGrantRole, type AuthorizationScope, type Role } from "./security/authorization";
-import { createAccessRequestStore } from "./security/iaaaAccessRequests";
 import { buildAdminOverview, computeAdminCounts, isPlatformAdmin } from "./security/iaaaAdminOverview";
 import {
   evaluateWithObligations,
@@ -1510,7 +1509,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       try {
         const overview = await buildAdminOverview(
           {
-            membershipStore: createKvMembershipStore(sessionStore(env)),
+            membershipStore: wiredMembershipStore(env),
             auditStore: createWiredAuditStore(env),
             kv: sessionStore(env),
             tenantId: resolveIaaaTenant(env),
@@ -1521,11 +1520,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         if (!overview.allowed) {
           return Response.json({ error: "Forbidden: IAAA admin access requires platform-admin membership." }, { status: 403 });
         }
-        const entries = await listStoreEntries({
-          namespace: env.SESSION_STORE as unknown as DoNamespaceLike | undefined,
-          namespaceName: "sessions",
-          prefix: "iaaa-membership:",
-        });
+        const entries = await listSessionFamilyEntries(env, "iaaa-membership:");
         if (!entries) {
           return Response.json({ error: "IAAA admin overview unavailable." }, { status: 500 });
         }
@@ -1556,7 +1551,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         try {
           const overview = await buildAdminOverview(
             {
-              membershipStore: createKvMembershipStore(sessionStore(env)),
+              membershipStore: wiredMembershipStore(env),
               auditStore: createWiredAuditStore(env),
               kv: sessionStore(env),
               tenantId: resolveIaaaTenant(env),
@@ -1638,7 +1633,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         try {
           const overview = await buildAdminOverview(
             {
-              membershipStore: createKvMembershipStore(sessionStore(env)),
+              membershipStore: wiredMembershipStore(env),
               auditStore: createWiredAuditStore(env),
               kv: sessionStore(env),
               tenantId: resolveIaaaTenant(env),
@@ -1736,7 +1731,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         try {
           const overview = await buildAdminOverview(
             {
-              membershipStore: createKvMembershipStore(sessionStore(env)),
+              membershipStore: wiredMembershipStore(env),
               auditStore: createWiredAuditStore(env),
               kv: sessionStore(env),
               tenantId: resolveIaaaTenant(env),
@@ -1792,7 +1787,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         try {
           const overview = await buildAdminOverview(
             {
-              membershipStore: createKvMembershipStore(sessionStore(env)),
+              membershipStore: wiredMembershipStore(env),
               auditStore: createWiredAuditStore(env),
               kv: sessionStore(env),
               tenantId: resolveIaaaTenant(env),
@@ -1934,7 +1929,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         try {
           const overview = await buildAdminOverview(
             {
-              membershipStore: createKvMembershipStore(sessionStore(env)),
+              membershipStore: wiredMembershipStore(env),
               auditStore: createWiredAuditStore(env),
               kv: sessionStore(env),
               tenantId: resolveIaaaTenant(env),
@@ -2112,7 +2107,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         try {
           const overview = await buildAdminOverview(
             {
-              membershipStore: createKvMembershipStore(sessionStore(env)),
+              membershipStore: wiredMembershipStore(env),
               auditStore: createWiredAuditStore(env),
               kv: sessionStore(env),
               tenantId: resolveIaaaTenant(env),
@@ -2167,7 +2162,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         try {
           const overview = await buildAdminOverview(
             {
-              membershipStore: createKvMembershipStore(sessionStore(env)),
+              membershipStore: wiredMembershipStore(env),
               auditStore: createWiredAuditStore(env),
               kv: sessionStore(env),
               tenantId: resolveIaaaTenant(env),
@@ -2230,8 +2225,8 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         return Response.json({ error: "Forbidden: access requests require a wired session." }, { status: 403 });
       }
       const tenantId = resolveIaaaTenant(env);
-      const membershipStore = createKvMembershipStore(sessionStore(env));
-      const requestStore = createAccessRequestStore(sessionStore(env));
+      const membershipStore = wiredMembershipStore(env);
+      const requestStore = wiredAccessRequestStore(env);
       const nowMs = Date.now();
       const callerHasActiveMembership = async (): Promise<boolean> => {
         const memberships = await membershipStore.getMembershipsByUser(session.internalUserId as string);
@@ -2405,7 +2400,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         return Response.json({ error: "Forbidden: lifecycle actions require a wired session." }, { status: 403 });
       }
       const tenantId = resolveIaaaTenant(env);
-      const membershipStore = createKvMembershipStore(sessionStore(env));
+      const membershipStore = wiredMembershipStore(env);
       const kv = sessionStore(env);
       const nowMs = Date.now();
       const callerMemberships = await membershipStore.getMembershipsByUser(session.internalUserId);
@@ -2457,11 +2452,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       const offboardDeps = () => ({
         sessions: {
           async list() {
-            const entries = await listStoreEntries({
-              namespace: env.SESSION_STORE as unknown as DoNamespaceLike | undefined,
-              namespaceName: "sessions",
-              prefix: "",
-            });
+            const entries = await listSessionFamilyEntries(env, "");
             // A null listing means the registry cannot see sessions:
             // fail closed (500) rather than offboarding against an
             // empty list and claiming success.
@@ -2529,11 +2520,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
           if (!callerIsPlatformAdmin && !(await callerCanGrantTenantAdmin())) {
             return Response.json({ error: "Forbidden: listing memberships requires admin access." }, { status: 403 });
           }
-          const entries = await listStoreEntries({
-            namespace: env.SESSION_STORE as unknown as DoNamespaceLike | undefined,
-            namespaceName: "sessions",
-            prefix: "iaaa-membership:",
-          });
+          const entries = await listSessionFamilyEntries(env, "iaaa-membership:");
           if (!entries) {
             return Response.json({ error: "Membership listing unavailable." }, { status: 500 });
           }
