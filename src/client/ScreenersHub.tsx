@@ -825,7 +825,7 @@ export function ScreenersHub({
               the digest and history above it. Provider health lives on
               the dashboard below; the per-screen feed callouts it
               replaces are gone (one source of truth). */}
-          <h2 style={{ fontSize: "1.1rem", margin: "1.5rem 0 0.25rem" }}>Run a new screen</h2>
+          <h2 style={{ fontSize: "1.125rem", margin: "1.5rem 0 0.25rem" }}>Run a new screen</h2>
           <p style={{ fontSize: "var(--font-size-body)", color: "var(--color-text-muted)", margin: "0 0 0.75rem" }}>
             Provider health: see the <a href="#provider-dashboard">provider dashboard</a> below.
           </p>
