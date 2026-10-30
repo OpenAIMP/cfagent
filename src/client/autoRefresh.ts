@@ -8,9 +8,10 @@
  *
  * - Source of truth: the tenant row in D1 agent_tenant_settings
  *   (migration 0026), served by GET/POST
- *   /api/tenant/settings/auto-refresh (src/server.ts). The
- *   tenant is server-resolved (resolveIaaaTenant); the client
- *   never supplies it.
+ *   /api/tenant/settings/auto-refresh (handler in
+ *   src/agents/routes/reports.ts, reached through the Worker's
+ *   generic /api/ forwarder). The tenant is server-resolved
+ *   (resolveIaaaTenant); the client never supplies it.
  * - Execution context: the app shell loads the tenant setting
  *   at boot (loadAutoRefreshFromServer) into this module's
  *   in-memory state, and every periodic refresh run reads this

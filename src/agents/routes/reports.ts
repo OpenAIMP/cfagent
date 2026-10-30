@@ -15,6 +15,11 @@
  */
 
 import type { AgentName, AsyncJobSubmission } from "../../types";
+import {
+  createCommercialAdapter,
+  ensureCommercialSchema,
+} from "../../data/createCommercialPorts";
+import { resolveIaaaTenant } from "../../security/iaaaGithubEndToEnd";
 import type { SqlStorage } from "../../orm";
 import type { ScreenerAgent } from "../screener-agent";
 import type { RunSummary } from "../../services/runSummaries";
@@ -37,7 +42,15 @@ export interface ReportsRouteContext {
    *  Issue #1169 S4-1: REPORTS_BUCKET joins them (type-only widening)
    *  so the index-backfill hook can resolve R2 bodies for WithR2 rows;
    *  the orchestrator mount already passes the full env. */
-  env?: { AI?: any; VECTOR_MEMORY?: any; REPORTS_BUCKET?: any };
+  env?: {
+    AI?: any;
+    VECTOR_MEMORY?: any;
+    REPORTS_BUCKET?: any;
+    /** Issue #2481: D1 binding for the tenant settings store. */
+    AGENT_DB?: unknown;
+    /** Issue #2481: server-resolved tenant id (see resolveIaaaTenant). */
+    IAAA_TENANT_ID?: string;
+  };
   /** ScreenerAgent accessor (owner: OrchestratorAgent.getScreenerAgent) —
    *  the #1057 Runs merge reads the agent's latest/history feed via it. */
   getScreenerAgent(userLogin?: string): ScreenerAgent;
@@ -289,6 +302,75 @@ export async function handleReportsRoutes(
     ctx.setReportDispatchHitl(body.enabled);
     ctx.audit("report_dispatch_hitl.changed", "orchestrator", { enabled: body.enabled });
     return Response.json({ enabled: body.enabled });
+  }
+
+  // Issue #2481: per-tenant auto-refresh setting (owner decision
+  // 2026-10-30: the switch is a per-tenant setting whose source
+  // of truth is the tenant store, edited via the dynamic panel).
+  // Reached as /api/tenant/settings/auto-refresh through the
+  // Worker's generic /api/ forwarder (server.ts: authenticated,
+  // /api prefix stripped, forwarded to the caller's agent
+  // instance, whose routeRequest reaches this handler before
+  // the queue decision — the same path the HITL setting above
+  // takes). Tenancy does NOT come from the serving instance:
+  // the row lives in shared D1 agent_tenant_settings
+  // (migration 0026) and the tenant is server-resolved with
+  // resolveIaaaTenant (env IAAA_TENANT_ID, else "primary"),
+  // never from a client-supplied value, so a caller can only
+  // ever read or write its own tenant's row. The dynamic panel
+  // is the editor, not the truth: the app shell loads this
+  // value at boot into the single client auto-refresh module.
+  // Absent row = OFF, interval 15s (the existing client
+  // default, preserved — not an owner-approved default).
+  if (path.endsWith("/tenant/settings/auto-refresh")) {
+    try {
+      const adapter = ctx.env
+        ? createCommercialAdapter(ctx.env as { AGENT_DB?: unknown })
+        : null;
+      if (!adapter) {
+        return Response.json({ error: "Tenant store unavailable: AGENT_DB is not bound." }, { status: 503 });
+      }
+      await ensureCommercialSchema(adapter.db);
+      const tenantId = resolveIaaaTenant(ctx.env as { IAAA_TENANT_ID?: string } | null | undefined);
+      if (request.method === "GET") {
+        const current = await adapter.getTenantAutoRefresh(tenantId);
+        return Response.json({ tenantId, enabled: current.enabled, intervalS: current.intervalS });
+      }
+      if (request.method === "POST") {
+        const body = (await request.json().catch(() => null)) as {
+          enabled?: unknown;
+          intervalS?: unknown;
+        } | null;
+        if (!body || typeof body.enabled !== "boolean") {
+          return Response.json({ error: "enabled (boolean) is required." }, { status: 400 });
+        }
+        const intervalS =
+          typeof body.intervalS === "number" && Number.isFinite(body.intervalS) && body.intervalS > 0
+            ? Math.floor(body.intervalS)
+            : (await adapter.getTenantAutoRefresh(tenantId)).intervalS;
+        const record = await adapter.setTenantAutoRefresh(tenantId, {
+          enabled: body.enabled,
+          intervalS,
+        });
+        ctx.audit("tenant_auto_refresh.changed", "orchestrator", {
+          tenantId,
+          enabled: record.autoRefreshEnabled,
+          intervalS: record.autoRefreshIntervalS,
+        });
+        return Response.json({
+          tenantId: record.tenantId,
+          enabled: record.autoRefreshEnabled,
+          intervalS: record.autoRefreshIntervalS,
+          updatedAtMs: record.updatedAtMs,
+        });
+      }
+      return Response.json({ error: "Method not allowed" }, { status: 405 });
+    } catch (err) {
+      return Response.json(
+        { error: err instanceof Error ? err.message : "Failed to load tenant auto-refresh setting" },
+        { status: 500 },
+      );
+    }
   }
 
   // Issue #277: confirm (or reject) a pending report dispatch. Mirrors
