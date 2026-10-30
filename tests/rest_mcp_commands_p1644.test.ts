@@ -169,11 +169,15 @@ describe("delegation: reduced routes execute through IMcpToolCommand", () => {
       audit,
       recordAudit: () => ({ id: "x", type: "t", agent: "a", payload: {}, created_at: "t" }),
     } as never);
-    // Old REST shape preserved exactly: 5 fields, created_at snake_case,
-    // sessionId projected out, payload JSON-parsed.
+    // Old REST shape preserved exactly, plus the #2371 additive field:
+    // 5 stored fields, created_at snake_case, sessionId projected out,
+    // payload JSON-parsed, and resolvedAspects (null here — payload
+    // { k: 1 } carries no cataloged code). The pin update rides the
+    // #2371 slice that added the field; the filter/parse/clamp
+    // contract below is unchanged.
     expect(await res!.json()).toEqual({
       count: 1,
-      events: [{ id: "e1", type: "t", agent: "a", payload: { k: 1 }, created_at: "t1" }],
+      events: [{ id: "e1", type: "t", agent: "a", payload: { k: 1 }, created_at: "t1", resolvedAspects: null }],
     });
     // #1968: the route passes its query params into the command (here
     // just the limit) instead of the old empty input — filtering happens
