@@ -3,16 +3,18 @@
  * implementation of the IV-history port: Drizzle over
  * `agent_iv_history` (migration 0020).
  *
- * CUTOVER GATE (issue #2337, R-2): this adapter is
- * conformance-proven but NOT selected in production — the
- * composition root defaults to the DO adapter and selects this
- * one only when config says so (IV_HISTORY_D1_ENABLED). The
- * read/write cutover waits on the owner ruling recorded on the
- * issue: existing history is stranded per collecting DO
- * instance, so switching writers first would restart the
- * series from empty (a warming-up restart under the 2026-10-13
- * 365-day retention decision is an explicit call, never a
- * default).
+ * CUTOVER EXECUTED (issue #2337, R-2): this adapter IS the
+ * production IV-history store whenever AGENT_DB is bound —
+ * the composition root selects it by default, and
+ * IV_HISTORY_D1_ENABLED === "false" is the rollback lever
+ * back to the DO adapter. Per the owner ruling recorded on
+ * the issue, the cutover is a warming-up restart: this store
+ * started EMPTY, there is no backfill, and the series
+ * collected per DO instance were abandoned (a scoped
+ * exception to the 2026-10-13 365-day retention decision,
+ * this store only). Until the collector re-warms the series,
+ * reads report the honest warming-up state (observations 0,
+ * warmingUp true, latest null) — never the abandoned DO data.
  *
  * Semantics identical to the DO adapter (the port's contract):
  *  - record() is first-write-wins per (symbol, date) and
