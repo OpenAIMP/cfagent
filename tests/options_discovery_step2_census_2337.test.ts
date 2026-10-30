@@ -31,6 +31,13 @@
  * to close the maintenance route's raw-delete bypass of this
  * family's table. The statement moved INTO the layer from
  * routes/maintenance.ts; nothing was deleted.
+ *
+ * #2390 (#1976 step 4g) count update: 70 -> 67 — the
+ * enrichment adapter's three mas_settings statements (the
+ * killswitch SELECT + DELETE/INSERT pair) moved OUT of this
+ * family to the dedicated settings port's adapter under the
+ * G-7 ruling; the statements live on in the layer, in the
+ * settings adapter (doSqliteOrmAdapters.ts).
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -61,7 +68,10 @@ const ADAPTER_FILES: Array<[string, number]> = [
   ["src/data/doSqliteStrategyProfileAdapter.ts", 7],
   ["src/data/doSqliteFeedSnapshotAdapter.ts", 7],
   ["src/data/doSqlitePausedScheduleAdapter.ts", 7],
-  ["src/data/doSqliteEnrichmentAdapter.ts", 8],
+  // 8 at step 2; 5 since #2390 (step 4g): the killswitch
+  // SELECT + DELETE/INSERT pair left this adapter for the
+  // dedicated settings port (the G-7 ruling).
+  ["src/data/doSqliteEnrichmentAdapter.ts", 5],
 ];
 
 function countMatches(text: string, pattern: RegExp): number {
@@ -89,7 +99,7 @@ describe("#2337 D-D census — options/discovery family entries (shrink-only)", 
     }
   });
 
-  it("the family's statements live in the data layer's adapters (70 sites)", () => {
+  it("the family's statements live in the data layer's adapters (67 sites)", () => {
     let total = 0;
     for (const [file, expected] of ADAPTER_FILES) {
       const text = readFileSync(file, "utf8");
@@ -97,6 +107,6 @@ describe("#2337 D-D census — options/discovery family entries (shrink-only)", 
       expect(count, `${file} holds the family's statements`).toBe(expected);
       total += count;
     }
-    expect(total).toBe(70);
+    expect(total).toBe(67);
   });
 });
