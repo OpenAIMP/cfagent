@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, TextInput } from "./components/ui";
 import { usePolling } from "./usePolling";
+import { useAutoRefresh } from "./autoRefresh";
 
 type AsyncJob = {
   jobId: string;
@@ -85,10 +86,14 @@ export function AsyncJobsPanel({ embedded = false }: AsyncJobsPanelProps = {}) {
   // 20 s when the queue is clear, and stop entirely while the tab is hidden.
   const busyRef = useRef(false);
   busyRef.current = jobs.some((job) => job.status === "queued" || job.status === "running");
+  // Issue #2481 — periodic job refresh is gated by the global
+  // auto-refresh switch; the initial load above is unaffected.
+  const [autoRefresh] = useAutoRefresh();
   usePolling(refresh, {
     fastMs: 4_000,
     idleMs: 20_000,
     isBusy: () => busyRef.current,
+    enabled: autoRefresh.enabled,
   });
 
   const openResult = async (jobId: string) => {

@@ -96,6 +96,13 @@ async function apiFetchQuotes(symbols: string[]): Promise<{ quotes: ServiceQuote
 export interface QuotesService {
   subscribe(symbols: string[], listener: Listener): () => void;
   getSnapshot(): QuotesSnapshot;
+  /**
+   * Issue #2481 — one-shot initial load: a single REST fetch with
+   * no socket, no fallback poll, and no subscription. This is what
+   * a quotes consumer uses while auto-refresh is OFF, so OFF still
+   * shows data (initial load) without any periodic refresh.
+   */
+  loadOnce(symbols: string[]): Promise<void>;
 }
 
 export function createQuotesService(deps: QuotesServiceDeps = {}): QuotesService {
@@ -329,9 +336,25 @@ export function createQuotesService(deps: QuotesServiceDeps = {}): QuotesService
     };
   }
 
+  async function loadOnce(symbols: string[]): Promise<void> {
+    const list = normalize(symbols);
+    if (list.length === 0) return;
+    try {
+      const data = await fetchQuotes(list);
+      if (Array.isArray(data?.quotes)) {
+        for (const q of data.quotes) applyQuote(q);
+      }
+      notify();
+    } catch {
+      // A failed one-shot load leaves the last snapshot in place,
+      // exactly as a failed periodic fetch does.
+    }
+  }
+
   return {
     subscribe,
     getSnapshot: snapshot,
+    loadOnce,
   };
 }
 
