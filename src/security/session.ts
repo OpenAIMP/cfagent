@@ -1,7 +1,22 @@
 import type { Env, SessionData } from "../types";
 import { SESSION_LIMITS } from "../config/sessionLimits";
-import { createStoreKv, type DoNamespaceLike } from "./durableKv";
+import {
+  createStoreKv,
+  listStoreEntries,
+  type DoNamespaceLike,
+} from "./durableKv";
 import { type KvLike } from "./kvResilience";
+import {
+  createSessionPorts,
+  isSessionPortsEnabled,
+} from "../data/createSessionPorts";
+import type { SessionFamilyPorts } from "../data/sessionPorts";
+import type { MembershipStore } from "./authorization";
+import type { AccessRequestStore } from "./iaaaAccessRequests";
+import { createKvMembershipStore } from "./iaaaMembershipStore";
+import { createAccessRequestStore } from "./iaaaAccessRequests";
+
+export { isSessionPortsEnabled };
 import type {
   ResourceAttribution,
   ResourceUsagePort,
@@ -109,6 +124,12 @@ export function sessionStore(
   env: Env,
   resource?: { attribution?: ResourceAttribution; resourceSink?: ResourceUsagePort }
 ): KvLike {
+  // #2433 (step 5b): flag-on composes through the session
+  // family's ports — the returned KvLike is the port's
+  // declared sessions-bucket handle over the same DO.
+  if (isSessionPortsEnabled(env)) {
+    return sessionFamilyPorts(env, resource).kv;
+  }
   return createStoreKv({
     namespace: env.SESSION_STORE as unknown as DoNamespaceLike | undefined,
     namespaceName: "sessions",
@@ -118,7 +139,65 @@ export function sessionStore(
   });
 }
 
+/**
+ * #2433 (step 5b) — the session-family composition for this
+ * env: the port set when SESSION_PORTS_ENABLED is on, else
+ * null (callers then take today's funnel path, untouched).
+ * Factories in this family (this module, iaaaLogin's wired
+ * binding store, and server.ts's lifecycle sites via the
+ * wired* helpers below) read the flag HERE, at the factory.
+ */
+export function sessionFamilyPorts(
+  env: Env,
+  resource?: { attribution?: ResourceAttribution; resourceSink?: ResourceUsagePort }
+): SessionFamilyPorts {
+  return createSessionPorts(env, resource);
+}
+
+/** Membership store for this env: port-composed when the flag is on.
+ *  NOTE (#2433): the four evaluateRoutePep gateway sites in
+ *  server.ts deliberately keep the literal
+ *  createKvMembershipStore(sessionStore(env)) shape — it is
+ *  pinned verbatim by tests/iaaa_legacy_pdp_bound_1749.test.ts
+ *  (#1755), and sessionStore(env) is itself flag-aware, so
+ *  those sites still run over the port's sessions KvLike
+ *  when the flag is on, just not via the port object. */
+export function wiredMembershipStore(env: Env): MembershipStore {
+  if (isSessionPortsEnabled(env)) return sessionFamilyPorts(env).memberships;
+  return createKvMembershipStore(sessionStore(env));
+}
+
+/** Access-request store for this env: port-composed when the flag is on. */
+export function wiredAccessRequestStore(env: Env): AccessRequestStore {
+  if (isSessionPortsEnabled(env)) return sessionFamilyPorts(env).accessRequests;
+  return createAccessRequestStore(sessionStore(env));
+}
+
+/**
+ * Sessions-bucket raw listing for this family's lifecycle
+ * sites (registry / membership listings in server.ts):
+ * port-composed when the flag is on (the port's named
+ * listing operation), today's listStoreEntries when off.
+ * Null means unavailable in both compositions.
+ */
+export async function listSessionFamilyEntries(
+  env: Env,
+  prefix: string
+): Promise<Array<{ key: string; value: string }> | null> {
+  if (isSessionPortsEnabled(env)) {
+    return sessionFamilyPorts(env).sessions.listRawEntries(prefix);
+  }
+  return listStoreEntries({
+    namespace: env.SESSION_STORE as unknown as DoNamespaceLike | undefined,
+    namespaceName: "sessions",
+    prefix,
+  });
+}
+
 export async function createSession(env: Env, data: SessionData): Promise<string> {
+  if (isSessionPortsEnabled(env)) {
+    return sessionFamilyPorts(env).sessions.create(data);
+  }
   const sessionId = crypto.randomUUID();
   await sessionStore(env).put(sessionId, JSON.stringify(data), { expirationTtl: SESSION_TTL });
   return sessionId;
@@ -129,6 +208,9 @@ export async function getSession(
   sessionId: string,
   resource?: { attribution?: ResourceAttribution; resourceSink?: ResourceUsagePort }
 ): Promise<SessionData | null> {
+  if (isSessionPortsEnabled(env)) {
+    return sessionFamilyPorts(env, resource).sessions.get(sessionId);
+  }
   const raw = await sessionStore(env, resource).get(sessionId);
   if (!raw) return null;
   try {
@@ -208,10 +290,17 @@ export async function updateSession(
   nowMs: number = Date.now(),
   resource?: { attribution?: ResourceAttribution; resourceSink?: ResourceUsagePort }
 ): Promise<UpdateSessionResult> {
+  if (isSessionPortsEnabled(env)) {
+    return sessionFamilyPorts(env, resource).sessions.update(sessionId, data, nowMs);
+  }
   return updateSessionWithStore(sessionStore(env, resource), sessionId, data, nowMs);
 }
 
 export async function deleteSession(env: Env, sessionId: string): Promise<void> {
+  if (isSessionPortsEnabled(env)) {
+    await sessionFamilyPorts(env).sessions.delete(sessionId);
+    return;
+  }
   await sessionStore(env).delete(sessionId);
 }
 
@@ -267,6 +356,9 @@ export async function renewSession(
   session: SessionData,
   nowMs: number = Date.now()
 ): Promise<boolean> {
+  if (isSessionPortsEnabled(env)) {
+    return sessionFamilyPorts(env).sessions.renew(sessionId, session, nowMs);
+  }
   return renewSessionWithStore(sessionStore(env), sessionId, session, nowMs);
 }
 

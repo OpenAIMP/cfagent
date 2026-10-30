@@ -140,6 +140,17 @@ export interface Env {
   // and redeploying — no code change. The flag NEVER touches the
   // aiSearch fallback (S3 owns it) or the G1 1.0 scores.
   KNOWLEDGE_SERVING_ENABLED?: string;
+  // #2433 (#1976 step 5b) — flag-gated session/identity family
+  // ports. Same idiom as KNOWLEDGE_SERVING_ENABLED above:
+  // "1"/"true"/"on" (case-insensitive) = on; absence = OFF (the
+  // var is deliberately NOT in wrangler.jsonc — the slice ships
+  // default-off). Flag-ON composes session records, identity
+  // bindings, membership and access requests through
+  // src/data/createSessionPorts.ts over the SAME SessionStore
+  // DO and kv_store table; flag-OFF is today's funnel,
+  // byte-identical. Rollback is unsetting the var — no code
+  // change, no data migration.
+  SESSION_PORTS_ENABLED?: string;
   // #2246 — flag-gated report indexing into the AI Search instance.
   // Same idiom as KNOWLEDGE_SERVING_ENABLED above: "1"/"true"/"on"
   // (case-insensitive) = on; absence = OFF (the var is deliberately
