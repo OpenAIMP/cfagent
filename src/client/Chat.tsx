@@ -9,6 +9,7 @@ import { McpApiExplorer } from "./McpApiExplorer";
 import { GoogleAdUnit } from "./GoogleAdUnit";
 import { ETradeTradingHub } from "./ETradeTradingHub";
 import { ErrorBoundary } from "./ErrorBoundary";
+import { FirstRunGate } from "./FirstRunGate";
 import { SettingsMenu, type ETradeDynamicMenuProps } from "./ETradeDynamicMenu";
 import { MarketDataResearchHub } from "./MarketDataResearchHub";
 import { OptionsFlowsHub } from "./options/flows";
@@ -1511,6 +1512,8 @@ export function Chat({ user }: { user: User }) {
 
   return (
     <div className={`app-container ${navLayout === "left" ? "layout-sidebar" : "layout-top"} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+      {/* #2471: first-run setup over the hub until this user completes it. */}
+      <FirstRunGate userLogin={user.login} />
       <Modal
         open={deleteTarget !== null}
         onClose={() => setDeleteTarget(null)}
