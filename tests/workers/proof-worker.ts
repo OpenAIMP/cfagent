@@ -290,8 +290,9 @@ export class TxProofDurableObject extends DurableObject<TxProofEnv> {
 
   /**
    * What does the real facade pass to the transactionSync
-   * closure? (The aspect's DoTransactionStorage models a txn
-   * argument carrying sql; this probe observes the truth.)
+   * closure? (The aspect's DoTransactionStorage modelled a txn
+   * argument carrying sql until #2455; this probe observes the
+   * truth the fix is built against: no argument at all.)
    */
   async facadeArgShape(): Promise<FacadeArgShape> {
     let argCount = -1;
@@ -383,11 +384,13 @@ export class TxProofDurableObject extends DurableObject<TxProofEnv> {
   async doControlLying(): Promise<DoScenarioResult> {
     this.ensureTable();
     const realSql = this.ctx.storage.sql;
+    // Facade-shaped since #2455: the lying primitive exposes
+    // the storage's real sql and invokes the closure with no
+    // argument — it lies about the TRANSACTION, not the shape.
     const lyingStorage = {
-      transactionSync<T>(
-        closure: (txn: { sql: typeof realSql }) => T,
-      ): T {
-        return closure({ sql: realSql });
+      sql: realSql,
+      transactionSync<T>(closure: () => T): T {
+        return closure();
       },
     };
     const backend = doSqlTransactionBackend(lyingStorage);
