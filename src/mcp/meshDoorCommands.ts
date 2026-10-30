@@ -80,6 +80,22 @@
  * are env configuration only (the #2223 A2A delivery-target
  * discipline, adopted as the mesh-door policy in meshDoors.ts).
  * Slack ingress is not served here — S13/G10 owns it.
+ *
+ * Batch E (#2488, the NLQ-independent mesh) adds one command
+ * over the mesh screen door (src/agents/orchestrator/
+ * meshScreenDoor.ts), declaring mcp:write:
+ *   - `run_stock_screen` (mcp:write) — run a universe stock
+ *     screen as a ScreenerScreenWorkflow run through the door:
+ *     the door's own NLQ-free execution service (workflow start
+ *     → awaited mas_reports read-back; the paid branch when
+ *     monetization is on). This is the chat screen path the
+ *     prompt steers to; it replaces no NLQ surface — the NLQ
+ *     stock-screen port keeps serving the async nlq.execute
+ *     capability, A2A, and the chat error fallback, and
+ *     `execute_nlq` itself is flagged off in the turn by
+ *     CHAT_NLQ_MODE (#2488), not removed. Unlike the NLQ port,
+ *     the door has NO direct-ScreenerAgent fallback: an
+ *     unavailable workflow port is a coded refusal.
  */
 
 import { z } from "zod";
@@ -126,6 +142,13 @@ import {
 } from "../agents/orchestrator/meshDoors";
 import { recordTraceHopBestEffort } from "../data/createMeshTracePorts";
 import { childContextOfTraceparent } from "../observability/meshTrace";
+import {
+  meshScreenDoorContextFromMcp,
+  runStockScreenViaDoor,
+  type MeshScreenDoorInput,
+  type MeshScreenRunResult,
+} from "../agents/orchestrator/meshScreenDoor";
+import { UNIVERSES, type UniverseId } from "../trading";
 
 /**
  * Issue #2428 (Agent Mesh S17): record this door call's hop on
@@ -1064,6 +1087,80 @@ export class SlackDispatchTransactionSnapCommand implements IMcpToolCommand<Slac
       transactionId: input.transaction.transactionId,
       symbol: input.transaction.symbol,
       success: result.success,
+    });
+    return result;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* run_stock_screen (#2488)                                            */
+/* ------------------------------------------------------------------ */
+
+const SCREEN_UNIVERSE_IDS = Object.keys(UNIVERSES) as UniverseId[];
+
+export class RunStockScreenCommand implements IMcpToolCommand<MeshScreenDoorInput> {
+  readonly name = "run_stock_screen";
+  readonly description =
+    "Run a stock screen over a named universe (NASDAQ100, SP500, SP100, RUSSELL2000, TECH, ETF, LEV_ETF, or ALL universes) through the mesh screen door: a durable ScreenerScreenWorkflow run whose standout picks are read back from the canonical report store. This is the universe-screen path — for raw listings rows by price/cap/gainers filters use etrade_market_scan instead. When monetization is on, the door runs the paid path (budget check, then a PaymentWorkflow run — one charge per run-request). Requires the chat turn's acting identity; the result is the completed run's stored result.";
+  readonly jsonSchema = {
+    type: "object" as const,
+    properties: {
+      universe: {
+        type: "string",
+        enum: SCREEN_UNIVERSE_IDS,
+        description: "The universe to screen (default NASDAQ100; ALL shards every shardable universe).",
+      },
+      filters: {
+        type: "object",
+        description: "Optional structured screener filters (sector, minPrice, maxPrice, exchange, minMarketCap, minRsi, maxRsi).",
+        properties: {
+          sector: { type: "string", description: "Sector filter." },
+          minPrice: { type: "number", description: "Minimum last price." },
+          maxPrice: { type: "number", description: "Maximum last price." },
+          exchange: { type: "string", enum: ["ALL", "NASDAQ", "NYSE", "AMEX"], description: "Exchange filter." },
+          minMarketCap: { type: "number", description: "Minimum market cap." },
+          minRsi: { type: "number", description: "Minimum 14-period RSI." },
+          maxRsi: { type: "number", description: "Maximum 14-period RSI." },
+        },
+      },
+    },
+  };
+  readonly zodSchema = z.object({
+    universe: z
+      .enum(SCREEN_UNIVERSE_IDS as [UniverseId, ...UniverseId[]])
+      .optional()
+      .describe("The universe to screen (default NASDAQ100)"),
+    filters: z
+      .object({
+        sector: z.string().min(1).optional().describe("Sector filter"),
+        minPrice: z.number().nonnegative().optional().describe("Minimum last price"),
+        maxPrice: z.number().positive().optional().describe("Maximum last price"),
+        exchange: z.enum(["ALL", "NASDAQ", "NYSE", "AMEX"]).optional().describe("Exchange filter"),
+        minMarketCap: z.number().nonnegative().optional().describe("Minimum market cap"),
+        minRsi: z.number().min(0).max(100).optional().describe("Minimum 14-period RSI"),
+        maxRsi: z.number().min(0).max(100).optional().describe("Maximum 14-period RSI"),
+      })
+      .optional()
+      .describe("Optional structured screener filters"),
+  });
+
+  async execute(
+    input: MeshScreenDoorInput,
+    context: McpToolContext,
+  ): Promise<MeshScreenRunResult> {
+    const actingLogin = context.actingLogin?.();
+    await recordDoorHop(context, this.name, "ScreenerAgent");
+    const result = await runStockScreenViaDoor(
+      meshScreenDoorContextFromMcp(context),
+      actingLogin,
+      input,
+    );
+    context.audit("run_stock_screen", "mcp", {
+      actingLogin: actingLogin ?? null,
+      universe: result.universe,
+      success: result.success,
+      matchedCount: result.matchedCount,
+      totalScanned: result.totalScanned,
     });
     return result;
   }

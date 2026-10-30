@@ -205,6 +205,10 @@ export const MCP_TOOL_SCOPES: Record<string, McpScope> = {
   browser_snap_transaction: "mcp:write",
   browser_capture_page: "mcp:write",
   slack_dispatch_transaction_snap: "mcp:write",
+  // #2488: the mesh screen door — starting a screen workflow
+  // changes state (and is budget-gated inside the door when
+  // monetization is on); the command itself moves no money.
+  run_stock_screen: "mcp:write",
   // execute (7)
   execute_nlq: "mcp:execute",
   "chain.run": "mcp:execute",

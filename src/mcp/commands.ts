@@ -109,6 +109,7 @@ import {
   BrowserScrapeTablesCommand,
   SlackSendPreTradeApprovalCommand,
   SlackDispatchTransactionSnapCommand,
+  RunStockScreenCommand,
 } from "./meshDoorCommands";
 
 import { searchPlatformKnowledge } from "../services/platformKnowledge";
@@ -1769,6 +1770,16 @@ export class McpToolFactory {
     this.registerTool(new BrowserScrapeTablesCommand());
     this.registerTool(new SlackSendPreTradeApprovalCommand());
     this.registerTool(new SlackDispatchTransactionSnapCommand());
+
+    // Agent Mesh #2488 (the NLQ-independent mesh): the chat
+    // turn's universe stock screen as a mesh door command over
+    // the door layer's own screen execution service
+    // (src/agents/orchestrator/meshScreenDoor.ts) — the path
+    // the prompt steers universe screens to, with execute_nlq
+    // flagged off in the turn (CHAT_NLQ_MODE). Same identity
+    // discipline as batches A–D; the door has no
+    // direct-ScreenerAgent fallback.
+    this.registerTool(new RunStockScreenCommand());
   }
 
   /**
