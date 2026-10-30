@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePolling } from "./usePolling";
+import { useAutoRefresh } from "./autoRefresh";
 import { useUrlSyncedTabs } from "./useUrlSyncedTabs";
 import { Skeleton, EmptyState, Button, Select, Table, TextInput } from "./components/ui";
 import { apiFetch as fetch } from "./apiFetch";
@@ -309,7 +310,10 @@ export function ScreenersHub({
   }, [loadAuto]);
 
   // Issue #329 (P1): 30 s -> 60 s, and paused entirely while the tab is hidden.
-  usePolling(loadAuto, { fastMs: 60_000, idleMs: 60_000 });
+  // Issue #2481 — screener auto-load polling is gated by the
+  // global auto-refresh switch; the initial load above is unaffected.
+  const [autoRefresh] = useAutoRefresh();
+  usePolling(loadAuto, { fastMs: 60_000, idleMs: 60_000, enabled: autoRefresh.enabled });
 
   useEffect(() => {
     if (providers.length > 0 && !providers.some((provider) => provider.id === providerId)) {

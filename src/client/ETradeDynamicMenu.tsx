@@ -17,6 +17,7 @@ import {
   getStoredAdBannerConfig,
   saveStoredAdBannerConfig,
 } from "./adBannerConfig";
+import { useAutoRefresh } from "./autoRefresh";
 import {
   FONT_SCALE_PRESETS,
   getStoredFontScale,
@@ -159,42 +160,20 @@ export function SettingsMenu({
   const [localMsg, setLocalMsg] = useState("");
   const [localDiagLoading, setLocalDiagLoading] = useState(false);
 
-  // Local state for auto-refresh configuration if not controlled by parent
-  const [localAutoRefreshEnabled, setLocalAutoRefreshEnabled] = useState<boolean>(() => {
-    if (typeof window !== "undefined") {
-      const stored = localStorage.getItem("cfagent_global_autorefresh_enabled");
-      if (stored !== null) return stored === "true";
-      return localStorage.getItem("cfagent_options_autorefresh_enabled") === "true";
-    }
-    return false;
-  });
-  const [localAutoRefreshInterval, setLocalAutoRefreshInterval] = useState<number>(() => {
-    if (typeof window !== "undefined") {
-      const stored = localStorage.getItem("cfagent_global_autorefresh_interval");
-      if (stored) return Number(stored);
-      const fallback = localStorage.getItem("cfagent_options_autorefresh_interval");
-      if (fallback) return Number(fallback);
-    }
-    return 15;
-  });
-
-  const effectiveAutoRefreshEnabled = autoRefreshEnabled !== undefined ? autoRefreshEnabled : localAutoRefreshEnabled;
-  const effectiveAutoRefreshInterval = autoRefreshInterval !== undefined ? autoRefreshInterval : localAutoRefreshInterval;
+  // Issue #2481 — when uncontrolled, the menu reads the same
+  // central switch (autoRefresh.ts) as every gated surface, not
+  // its own localStorage copy. When Chat controls the menu, the
+  // props win and the toggle delegates to Chat, which writes
+  // through the same module.
+  const [autoRefreshState, setAutoRefreshState] = useAutoRefresh();
+  const effectiveAutoRefreshEnabled = autoRefreshEnabled !== undefined ? autoRefreshEnabled : autoRefreshState.enabled;
+  const effectiveAutoRefreshInterval = autoRefreshInterval !== undefined ? autoRefreshInterval : autoRefreshState.interval;
 
   const handleSetAutoRefresh = (enabled: boolean, interval?: number) => {
-    const nextInterval = interval !== undefined ? interval : effectiveAutoRefreshInterval;
-    setLocalAutoRefreshEnabled(enabled);
-    if (interval !== undefined) setLocalAutoRefreshInterval(interval);
     if (onToggleAutoRefresh) {
-      onToggleAutoRefresh(enabled, nextInterval);
-    } else if (typeof window !== "undefined") {
-      localStorage.setItem("cfagent_global_autorefresh_enabled", String(enabled));
-      localStorage.setItem("cfagent_global_autorefresh_interval", String(nextInterval));
-      localStorage.setItem("cfagent_options_autorefresh_enabled", String(enabled));
-      localStorage.setItem("cfagent_options_autorefresh_interval", String(nextInterval));
-      window.dispatchEvent(
-        new CustomEvent("cfagent-autorefresh-changed", { detail: { enabled, interval: nextInterval } })
-      );
+      onToggleAutoRefresh(enabled, interval);
+    } else {
+      setAutoRefreshState(enabled, interval);
     }
   };
 

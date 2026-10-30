@@ -10,6 +10,7 @@
  */
 import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 
 import { handleReportsRoutes, type ReportsRouteContext } from "../src/agents/routes/reports";
 
@@ -278,6 +279,70 @@ describe("handleReportsRoutes behavior", () => {
     );
     expect((await res!.json()) as any).toEqual({ success: true, status: 200 });
     expect(ctx.deliverStoredReportWebhook).toHaveBeenCalledWith("r1", "sess");
+  });
+
+  it("tenant auto-refresh route: absent row defaults OFF, POST persists per tenant (#2481)", async () => {
+    // Minimal D1Database stand-in over node:sqlite (same pattern
+    // as tests/commercial_accounts.test.ts).
+    class MockD1Database {
+      readonly sqlite = new DatabaseSync(":memory:");
+      prepare(sql: string) {
+        const db = this.sqlite;
+        return {
+          bind(...params: unknown[]) {
+            return {
+              async run() {
+                const info = db.prepare(sql).run(...(params as any[]));
+                return {
+                  success: true,
+                  meta: { changes: info.changes, last_row_id: info.lastInsertRowid },
+                  results: [],
+                };
+              },
+              async all() {
+                return { results: db.prepare(sql).all(...(params as any[])) };
+              },
+              async first() {
+                return db.prepare(sql).get(...(params as any[])) ?? null;
+              },
+              async raw() {
+                return db
+                  .prepare(sql)
+                  .all(...(params as any[]))
+                  .map((row: any) => Object.values(row));
+              },
+            };
+          },
+        };
+      }
+    }
+    const mock = new MockD1Database();
+    const ctx = baseCtx({ env: { AGENT_DB: mock as unknown as D1Database } });
+    const path = "/tenant/settings/auto-refresh";
+    const url = new URL(`https://agent.internal${path}`);
+    const get = await handleReportsRoutes(req("GET", path), url, path, "sess", ctx);
+    expect((await get!.json()) as any).toEqual({ tenantId: "primary", enabled: false, intervalS: 15 });
+    const bad = await handleReportsRoutes(req("POST", path, { enabled: "yes" }), url, path, "sess", ctx);
+    expect(bad!.status).toBe(400);
+    const ok = await handleReportsRoutes(req("POST", path, { enabled: true, intervalS: 60 }), url, path, "sess", ctx);
+    const saved = (await ok!.json()) as any;
+    expect(saved.enabled).toBe(true);
+    expect(saved.intervalS).toBe(60);
+    const reread = await handleReportsRoutes(req("GET", path), url, path, "sess", ctx);
+    expect((await reread!.json()) as any).toEqual({ tenantId: "primary", enabled: true, intervalS: 60 });
+    expect(ctx.audit).toHaveBeenCalledWith(
+      "tenant_auto_refresh.changed",
+      "orchestrator",
+      expect.objectContaining({ tenantId: "primary", enabled: true }),
+    );
+  });
+
+  it("tenant auto-refresh route without a store binding is a 503, not a local fallback (#2481)", async () => {
+    const ctx = baseCtx();
+    const path = "/tenant/settings/auto-refresh";
+    const url = new URL(`https://agent.internal${path}`);
+    const res = await handleReportsRoutes(req("GET", path), url, path, "sess", ctx);
+    expect(res!.status).toBe(503);
   });
 
   it("GET /reports lists the stored canonical reports", async () => {

@@ -21,6 +21,10 @@ import {
   persistGoalTracking,
   clearGoalTracking,
 } from "../src/client/GoalScreenPanel";
+import {
+  resetAutoRefreshCacheForTests,
+  setAutoRefresh,
+} from "../src/client/autoRefresh";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -55,6 +59,10 @@ describe("GoalScreenPanel persistence + resume (#2129)", () => {
   beforeEach(() => {
     calls = [];
     sessionStorage.clear();
+    // Issue #2481: the tracking loop is gated by the global
+    // auto-refresh switch; this #2129 pin covers ON behaviour.
+    resetAutoRefreshCacheForTests();
+    setAutoRefresh(true);
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: unknown) => {

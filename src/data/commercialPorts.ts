@@ -50,7 +50,26 @@ export interface TenantSettingsRecord {
   tenantId: string;
   adsEnabled: boolean;
   updatedAtMs: number;
+  /**
+   * Issue #2481: per-tenant auto-refresh switch. Absent row = OFF.
+   * Defaults are applied by the adapters, not by callers.
+   */
+  autoRefreshEnabled: boolean;
+  /** Issue #2481: auto-refresh cadence in seconds. Absent row = 15. */
+  autoRefreshIntervalS: number;
 }
+
+/** Issue #2481: the auto-refresh half of a tenant settings row. */
+export interface TenantAutoRefresh {
+  enabled: boolean;
+  intervalS: number;
+}
+
+/** Issue #2481: defaults for a tenant with no settings row. */
+export const DEFAULT_TENANT_AUTO_REFRESH: TenantAutoRefresh = {
+  enabled: false,
+  intervalS: 15,
+};
 
 export interface CreditClaimRecord {
   creditRunId: string;
@@ -159,6 +178,12 @@ export interface CommercialStore {
   consumeCredits(userId: string, amountUSD: number): Promise<CommercialAccountRecord>;
   getTenantAdsEnabled(tenantId: string): Promise<boolean>;
   setTenantAdsEnabled(tenantId: string, adsEnabled: boolean): Promise<TenantSettingsRecord>;
+  /** Issue #2481: per-tenant auto-refresh switch (absent row = OFF). */
+  getTenantAutoRefresh(tenantId: string): Promise<TenantAutoRefresh>;
+  setTenantAutoRefresh(
+    tenantId: string,
+    autoRefresh: TenantAutoRefresh,
+  ): Promise<TenantSettingsRecord>;
   /** Idempotent: re-recording the same claim is a no-op (the DO ledger row is the audit). */
   recordCreditClaim(claim: {
     creditRunId: string;
