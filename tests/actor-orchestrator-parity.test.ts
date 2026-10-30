@@ -81,7 +81,21 @@ describe("#658 R2 — tool surface parity (createAgentMcpTools)", () => {
   it("every canonical McpToolFactory command is present by name", () => {
     const canonical = McpToolFactory.getAllTools().map((c) => c.name);
     expect(canonical.length).toBeGreaterThan(0);
-    for (const name of canonical) expect(liveNames).toContain(name);
+    // #2488 exception, by owner direction: execute_nlq stays
+    // registered in the catalog but is flagged off in the turn
+    // (CHAT_NLQ_MODE, built-in default off), so it is the ONE
+    // canonical command the default turn set does not carry.
+    for (const name of canonical) {
+      if (name === "execute_nlq") continue;
+      expect(liveNames).toContain(name);
+    }
+    expect(liveNames).not.toContain("execute_nlq");
+    // With the switch on, the parity is exact again — the
+    // pre-#2488 turn set, verbatim.
+    const onNames = Object.keys(
+      createAgentMcpTools(stubMcpContext({ AI: {}, CHAT_NLQ_MODE: "on" } as never)),
+    );
+    for (const name of canonical) expect(onNames).toContain(name);
   });
 
   it("the documented aliases and adapter-added tools are present", () => {

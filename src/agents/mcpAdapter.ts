@@ -16,6 +16,10 @@ import { tool } from "ai";
 import { z } from "zod";
 import type { IMcpToolCommand, McpToolContext } from "../patterns/interfaces";
 import { McpToolFactory } from "../mcp/commands";
+import {
+  chatNlqConfigErrorEvent,
+  resolveChatNlqTurnMode,
+} from "../config/chatNlqModes";
 import { recordTraceHopBestEffort } from "../data/createMeshTracePorts";
 import { childContextOfTraceparent } from "../observability/meshTrace";
 import {
@@ -114,8 +118,31 @@ export class McpAgentToolAdapter {
 export function createAgentMcpTools(context: McpToolContext) {
   const tools: Record<string, any> = {};
 
+  // #2488: the CHAT_NLQ_MODE gate (src/config/chatNlqModes.ts) —
+  // the owner's direction is that NLQ stays in the turn
+  // (registered in the catalog, wired on every non-turn
+  // surface) but is not USED by the turn: with the switch off
+  // (the built-in default), execute_nlq is not adapted into the
+  // turn's usable tool set. The gate lives here, in the
+  // turn/tool-assembly layer — no NLQ file is touched, and the
+  // /mcp surface plus the async nlq.execute capability, A2A,
+  // routes, and channels keep their behavior verbatim. An
+  // invalid switch value fails closed to off + audit, per the
+  // mode-switch discipline.
+  const chatNlq = resolveChatNlqTurnMode(context);
+  if (chatNlq.invalid) {
+    context.audit(chatNlqConfigErrorEvent(), "orchestrator", {
+      switch: "CHAT_NLQ_MODE",
+      level: chatNlq.level,
+      raw: chatNlq.raw ?? null,
+      resolvedMode: chatNlq.mode,
+    });
+  }
+  const nlqInTurn = chatNlq.mode === "on";
+
   // 1. Dogfood every registered MCP command into the AI agent toolset.
   for (const command of McpToolFactory.getAllTools()) {
+    if (command.name === "execute_nlq" && !nlqInTurn) continue;
     // Register by canonical MCP name (e.g. 'execute_nlq', 'list_database_tables', 'get_revenue_summary')
     tools[command.name] = McpAgentToolAdapter.adapt(command, context);
   }

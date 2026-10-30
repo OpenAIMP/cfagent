@@ -824,10 +824,11 @@ export const MESH_TOOL_FAMILIES: MeshToolFamilyEntry[] = [
       "start_trade_approval",
       "decide_trade_approval",
       "get_trade_approval_status",
+      "run_stock_screen",
     ],
     commandSources: [{ file: "src/mcp/meshDoorCommands.ts", kind: "readonly-name" }],
     notes:
-      "G1 outbound doors, batches A (#2341) + B (#2349) + C (#2351), plus S9/G4 batch D (#2375): the chat turn reaches ScheduledAgent, PaymentsAgent, TradingAgent, ReportAssetAgent, BrowserAgent, and SlackAgent through the typed doors in src/agents/orchestrator/meshDoors.ts. The commands require the turn's acting identity (the context actingLogin carrier) and fail closed without one, so they serve the chat door; external MCP callers use the A2A doors for these agents. The TradingAgent door exposes proposals (preview only) and reads, and — since #2375 — the approval door's workflow operations (start_trade_approval / decide_trade_approval / get_trade_approval_status): a chat trade runs as a TradingTradeWorkflow through the approval door, with the authorizer derived server-side; the synchronous settle (executeApprovedOrder) is never on the door. The Browser/Slack doors take no caller-supplied webhookUrl: delivery targets are env configuration only. AiSearchAgent is deliberately not in this family — the chat turn already reaches it through ai_search_agent_search (#2250, see its agent record).",
+      "G1 outbound doors, batches A (#2341) + B (#2349) + C (#2351), plus S9/G4 batch D (#2375): the chat turn reaches ScheduledAgent, PaymentsAgent, TradingAgent, ReportAssetAgent, BrowserAgent, and SlackAgent through the typed doors in src/agents/orchestrator/meshDoors.ts. The commands require the turn's acting identity (the context actingLogin carrier) and fail closed without one, so they serve the chat door; external MCP callers use the A2A doors for these agents. The TradingAgent door exposes proposals (preview only) and reads, and — since #2375 — the approval door's workflow operations (start_trade_approval / decide_trade_approval / get_trade_approval_status): a chat trade runs as a TradingTradeWorkflow through the approval door, with the authorizer derived server-side; the synchronous settle (executeApprovedOrder) is never on the door. The Browser/Slack doors take no caller-supplied webhookUrl: delivery targets are env configuration only. AiSearchAgent is deliberately not in this family — the chat turn already reaches it through ai_search_agent_search (#2250, see its agent record). Batch E (#2488) adds run_stock_screen over the mesh screen door (src/agents/orchestrator/meshScreenDoor.ts): the chat turn's universe stock screen as a ScreenerScreenWorkflow run, executed by the door layer's own NLQ-free service — the screen path no longer depends on the NLQ stock-screen port, and the door has no direct-ScreenerAgent fallback.",
   },
   {
     id: "mas-tools",
@@ -1195,7 +1196,7 @@ export const MESH_CAPABILITY_DOORS: MeshCapabilityDoorEntry[] = [
     operations: [],
     gate: "Session auth at connect; MCP permission scopes (#1744) enforced at the turn adapter.",
     notes:
-      "The turn host class: every catalog command is assembled into its turn in-process (src/agents/mcpAdapter.ts); its outbound reach to the fleet is the G1 mesh doors (src/agents/orchestrator/meshDoors.ts).",
+      "The turn host class: every catalog command is assembled into its turn in-process (src/agents/mcpAdapter.ts); its outbound reach to the fleet is the G1 mesh doors (src/agents/orchestrator/meshDoors.ts). One catalog command is NOT assembled into the turn by default (#2488): execute_nlq stays registered and wired (catalog, /mcp surface, facade, async nlq.execute capability, A2A, routes, channels) but is flagged off in the turn by the CHAT_NLQ_MODE switch (src/config/chatNlqModes.ts, built-in default off) — the turn's mesh runs without NLQ, and chat screens go through the mesh screen door (run_stock_screen).",
   },
   {
     className: "OrchestratorAgent",
@@ -1402,10 +1403,10 @@ export const MESH_CAPABILITY_DOORS: MeshCapabilityDoorEntry[] = [
     className: "ScreenerAgent",
     door: "chat-turn",
     status: "exposed",
-    operations: [],
-    gate: "The acting login is threaded through the NLQ stock-screen port and fails closed before any workflow start (#2369).",
+    operations: ["run_stock_screen", "nlq.execute"],
+    gate: "The acting login is carried by the tool context's actingLogin carrier (server-stamped at queue time) and fails closed before any workflow start — through the mesh screen door since #2488 (run_stock_screen), and through the NLQ stock-screen port for the NLQ surfaces (#2369).",
     notes:
-      "Reached as ScreenerScreenWorkflow execute steps (runScreen / runGoalScreen) since S8, with the NLQ port's direct ScreenerAgent call as the recorded fallback — not through mesh-door commands.",
+      "Reached as ScreenerScreenWorkflow execute steps (runScreen / runGoalScreen) since S8. The chat turn's own screen path is the mesh screen door since #2488 (run_stock_screen → src/agents/orchestrator/meshScreenDoor.ts): an NLQ-free door-layer service with NO direct-ScreenerAgent fallback (an unavailable workflow port is a coded refusal). The NLQ stock-screen port still serves the surfaces that bind it — the async nlq.execute capability (deterministic submitters + A2A dispatch), handleA2A, and the chat error fallback — with its direct ScreenerAgent call as ITS recorded fallback; channel NLQ deps bind no stockScreenPort, so channel screens do NOT run this workflow (they take the NLQ listings branch).",
   },
   {
     className: "ScreenerAgent",
@@ -1421,7 +1422,7 @@ export const MESH_CAPABILITY_DOORS: MeshCapabilityDoorEntry[] = [
     status: "not-exposed",
     operations: [],
     reason:
-      "etrade_market_scan and paid_options_screener drive screening services and workflows, not this class's instance surface; no catalog command addresses the class.",
+      "etrade_market_scan drives the pre-mesh listings engine (ETradeService.screenMarketsAsync — raw listings rows by filter): it never starts a workflow and never addresses this class. paid_options_screener drives the paid options screening service, not this class's instance surface. run_stock_screen addresses the class's workflow path but refuses on this door — external MCP contexts carry no actingLogin carrier, and the door is chat-turn only (#2488).",
   },
   {
     className: "ScreenerAgent",

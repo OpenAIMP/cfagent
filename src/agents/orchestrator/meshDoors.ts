@@ -123,7 +123,15 @@ export type MeshDoorErrorCode =
   | "identity_required"
   | "door_unavailable"
   | "goal_not_found"
-  | "asset_not_found";
+  | "asset_not_found"
+  // Issue #2488: the mesh screen door's (meshScreenDoor.ts)
+  // fail-closed refusal codes — budget_denied (the S5 budget
+  // door refused the paid path), price_unavailable (no stored
+  // catalogue price), checkout_email_required (no checkout
+  // email source for a chat turn).
+  | "budget_denied"
+  | "price_unavailable"
+  | "checkout_email_required";
 
 export class MeshDoorError extends Error {
   readonly code: MeshDoorErrorCode;
