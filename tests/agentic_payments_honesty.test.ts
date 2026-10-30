@@ -260,7 +260,7 @@ describe("Issue #122: agentic payments balance / proof / receipt honesty", () =>
   });
 
   describe("NLQ paid services", () => {
-    it("paid_scan summary discloses the simulated payment and the ledger records it as simulated", async () => {
+    it("paid_scan is refused (G3, #2396): no verified payment channel in NLQ — nothing executed, no simulated receipt recorded", async () => {
       const expiryDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
       const quoteTimestamp = Date.now();
       DynamicOptionsScreener.setTestChainsFixture({
@@ -301,17 +301,21 @@ describe("Issue #122: agentic payments balance / proof / receipt honesty", () =>
       };
 
       const result: any = await executeNLQQueryAsync(orm, "session_trader", plan, mockEnv, "session_trader");
+      expect(result.status).toBe("error");
       expect(result.summary).toContain("Paid Options Screener ($0.05 USDC)");
-      expect(result.summary).toContain("Payment was SIMULATED");
-      expect(result.summary).toContain("no real payment was collected or verified");
-      expect(result.summary).not.toMatch(/payment (was )?verified/i);
+      expect(result.summary).toContain("requires a verified x402 payment");
+      expect(result.summary).toContain("nothing was executed and nothing was recorded");
+      expect(result.summary).toContain("/api/premium/options-scan");
+      expect(result.rows).toHaveLength(0);
 
+      // The G3 retirement: the executor mints no receipt of any status —
+      // simulated receipts are no longer recorded at all (pre-existing
+      // simulated rows from before this change stay in the ledger,
+      // labelled simulated; see the wallet-aggregation pin in
+      // tests/mesh_g3_paid_nlq_2396.test.ts).
       const txs = orm.transactions.findMany();
       const recorded = txs.find((t) => t.gateway === "x402" && t.action === "agentic_payment");
-      expect(recorded).toBeDefined();
-      expect(recorded!.status).toBe("simulated");
-      expect(recorded!.gatewayRef).not.toMatch(/^0x_/);
-      expect(recorded!.proofSignature).not.toMatch(/^sig_/);
+      expect(recorded).toBeUndefined();
     });
 
     it("source pins: no fabricated signature/hash formats remain in the payments layer or NLQ paid paths", () => {
