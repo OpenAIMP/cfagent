@@ -64,6 +64,7 @@ import type { FalsificationInput } from "../../services/researchFalsification";
 import type { StrategyCandidate } from "../../trading";
 import { sharedCorrelationService } from "../../services/correlationService";
 import { ETradeService } from "../../services/etrade";
+import { etradeIdentityFromLogin } from "../../security/etradeOAuth";
 import { getUserDid } from "../did";
 import {
   checkEtradeExecuteGate,
@@ -235,7 +236,12 @@ export async function handleEtradeBrokerRoutes(
       if (!userLogin) return unauthenticatedResponse();
       // #1726 E06: mcp discovery envelope.
       const discoveryMode = resolveEtradeRestSwitch(ctx, "discovery", url.searchParams.get("mode"), "rest");
-      const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
+      // Issue #2441: resolve the route-trusted login to its session
+      // identity via the alias record, so portfolio reads see the same
+      // token the panel seam sees. No record yields an empty identity,
+      // which keeps exactly today's login-only behavior.
+      const identity = await etradeIdentityFromLogin(ctx.env, userLogin);
+      const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv, undefined, { identity });
       const accounts = await etrade.fetchAccountsRemote();
       if (accounts.length === 0) {
         // Issue #243: an empty list with a recorded client error is an
@@ -852,7 +858,10 @@ export async function handleEtradeBrokerActivityRoutes(
     try {
       const userLogin = request.headers.get("x-user-login");
       if (!userLogin) return unauthenticatedResponse();
-      const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
+      // Issue #2441: alias-record identity for the portfolio read (see
+      // the accounts route above).
+      const identity = await etradeIdentityFromLogin(ctx.env, userLogin);
+      const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv, undefined, { identity });
       const startDate = url.searchParams.get("startDate") || undefined;
       const endDate = url.searchParams.get("endDate") || undefined;
       const sortOrder = (url.searchParams.get("sortOrder") as "ASC" | "DESC") || undefined;
@@ -881,7 +890,10 @@ export async function handleEtradeBrokerActivityRoutes(
       const storeId = url.searchParams.get("storeId") || undefined;
       const userLogin = request.headers.get("x-user-login");
       if (!userLogin) return unauthenticatedResponse();
-      const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
+      // Issue #2441: alias-record identity for the portfolio read (see
+      // the accounts route above).
+      const identity = await etradeIdentityFromLogin(ctx.env, userLogin);
+      const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv, undefined, { identity });
       const details = await etrade.fetchTransactionDetails(transactionId, undefined, storeId);
       if (!details) {
         // Issue #517: null + recorded client error = upstream failure,
@@ -905,7 +917,10 @@ export async function handleEtradeBrokerActivityRoutes(
     try {
       const userLogin = request.headers.get("x-user-login");
       if (!userLogin) return unauthenticatedResponse();
-      const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
+      // Issue #2441: alias-record identity for the portfolio read (see
+      // the accounts route above).
+      const identity = await etradeIdentityFromLogin(ctx.env, userLogin);
+      const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv, undefined, { identity });
       const category = url.searchParams.get("category") || undefined;
       const status = (url.searchParams.get("status") as "READ" | "UNREAD" | "DELETED") || undefined;
       const count = url.searchParams.get("count") ? Number(url.searchParams.get("count")) : undefined;
@@ -931,7 +946,10 @@ export async function handleEtradeBrokerActivityRoutes(
       const alertId = path.split("/etrade/alerts/")[1].split("/")[0].split("?")[0];
       const userLogin = request.headers.get("x-user-login");
       if (!userLogin) return unauthenticatedResponse();
-      const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
+      // Issue #2441: alias-record identity for the portfolio read (see
+      // the accounts route above).
+      const identity = await etradeIdentityFromLogin(ctx.env, userLogin);
+      const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv, undefined, { identity });
       const details = await etrade.fetchAlertDetails(alertId);
       if (!details) {
         // Issue #517: null + recorded client error = upstream failure,

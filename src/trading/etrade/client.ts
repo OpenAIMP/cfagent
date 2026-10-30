@@ -29,7 +29,8 @@ import type {
 import { resolveEnvironmentConfig } from "../../config/environment";
 import { getClientConfig, type EtapiClientConfig } from "../../config/etapiConfig";
 import { generateOAuth1Header } from "../../services/cryptoUtils";
-import { getValidTokens, revokeStoredTokens, revokeRemoteAccessToken } from "../../security/etradeOAuth";
+import { getValidTokens, revokeStoredTokens, revokeRemoteAccessToken, type ETradeTokenIdentity } from "../../security/etradeOAuth";
+import { propagateBrokerTokenRejection } from "../../security/brokerTokenRejection";
 import { assertSandboxUrlSafety } from "../../aspects/loggingAspect";
 import { ETradeError, ETradeErrorCode } from "../../aspects/errorCodes";
 import { AGENT_DIDS, getUserDid } from "../../agents/did";
@@ -64,6 +65,22 @@ function firstQuoteData(data: any): any {
  * failures. Scoping: the client instance is user-bound (constructed per
  * ETradeService for one userLogin); this result is call-scoped.
  */
+/**
+ * Issue #2441: the latest upstream token rejection recorded by this
+ * client, if any. Set when a 401 (or a token_rejected 403) propagates;
+ * the dropped flag says whether the dead token was actually removed
+ * from the store. It is the machine-readable half of the reconnect
+ * signal; the human-readable half is the appended sentence in
+ * lastError. It records the latest rejection only — a later success
+ * does not erase the fact that a token was dropped and a reconnect is
+ * owed until a new token is stored.
+ */
+export interface ETradeTokenRejection {
+  endpoint: string;
+  dropped: boolean;
+  at: number;
+}
+
 export interface ETradeQuoteResult {
   quote: ETradeQuote | null;
   error: string | null;
@@ -81,23 +98,61 @@ export class ETradeRestClient {
   // empty result without one means "genuinely nothing there".
   public lastError?: string;
 
-  constructor(public env: Env, public userLogin: string, public overrideEnv?: string) {
+  // Issue #2441: the latest upstream token rejection, if any (see
+  // ETradeTokenRejection). Read via getTokenRejection().
+  public tokenRejection?: ETradeTokenRejection;
+
+  // Issue #2441: identity pass-through, consistent with the panel seam
+  // (#2386). When a caller knows the session's internalUserId (verified
+  // session, or the alias record for a login the route already trusts),
+  // the client reads the same token the panel sees — including tokens
+  // stored only under an internal-id key. Optional so every existing
+  // construction keeps today's login-only behavior; unknown logins
+  // still resolve to nothing and fail closed.
+  constructor(public env: Env, public userLogin: string, public overrideEnv?: string, public identity?: ETradeTokenIdentity) {
     // Issue #1185: the client keys stored tokens by login — required.
     if (!userLogin) {
       throw new Error("ETradeRestClient requires an explicit userLogin (issue #1185: no default identity).");
     }
   }
 
-  private handleUpstreamAuthError(status: number, endpoint: string, errorBody: string): void {
+  private async handleUpstreamAuthError(status: number, endpoint: string, errorBody: string): Promise<void> {
     if (status === 401 || status === 403) {
       const envConfig = this.getEnvConfig();
       this.lastError = `E*TRADE Session Expired [HTTP ${status}]: Token rejected on ${endpoint} [${envConfig.name}]. Error: ${errorBody.slice(0, 200) || "Unauthorized"}`;
       console.warn(`[ETradeClient] Token rejected HTTP ${status} on ${endpoint}: ${errorBody}`);
+      // Issue #2441: a rejection is a fact about token state, so it
+      // propagates to the store that serves tokens — but only when the
+      // rejection means the token is dead: every 401, or a 403
+      // carrying the token_rejected marker. Any other 403 (for
+      // example an endpoint permission denial) keeps exactly the
+      // previous record-only behavior and never drops a live token.
+      // Renewal-then-retry is deliberately NOT attempted here:
+      // renewal presents the stored pair to /oauth/renew_access_token,
+      // so a pair E*TRADE already rejected cannot renew itself — the
+      // correct action is drop + reconnect signal, never a retry loop.
+      const deadToken = status === 401 || errorBody.includes("token_rejected");
+      if (!deadToken) return;
+      const result = await propagateBrokerTokenRejection({
+        broker: "etrade",
+        env: this.env,
+        userLogin: this.userLogin,
+        overrideEnv: this.overrideEnv,
+        identity: this.identity,
+      });
+      this.tokenRejection = { endpoint, dropped: result.dropped, at: Date.now() };
+      if (result.dropped) {
+        this.lastError += " The rejected token was dropped. Please reconnect E*TRADE.";
+      }
     }
   }
 
   public getLastError(): string | undefined {
     return this.lastError;
+  }
+
+  public getTokenRejection(): ETradeTokenRejection | null {
+    return this.tokenRejection ?? null;
   }
 
   public getEnvConfig() {
@@ -117,7 +172,7 @@ export class ETradeRestClient {
 
     if (this.userLogin) {
       try {
-        const stored = await getValidTokens(this.env, this.userLogin, this.overrideEnv);
+        const stored = await getValidTokens(this.env, this.userLogin, this.overrideEnv, this.identity);
         if (stored) {
           token = stored.accessToken;
           tokenSecret = stored.accessTokenSecret;
@@ -188,7 +243,7 @@ export class ETradeRestClient {
     let tokenSecret = "";
     if (this.userLogin) {
       try {
-        const stored = await getValidTokens(this.env, this.userLogin, this.overrideEnv);
+        const stored = await getValidTokens(this.env, this.userLogin, this.overrideEnv, this.identity);
         if (stored) {
           token = stored.accessToken;
           tokenSecret = stored.accessTokenSecret;
@@ -236,7 +291,7 @@ export class ETradeRestClient {
         const errorText = await res.text().catch(() => "");
         const error = `E*TRADE Quote API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
         console.warn(`[ETradeClient] fetchQuote HTTP ${res.status}: ${errorText}`);
-        this.handleUpstreamAuthError(res.status, "quote", errorText);
+        await this.handleUpstreamAuthError(res.status, "quote", errorText);
         return fail(error);
       }
 
@@ -258,7 +313,7 @@ export class ETradeRestClient {
         if (!res.ok) {
           const errorText = await res.text().catch(() => "");
           const error = `E*TRADE Quote API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
-          this.handleUpstreamAuthError(res.status, "quote", errorText);
+          await this.handleUpstreamAuthError(res.status, "quote", errorText);
           return fail(error);
         }
         if (res.ok) {
@@ -371,7 +426,7 @@ export class ETradeRestClient {
     let tokenSecret = "";
     if (this.userLogin) {
       try {
-        const stored = await getValidTokens(this.env, this.userLogin, this.overrideEnv);
+        const stored = await getValidTokens(this.env, this.userLogin, this.overrideEnv, this.identity);
         if (stored) {
           token = stored.accessToken;
           tokenSecret = stored.accessTokenSecret;
@@ -433,7 +488,7 @@ export class ETradeRestClient {
 
         if (!res.ok) {
           const errorText = await res.text().catch(() => "");
-          this.handleUpstreamAuthError(res.status, "market/quote", errorText);
+          await this.handleUpstreamAuthError(res.status, "market/quote", errorText);
           batchFailed = true;
           this.lastError = `E*TRADE quote request failed [HTTP ${res.status}]: ${errorText.slice(0, 160) || res.statusText}`;
           return [];
@@ -631,7 +686,7 @@ export class ETradeRestClient {
       }
       if (!res.ok) {
         const errorText = await res.text().catch(() => "");
-        this.handleUpstreamAuthError(res.status, `market/movers/${category}`, errorText);
+        await this.handleUpstreamAuthError(res.status, `market/movers/${category}`, errorText);
         this.lastError = `E*TRADE market-movers request failed [HTTP ${res.status}]: ${errorText.slice(0, 160) || res.statusText}`;
         return [];
       }
@@ -803,7 +858,7 @@ export class ETradeRestClient {
         }
         const finalMsg = errDesc || rawText.slice(0, 200) || res.statusText;
         this.lastError = `E*TRADE Preview Order API Error [HTTP ${res.status}]: ${finalMsg}`;
-        this.handleUpstreamAuthError(res.status, "previewOrder", rawText);
+        await this.handleUpstreamAuthError(res.status, "previewOrder", rawText);
         return null;
       }
 
@@ -1424,7 +1479,7 @@ export class ETradeRestClient {
         const errorText = await res.text().catch(() => "");
         this.lastError = `E*TRADE Accounts API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
         console.warn(`[ETradeClient] fetchAccounts HTTP ${res.status}: ${errorText}`);
-        this.handleUpstreamAuthError(res.status, "accounts", errorText);
+        await this.handleUpstreamAuthError(res.status, "accounts", errorText);
         return [];
       }
 
@@ -1554,7 +1609,7 @@ export class ETradeRestClient {
         const errorText = await res.text().catch(() => "");
         this.lastError = `E*TRADE Portfolio API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
         console.warn(`[ETradeClient] fetchPortfolio HTTP ${res.status}: ${errorText}`);
-        this.handleUpstreamAuthError(res.status, "portfolio", errorText);
+        await this.handleUpstreamAuthError(res.status, "portfolio", errorText);
         return null;
       }
 
@@ -1705,7 +1760,7 @@ export class ETradeRestClient {
       if (!res.ok) {
         const errorText = await res.text().catch(() => "");
         this.lastError = `E*TRADE Position Lots API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
-        this.handleUpstreamAuthError(res.status, "positionLots", errorText);
+        await this.handleUpstreamAuthError(res.status, "positionLots", errorText);
         return [];
       }
 
@@ -1817,7 +1872,7 @@ export class ETradeRestClient {
         const errorText = await res.text().catch(() => "");
         this.lastError = `E*TRADE Balance API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
         console.warn(`[ETradeClient] fetchBalance HTTP ${res.status}: ${errorText}`);
-        this.handleUpstreamAuthError(res.status, "balance", errorText);
+        await this.handleUpstreamAuthError(res.status, "balance", errorText);
         return null;
       }
 
@@ -1947,7 +2002,7 @@ export class ETradeRestClient {
       if (!res.ok) {
         const errorText = await res.text().catch(() => "");
         this.lastError = `E*TRADE Transactions API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
-        this.handleUpstreamAuthError(res.status, "transactions", errorText);
+        await this.handleUpstreamAuthError(res.status, "transactions", errorText);
         return [];
       }
 
@@ -2036,7 +2091,7 @@ export class ETradeRestClient {
       if (!res.ok) {
         const errorText = await res.text().catch(() => "");
         this.lastError = `E*TRADE Transaction Details API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
-        this.handleUpstreamAuthError(res.status, "transactionDetails", errorText);
+        await this.handleUpstreamAuthError(res.status, "transactionDetails", errorText);
         return null;
       }
 
@@ -2140,7 +2195,7 @@ export class ETradeRestClient {
       if (!res.ok) {
         const errorText = await res.text().catch(() => "");
         this.lastError = `E*TRADE Alerts API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
-        this.handleUpstreamAuthError(res.status, "alerts", errorText);
+        await this.handleUpstreamAuthError(res.status, "alerts", errorText);
         return [];
       }
 
@@ -2220,7 +2275,7 @@ export class ETradeRestClient {
       if (!res.ok) {
         const errorText = await res.text().catch(() => "");
         this.lastError = `E*TRADE Alert Details API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
-        this.handleUpstreamAuthError(res.status, "alertDetails", errorText);
+        await this.handleUpstreamAuthError(res.status, "alertDetails", errorText);
         return null;
       }
 
@@ -2295,7 +2350,7 @@ export class ETradeRestClient {
       if (!res.ok) {
         const errorText = await res.text().catch(() => "");
         this.lastError = `E*TRADE Delete Alert Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
-        this.handleUpstreamAuthError(res.status, "deleteAlert", errorText);
+        await this.handleUpstreamAuthError(res.status, "deleteAlert", errorText);
         return { success: false, message: this.lastError };
       }
 
@@ -2354,7 +2409,7 @@ export class ETradeRestClient {
         const errorText = await res.text().catch(() => "");
         this.lastError = `E*TRADE Lookup API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
         console.warn(`[ETradeClient] lookupProduct HTTP ${res.status}: ${errorText}`);
-        this.handleUpstreamAuthError(res.status, "lookup", errorText);
+        await this.handleUpstreamAuthError(res.status, "lookup", errorText);
         return [];
       }
       const data = (await res.json().catch(() => ({}))) as any;
@@ -2453,7 +2508,7 @@ export class ETradeRestClient {
       if (!res.ok) {
         const errorText = await res.text().catch(() => "");
         this.lastError = `E*TRADE Option Chains API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
-        this.handleUpstreamAuthError(res.status, "optionchains", errorText);
+        await this.handleUpstreamAuthError(res.status, "optionchains", errorText);
         return null;
       }
 
@@ -2588,7 +2643,7 @@ export class ETradeRestClient {
       if (!res.ok) {
         const errorText = await res.text().catch(() => "");
         this.lastError = `E*TRADE Option Expire Date API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
-        this.handleUpstreamAuthError(res.status, "optionexpiredate", errorText);
+        await this.handleUpstreamAuthError(res.status, "optionexpiredate", errorText);
         return [];
       }
       const data = (await res.json().catch(() => ({}))) as any;
@@ -2687,7 +2742,7 @@ export class ETradeRestClient {
       if (!res.ok) {
         const errorText = await res.text().catch(() => "");
         this.lastError = `E*TRADE Orders API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
-        this.handleUpstreamAuthError(res.status, "orders", errorText);
+        await this.handleUpstreamAuthError(res.status, "orders", errorText);
         return [];
       }
 
@@ -2793,7 +2848,7 @@ export class ETradeRestClient {
       if (!res.ok) {
         const errorText = await res.text().catch(() => "");
         this.lastError = `E*TRADE Order Details API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
-        this.handleUpstreamAuthError(res.status, "orderDetails", errorText);
+        await this.handleUpstreamAuthError(res.status, "orderDetails", errorText);
         return null;
       }
 
@@ -3091,7 +3146,7 @@ export class ETradeRestClient {
 
       if (!res.ok) {
         const errorText = await res.text().catch(() => "");
-        this.handleUpstreamAuthError(res.status, "user/watchlist", errorText);
+        await this.handleUpstreamAuthError(res.status, "user/watchlist", errorText);
         // Issue #826: use BusinessError for 404 — UI gets business message, logs get technical detail.
         if (res.status === 404) {
           const { BusinessError } = await import("../../outcomes/outcomeAspects");
@@ -3189,7 +3244,7 @@ export class ETradeRestClient {
         const errorText = await res.text().catch(() => "");
         this.lastError = `E*TRADE Watchlist Details API Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
         console.warn(`[ETradeClient] getWatchlistDetails HTTP ${res.status}: ${errorText}`);
-        this.handleUpstreamAuthError(res.status, "watchlistDetails", errorText);
+        await this.handleUpstreamAuthError(res.status, "watchlistDetails", errorText);
         return null;
       }
 
@@ -3455,7 +3510,7 @@ export class ETradeRestClient {
       if (!res.ok) {
         const errorText = await res.text().catch(() => "");
         this.lastError = `E*TRADE Delete Watchlist Error [HTTP ${res.status}]: ${errorText.slice(0, 200) || res.statusText}`;
-        this.handleUpstreamAuthError(res.status, "user/watchlist/delete", errorText);
+        await this.handleUpstreamAuthError(res.status, "user/watchlist/delete", errorText);
         return false;
       }
 

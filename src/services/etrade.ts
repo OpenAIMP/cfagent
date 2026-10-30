@@ -13,6 +13,7 @@ import type { DatabaseORM } from "../orm";
 import { withBreaker } from "../breakers/breakerDecorator";
 import { defaultBreakerRegistry } from "../breakers/createBreakerPorts";
 import type { BreakerRegistry } from "../breakers/breakerPorts";
+import type { ETradeTokenIdentity } from "../security/etradeOAuth";
 import type {
   ETradeQuote,
   StockScreenerFilter,
@@ -111,7 +112,11 @@ export class ETradeService {
     // Issue #1745: breaker registry (tests inject an isolated one;
     // production shares the per-isolate default so the etrade
     // breaker has memory across requests).
-    opts?: { breakerRegistry?: BreakerRegistry }
+    // Issue #2441: identity (verified session, or the alias record for
+    // a login the route already trusts) — forwarded to the client so
+    // service reads see the same token the panel seam sees. Optional;
+    // unset keeps exactly today's login-only behavior.
+    opts?: { breakerRegistry?: BreakerRegistry; identity?: ETradeTokenIdentity }
   ) {
     // Issue #1185: the service resolves the caller's stored per-user
     // token — an explicit login is required; there is no default
@@ -134,7 +139,7 @@ export class ETradeService {
     this.storage = storage;
 
     this.breakerRegistry = opts?.breakerRegistry ?? defaultBreakerRegistry();
-    this.client = new ETradeRestClient(this.env, this.userLogin, this.overrideEnv);
+    this.client = new ETradeRestClient(this.env, this.userLogin, this.overrideEnv, opts?.identity);
     this.platform = new ETradeTradingPlatform(this.env, this.orm, this.userLogin, this.overrideEnv, this.client);
     this.screener = new DynamicMarketScreener();
   }
