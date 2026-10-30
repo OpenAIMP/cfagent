@@ -2191,6 +2191,7 @@ export class OrchestratorAgent extends PortThink {
       isMcpEndpoint,
       isScheduleEndpoint,
       deliveryMode: resolvedDelivery.mode,
+      method: request.method,
     })) {
       return this.enqueueHttpRequest(request, url);
     }

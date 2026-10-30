@@ -277,7 +277,16 @@ export function shouldQueueApiRequest(opts: {
   isMcpEndpoint: boolean;
   isScheduleEndpoint: boolean;
   deliveryMode: HttpDeliveryMode;
+  /**
+   * #2456: the request method. GET/HEAD are reads and are never
+   * queued — a read gains nothing from queueing, since the client
+   * waits on the replay anyway. An absent method keeps the legacy
+   * behavior so callers that do not carry a method are untouched.
+   */
+  method?: string;
 }): boolean {
+  const method = typeof opts.method === "string" ? opts.method.toUpperCase() : "";
+  if (method === "GET" || method === "HEAD") return false;
   if (!opts.isApiRequest) return false;
   if (opts.isJobsEndpoint || opts.isMcpEndpoint || opts.isScheduleEndpoint) return false;
   return opts.deliveryMode === "queued";
