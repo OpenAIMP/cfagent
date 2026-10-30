@@ -105,6 +105,19 @@ export interface Env {
   // provider from IAAA_ENABLED_PROVIDERS). No code change, no secret.
   // IAAA_WIRING_ENABLED: "1" or "true" (case-insensitive) = on; anything else = off.
   IAAA_WIRING_ENABLED?: string;
+  // Issue #2419 — externalized polling cadences (AOP). All optional;
+  // absence means the pollingConfig defaults apply. Values are
+  // milliseconds, except CHAT_AUTO_REFRESH_FLOOR_S (seconds, matching
+  // the stored user interval). Rollback is unsetting the vars (or
+  // restoring the defaults) and redeploying — no code change.
+  QUOTES_REST_FALLBACK_MS?: string;
+  QUOTES_WS_RECONNECT_BASE_MS?: string;
+  QUOTES_WS_RECONNECT_CAP_MS?: string;
+  OPTIONS_FLOWS_POLL_MS?: string;
+  OPTIONS_LATEST_POLL_MS?: string;
+  CHAT_AUTO_REFRESH_FLOOR_S?: string;
+  GOAL_TRACK_POLL_MS?: string;
+  GOAL_TRACK_DEADLINE_MS?: string;
   // #1169 S2 — flag-gated corpus serving. Same idiom as IAAA above:
   // "1"/"true"/"on" (case-insensitive) = on; absence = OFF (the var is
   // deliberately NOT in wrangler.jsonc — S2 ships default-off).

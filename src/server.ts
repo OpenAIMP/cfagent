@@ -147,6 +147,7 @@ import {
   resolveLoginProvider,
 } from "./security/providers";
 import { renderLandingPage } from "./landing";
+import { resolvePollingConfigFromEnv } from "./pollingConfig";
 import { TICKER_INSTANCE_NAME } from "./agents/ticker-agent";
 import { SERVER_PALETTE } from "./theme/serverPalette";
 import { routeAgentRequest } from "agents";
@@ -3790,7 +3791,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
             headers: { Location: authOutcomeLoginUrl("session_unreadable") },
           });
         }
-        return new Response(renderLandingPage(env.APP_NAME), {
+        return new Response(renderLandingPage(env.APP_NAME, resolvePollingConfigFromEnv(env)), {
           headers: {
             "Content-Type": "text/html; charset=utf-8",
             // Auth HTML must never be replayed from a cache: a stale landing
@@ -3832,7 +3833,10 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
           "signed_in"
             ? `window.__AUTH_OUTCOME__="signed_in";`
             : "";
-        const userScript = `<script>window.__USER__=${safeUser};window.__FEATURES__=${safeFeatures};${bootOutcome}</script>`;
+        // Issue #2419: inject externalized polling cadences for the app
+        // bundle, resolved from wrangler vars (defaults when unset).
+        const safePolling = JSON.stringify(resolvePollingConfigFromEnv(env)).replace(/</g, "\\u003c");
+        const userScript = `<script>window.__USER__=${safeUser};window.__FEATURES__=${safeFeatures};window.__POLLING_CONFIG__=${safePolling};${bootOutcome}</script>`;
         const modified = html.replace("</head>", `${userScript}</head>`);
         // Re-issue the id that actually authenticated this request. With a
         // stale duplicate cookie in the header, the first value is not

@@ -8,8 +8,14 @@
  * centralized price-direction flash. Every presentation (tape, search
  * bar, later the landing page) consumes this service through
  * useMarketQuotes; none of them owns a socket, a poller, or a fetch.
+ *
+ * Issue #2419 — the fallback reconnects: a closed socket schedules a
+ * reconnect with exponential backoff (it used to strand the tab on
+ * REST polling forever), and all polling pauses while the tab is
+ * hidden, matching the shared polling.ts treatment.
  */
 import { apiFetch } from "../apiFetch";
+import { getPollingConfig } from "../pollingConfig";
 
 export type QuoteTransport = "connecting" | "websocket" | "polling" | "offline";
 
@@ -52,6 +58,12 @@ export interface QuotesServiceDeps {
   fetchQuotes?: (symbols: string[]) => Promise<{ quotes: ServiceQuote[] }>;
   flashMs?: number;
   pollMs?: number;
+  /** Initial WebSocket reconnect delay (issue #2419). */
+  reconnectBaseMs?: number;
+  /** Cap for the exponential reconnect backoff (issue #2419). */
+  reconnectCapMs?: number;
+  /** Visibility document; defaults to the global document (issue #2419). */
+  doc?: Pick<Document, "visibilityState" | "addEventListener" | "removeEventListener">;
 }
 
 function normalize(symbols: string[]): string[] {
@@ -90,7 +102,15 @@ export function createQuotesService(deps: QuotesServiceDeps = {}): QuotesService
   const createSocket = deps.createSocket ?? ((url: string) => new WebSocket(url) as unknown as SocketLike);
   const fetchQuotes = deps.fetchQuotes ?? apiFetchQuotes;
   const flashMs = deps.flashMs ?? 800;
-  const pollMs = deps.pollMs ?? 12000;
+  // Issue #2419: cadences resolve through the externalized polling
+  // config (server-injected values win, defaults otherwise) — no
+  // interval literal lives in this service.
+  const pollingConfig = getPollingConfig();
+  const pollMs = deps.pollMs ?? pollingConfig.quotesRestFallbackMs;
+  const reconnectBaseMs = deps.reconnectBaseMs ?? pollingConfig.quotesWsReconnectBaseMs;
+  const reconnectCapMs = deps.reconnectCapMs ?? pollingConfig.quotesWsReconnectCapMs;
+  const doc =
+    deps.doc ?? (typeof document !== "undefined" ? document : undefined);
 
   const refCounts = new Map<string, number>();
   const listeners = new Set<Listener>();
@@ -101,7 +121,13 @@ export function createQuotesService(deps: QuotesServiceDeps = {}): QuotesService
   let socket: SocketLike | null = null;
   let socketOpen = false;
   let fallbackInterval: ReturnType<typeof setInterval> | null = null;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let reconnectDelay = reconnectBaseMs;
   let fetchInFlight = false;
+
+  function isHidden(): boolean {
+    return doc?.visibilityState === "hidden";
+  }
 
   function snapshot(): QuotesSnapshot {
     return { quotes: { ...quotes }, transport, flash: { ...flash } };
@@ -159,13 +185,46 @@ export function createQuotesService(deps: QuotesServiceDeps = {}): QuotesService
     }
   }
 
+  function clearReconnect() {
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+  }
+
+  function scheduleReconnect() {
+    if (reconnectTimer || refCounts.size === 0 || isHidden()) return;
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      if (refCounts.size > 0 && !socketOpen) ensureSocket();
+    }, reconnectDelay);
+    reconnectDelay = Math.min(reconnectDelay * 2, reconnectCapMs);
+  }
+
   function startFallback() {
-    if (fallbackInterval || refCounts.size === 0) return;
+    if (fallbackInterval || refCounts.size === 0 || isHidden()) return;
     void fetchUnion();
     fallbackInterval = setInterval(() => {
       void fetchUnion();
     }, pollMs);
   }
+
+  function onVisibility() {
+    if (isHidden()) {
+      // Hidden: stop spending requests until the tab is visible again.
+      stopFallback();
+      clearReconnect();
+      return;
+    }
+    if (refCounts.size > 0 && !socketOpen) {
+      // Visible again: try the socket at once, and poll until it is live
+      // (mirrors subscribe, which also fetches alongside connecting).
+      ensureSocket();
+      startFallback();
+    }
+  }
+
+  doc?.addEventListener("visibilitychange", onVisibility);
 
   function sendSubscribe(symbols: string[]) {
     if (socket && socketOpen && symbols.length > 0) {
@@ -181,6 +240,8 @@ export function createQuotesService(deps: QuotesServiceDeps = {}): QuotesService
     ws.onopen = () => {
       socketOpen = true;
       transport = "websocket";
+      reconnectDelay = reconnectBaseMs;
+      clearReconnect();
       stopFallback();
       sendSubscribe(Array.from(refCounts.keys()));
       notify();
@@ -212,11 +273,13 @@ export function createQuotesService(deps: QuotesServiceDeps = {}): QuotesService
       socketOpen = false;
       socket = null;
       startFallback();
+      scheduleReconnect();
     };
     ws.onclose = () => {
       socketOpen = false;
       socket = null;
       if (refCounts.size > 0) startFallback();
+      scheduleReconnect();
     };
   }
 
@@ -255,6 +318,7 @@ export function createQuotesService(deps: QuotesServiceDeps = {}): QuotesService
       }
       if (refCounts.size === 0) {
         stopFallback();
+        clearReconnect();
         const ws = socket;
         socket = null;
         socketOpen = false;
