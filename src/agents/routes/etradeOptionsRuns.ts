@@ -20,7 +20,10 @@ import {
   flattenWatchlistSymbols,
   resolveTrackedSymbols,
 } from "../../trading";
-import { createOptionsDiscoveryPorts } from "../../data/createOptionsDiscoveryPorts";
+import {
+  buildOptionsDiscoveryPorts,
+  createOptionsDiscoveryPorts,
+} from "../../data/createOptionsDiscoveryPorts";
 import { getCuratedStockUniverse } from "../../config/curatedStockUniverse";
 import type { SqlStorage } from "../../orm";
 import type { EtradeOptionsRouteContext } from "./etradeOptions";
@@ -136,7 +139,11 @@ export async function handleOptionsDiscoveryRunById(request: Request, sessionId:
 
 export async function handleOptionsIvHistory(url: URL, ctx: EtradeOptionsRouteContext, sql: SqlStorage): Promise<Response> {
   try {
-    const store = createOptionsDiscoveryPorts({ sql }).ivHistory;
+    // Issue #2337 cutover (R-2): IV reads serve through the
+    // env-aware build — the D1 store when AGENT_DB is bound,
+    // the DO store only on the explicit rollback lever or an
+    // unbound environment.
+    const store = (await buildOptionsDiscoveryPorts(ctx.env, { sql })).ivHistory;
     const symbolParam = url.searchParams.get("symbol");
     if (symbolParam) {
       const entry = await getIvHistoryEntry(store, symbolParam);
