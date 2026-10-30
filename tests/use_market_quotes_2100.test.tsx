@@ -65,6 +65,11 @@ describe("useMarketQuotes (#2100)", () => {
       status: 200,
       json: async () => ({ quotes: [] }),
     })) as never;
+    // Issue #2481: live quotes are gated by the global auto-refresh
+    // switch; this #2100 pin covers ON (the disabled-prop test below
+    // still covers the off-by-prop case, and OFF-by-switch is pinned
+    // in the auto-refresh suite).
+    window.localStorage.setItem("cfagent_global_autorefresh_enabled", "true");
     container = document.createElement("div");
     document.body.appendChild(container);
   });
@@ -79,6 +84,7 @@ describe("useMarketQuotes (#2100)", () => {
     container.remove();
     (globalThis as any).WebSocket = origWebSocket;
     globalThis.fetch = origFetch;
+    window.localStorage.removeItem("cfagent_global_autorefresh_enabled");
   });
 
   function renderProbe(props: { symbols: string[]; enabled?: boolean }) {
