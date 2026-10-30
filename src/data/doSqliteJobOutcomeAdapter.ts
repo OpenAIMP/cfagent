@@ -170,6 +170,16 @@ export class DoSqliteJobOutcomeStore implements JobOutcomeStore {
     return true;
   }
 
+  countRows(): number {
+    return this.countOutcomes();
+  }
+
+  clearRows(): void {
+    // Only the outcomes table: the meta watermark row
+    // (mas_job_outcomes_meta 'pruned_at') is preserved.
+    this.sql.exec("DELETE FROM mas_job_outcomes");
+  }
+
   list(limit = 50): JobOutcomeRow[] {
     this.ensureTables();
     this.maybePrune();

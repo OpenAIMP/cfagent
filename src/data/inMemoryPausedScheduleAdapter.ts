@@ -29,4 +29,8 @@ export class InMemoryPausedScheduleStore implements PausedScheduleStore {
   async remove(id: string): Promise<boolean> {
     return this.records.delete(id);
   }
+
+  async clear(): Promise<void> {
+    this.records.clear();
+  }
 }

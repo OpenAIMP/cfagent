@@ -97,6 +97,18 @@ export interface JobOutcomeStore {
   prune(options?: PruneJobOutcomesOptions): PruneJobOutcomesResult;
   maybePrune(nowMs?: number): boolean;
   list(limit?: number): JobOutcomeRow[];
+  /**
+   * Maintenance surface (added #2358, step 4a — the maintenance
+   * route's clear of this table was the family's named bypass):
+   * countRows / clearRows serve the operator clear. Neither
+   * ensures the tables — a missing table surfaces the store's
+   * own error, and the route keeps its missing-table tolerance
+   * exactly as before. clearRows deletes ONLY mas_job_outcomes
+   * rows: the mas_job_outcomes_meta prune watermark is
+   * deliberately preserved, as the route has always done.
+   */
+  countRows(): number;
+  clearRows(): void;
 }
 
 export type JobOutcomeSqlExecutor = SqlStorage;
