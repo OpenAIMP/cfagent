@@ -74,4 +74,8 @@ export interface PausedScheduleStore {
   list(): Promise<PausedScheduleRecord[]>;
   /** Delete the record; returns true when a record was removed. */
   remove(id: string): Promise<boolean>;
+  /** Delete EVERY record (added #2358, step 4a — the maintenance
+   *  route's bulk clear of this table was a named bypass of this
+   *  port; the clear now flows through it). */
+  clear(): Promise<void>;
 }
