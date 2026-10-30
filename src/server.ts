@@ -6,7 +6,7 @@ import {
   setSessionCookie,
 } from "./session";
 import { getServiceUserLogin, isLoginShaped, SHARED_ORCHESTRATOR_INSTANCE } from "./security/serviceIdentity";
-import { getSessionCached, invalidateSessionCache } from "./security/sessionCache";
+import { getSessionCached, getSessionCachedFetchedAt, invalidateSessionCache } from "./security/sessionCache";
 import { resolveIdleTimeoutMs } from "./security/sessionPolicy";
 import { deleteSession, getSession, sessionStore, updateSession } from "./security/session";
 import { listStoreEntries, type DoNamespaceLike } from "./security/durableKv";
@@ -34,7 +34,10 @@ import {
   parseSocialAction,
 } from "./agents/social/interactions";
 import { checkAllTokenHealth } from "./agents/social/tokenHealth";
-import { validateAndTouchWiredSession } from "./security/iaaaEnforcement";
+import {
+  resolveWiredFreshnessMs,
+  validateAndTouchWiredSession,
+} from "./security/iaaaEnforcement";
 import { requiresStepUpForMint } from "./security/iaaaGates";
 import { createWiredAuditStore } from "./security/iaaaAuditStore";
 import {
@@ -4146,6 +4149,15 @@ async function authenticateRequest(
     // the wired path — fresh read, absolute + idle expiry, touch +
     // persist + cache invalidation. Every other case returns the cached
     // session exactly as before.
+    // Issue #2444: the wired path is freshness-gated — a cached copy
+    // fetched within IAAA_WIRED_FRESHNESS_MS (default 30s) is served
+    // after local expiry validation only, with no fresh store read.
+    // SECURITY TRADE-OFF: revocation/step-up propagation is delayed
+    // up to the window (CISO domain, #945 open item). Gate hits
+    // perform no store op and therefore emit no resource event —
+    // exactly like cache hits today; the reads that DO happen keep
+    // their wiredResource attribution below, and the 24h DO-request
+    // watch measures the collapse. Window 0 disables gating.
     if (isWiringEnabled(env) && cached.internalUserId) {
       const wiredResource = resourceSink
         ? {
@@ -4153,6 +4165,7 @@ async function authenticateRequest(
             attribution: { caller: "validateAndTouchWiredSession", trigger: "user" } as ResourceAttribution,
           }
         : undefined;
+      const fetchedAtMs = getSessionCachedFetchedAt(sessionId);
       const result = await validateAndTouchWiredSession(
         {
           freshRead: (id) => getSession(env, id, wiredResource),
@@ -4162,7 +4175,11 @@ async function authenticateRequest(
         cached,
         sessionId,
         Date.now(),
-        { idleTimeoutMs },
+        {
+          idleTimeoutMs,
+          fetchedAtMs: fetchedAtMs ?? undefined,
+          freshnessWindowMs: resolveWiredFreshnessMs(env.IAAA_WIRED_FRESHNESS_MS),
+        },
       );
       if (result.wired) {
         if (!result.session) continue;
