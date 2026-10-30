@@ -26,7 +26,9 @@
  *    expireDueOutcomes never invents a P&L;
  *  - comparison ledger (recommendationKernel writer +
  *    comparisonRunner reader): round-trip + the reader's
- *    in-code sort (created_at, arm, candidate_id);
+ *    in-code sort (created_at, arm, candidate_id, id —
+ *    the id tie-break added by #2367; the writer-stamped
+ *    created_at pins run on a frozen clock, see in-line);
  *  - screeningActivity: never-throws record (null on missing
  *    fields), tenant-scoped newest-first list, detail JSON
  *    round-trip, corrupt detail reads back as { raw }.
@@ -41,7 +43,7 @@
  * what decideStrategyReview reads from the legacy seam.
  */
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   GOAL_SCENARIO_TABLES,
@@ -406,15 +408,31 @@ describe("characterization 4c: comparison ledger", () => {
     ensureComparisonLedgerTable(sql as never);
     const cand = (id: string, structure: string) =>
       ({ id, structure, symbol: "AAPL", status: "ranked", provenance: "panel" }) as never;
-    recordComparisonArmOutcome(sql as never, {
-      runId: "run-1", arm: "quant", candidate: cand("c2", "spread"),
-    });
-    recordComparisonArmOutcome(sql as never, {
-      runId: "run-1", arm: "llm", candidate: cand("c1", "spread"),
-    });
-    recordComparisonArmOutcome(sql as never, {
-      runId: "run-2", arm: "llm", candidate: cand("c9", "naked"),
-    });
+    // #2367 (§7 adaptation): the writer stamps wall-clock
+    // created_at per record, and the asserted order below is
+    // the reader's (arm, candidate) tie-break — which only
+    // engages when the stamps tie. Unfrozen, the two run-1
+    // records land in the same millisecond only ~93% of the
+    // time (measured), so the pin flaked whenever a boundary
+    // fell between the stamps and created_at — correctly —
+    // ordered quant first. The clock is frozen so the tie
+    // this pin exercises happens by construction; every
+    // assertion below is unchanged.
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-10-29T00:00:00.000Z"));
+      recordComparisonArmOutcome(sql as never, {
+        runId: "run-1", arm: "quant", candidate: cand("c2", "spread"),
+      });
+      recordComparisonArmOutcome(sql as never, {
+        runId: "run-1", arm: "llm", candidate: cand("c1", "spread"),
+      });
+      recordComparisonArmOutcome(sql as never, {
+        runId: "run-2", arm: "llm", candidate: cand("c9", "naked"),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
     const all = listComparisonOutcomes(sql as never);
     expect(all).toHaveLength(3);
     const run1 = listComparisonOutcomes(sql as never, "run-1");
@@ -422,6 +440,35 @@ describe("characterization 4c: comparison ledger", () => {
     expect(run1[0].candidate_id).toBe("c1");
     const names = tableNames(sql);
     expect(names).toContain("mas_comparison_arm_outcomes");
+  });
+
+  it("created_at is the reader's primary sort key (clock-controlled, #2367)", () => {
+    const sql = freshSql();
+    ensureComparisonLedgerTable(sql as never);
+    const cand = (id: string, structure: string) =>
+      ({ id, structure, symbol: "AAPL", status: "ranked", provenance: "panel" }) as never;
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-10-29T00:00:00.000Z"));
+      recordComparisonArmOutcome(sql as never, {
+        runId: "run-1", arm: "quant", candidate: cand("c2", "spread"),
+      });
+      vi.setSystemTime(new Date("2026-10-29T00:00:01.000Z"));
+      recordComparisonArmOutcome(sql as never, {
+        runId: "run-1", arm: "llm", candidate: cand("c1", "spread"),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    // Distinct stamps: created_at decides before arm is ever
+    // consulted — the exact configuration that used to flake
+    // the round-trip pin when it arose by chance.
+    const run1 = listComparisonOutcomes(sql as never, "run-1");
+    expect(run1.map((r) => r.arm)).toEqual(["quant", "llm"]);
+    expect(run1.map((r) => r.created_at)).toEqual([
+      "2026-10-29T00:00:00.000Z",
+      "2026-10-29T00:00:01.000Z",
+    ]);
   });
 });
 
