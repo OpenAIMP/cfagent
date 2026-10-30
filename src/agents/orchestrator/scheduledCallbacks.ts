@@ -14,7 +14,10 @@ import {
   ScheduledTasksService,
   type AutonomousStrategyDiscoveryOptions,
 } from "../../services/scheduledTasks";
-import { createOptionsDiscoveryPorts } from "../../data/createOptionsDiscoveryPorts";
+import {
+  buildOptionsDiscoveryPorts,
+  createOptionsDiscoveryPorts,
+} from "../../data/createOptionsDiscoveryPorts";
 import { resolveScheduledLogin, type ScreenerExecutionContext } from "./scheduleMaintenance";
 
 type ETradeEnvironment = "TEST" | "PROD";
@@ -524,12 +527,16 @@ export async function collectIvHistory(ctx: ScheduledCallbacksContext, payload?:
       return;
     }
     const environment = context?.environment || payload?.environment;
+    // Issue #2337 cutover (R-2): the collector writes through
+    // the env-aware build's IV store — D1 when AGENT_DB is
+    // bound — so collected days land in the post-cutover
+    // store the read paths serve.
     const service = new ScheduledTasksService(
       ctx.env,
       ctx.getOrm(),
       userLogin,
       createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).scanRuns,
-      createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).ivHistory,
+      (await buildOptionsDiscoveryPorts(ctx.env, { sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage })).ivHistory,
       undefined,
       undefined,
       ctx.scheduleScreenerFollowups
