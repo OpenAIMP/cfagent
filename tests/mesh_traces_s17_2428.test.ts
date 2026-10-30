@@ -440,11 +440,17 @@ describe("issue #2428 — registry spine + migration pins", () => {
     }
   });
 
-  it("migration 0023 is registered last and creates the hop table", async () => {
-    const { ALL_MIGRATIONS, MIGRATION_0023_AGENT_MESH_TRACE_HOPS } = await import(
+  it("migration 0023 is registered and creates the hop table (0024 is last since #2439)", async () => {
+    const {
+      ALL_MIGRATIONS,
+      MIGRATION_0023_AGENT_MESH_TRACE_HOPS,
+      MIGRATION_0024_AGENT_MESH_EVAL_RESULTS,
+    } = await import(
       "../src/data/migrationRunner"
     );
-    expect(ALL_MIGRATIONS[ALL_MIGRATIONS.length - 1]).toBe(MIGRATION_0023_AGENT_MESH_TRACE_HOPS);
+    expect(ALL_MIGRATIONS).toContain(MIGRATION_0023_AGENT_MESH_TRACE_HOPS);
+    // S18 (#2439) appended migration 0024 (eval results) after 0023.
+    expect(ALL_MIGRATIONS[ALL_MIGRATIONS.length - 1]).toBe(MIGRATION_0024_AGENT_MESH_EVAL_RESULTS);
     expect(MIGRATION_0023_AGENT_MESH_TRACE_HOPS.version).toBe(23);
     expect(MIGRATION_0023_AGENT_MESH_TRACE_HOPS.sql).toContain("agent_mesh_trace_hops");
     const versions = ALL_MIGRATIONS.map((m) => m.version);
