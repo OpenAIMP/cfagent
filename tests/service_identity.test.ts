@@ -9,7 +9,10 @@
  *    (research / reflection / adaptation) under the service identity,
  *    addressed to the shared Orchestrator instance (an address, not an
  *    identity), and skips those dispatches entirely when no service
- *    identity is configured.
+ *    identity is configured. #2331 slice 2 adds the second half of
+ *    that gate: configuration alone is not enough — the tick and the
+ *    dispatches run only while the service user holds a live
+ *    platform-tier member binding.
  *  - The worker queue() handler dispatches options-analysis work under
  *    the queue payload's stored owner when present, else the service
  *    identity, and retries (never acks, never dispatches) when neither
@@ -49,6 +52,7 @@ import {
   SHARED_ORCHESTRATOR_INSTANCE,
 } from "../src/security/serviceIdentity";
 import type { Env } from "../src/types";
+import { makeFakeSessionStore } from "./fake-session-store";
 
 const SERVICE_LOGIN = "svc-background";
 
@@ -71,15 +75,31 @@ function fakeAgentNamespace() {
   return { ns, addressedTo, requests };
 }
 
-function fakeEnv(serviceLogin?: string) {
+function fakeEnv(serviceLogin?: string, opts: { provisioned?: boolean } = {}) {
   const search = fakeAgentNamespace();
   const scheduledAgent = {
     idFromName: (name: string) => name,
     get: (_id: unknown) => ({ onCron: async () => ({}) }),
   };
+  const { namespace, seed } = makeFakeSessionStore();
+  // #2331 slice 2: Worker dispatches run only while the service user
+  // holds a live platform-tier member binding. The dispatch tests seed
+  // one; the denial tests opt out with provisioned: false.
+  if (serviceLogin !== undefined && opts.provisioned !== false) {
+    seed("sessions", "iaaa-membership:m-svc-1", {
+      membershipId: "m-svc-1",
+      internalUserId: `service:${serviceLogin}`,
+      tenantId: "primary",
+      roleBindings: [{ role: "member", scope: "platform", grantedBy: "test" }],
+      createdBy: "test",
+      createdAtMs: Date.now() - 1000,
+    });
+    seed("sessions", `iaaa-membership:user:service:${serviceLogin}`, ["m-svc-1"]);
+  }
   const env = {
     SEARCH_AGENT: search.ns,
     SCHEDULED_AGENT: scheduledAgent,
+    SESSION_STORE: namespace,
     ...(serviceLogin !== undefined ? { SERVICE_USER_LOGIN: serviceLogin } : {}),
   } as unknown as Env;
   return { env, search };
@@ -111,6 +131,18 @@ describe("worker scheduled() (#1185)", () => {
     ]);
     for (const req of search.requests) {
       expect(req.headers.get("x-user-login")).toBe(SERVICE_LOGIN);
+    }
+  });
+
+  it("skips the tick and the identity-bearing dispatches when the service user is unprovisioned (#2331 slice 2)", async () => {
+    const { env, search } = fakeEnv(SERVICE_LOGIN, { provisioned: false });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await (worker as any).scheduled({ cron: "*/30 * * * *" }, env, undefined);
+      expect(search.requests).toHaveLength(0);
+      expect(errSpy).toHaveBeenCalled();
+    } finally {
+      errSpy.mockRestore();
     }
   });
 
@@ -157,6 +189,21 @@ describe("worker queue() (#1185)", () => {
     await (worker as any).queue(batch, env, undefined);
     expect(state.acked).toBe(1);
     expect(search.requests[0].headers.get("x-user-login")).toBe(SERVICE_LOGIN);
+  });
+
+  it("drops (acks, never retries) an ownerless message when the service user is unprovisioned (#2331 slice 2)", async () => {
+    const { env, search } = fakeEnv(SERVICE_LOGIN, { provisioned: false });
+    const { batch, state } = batchWith({ symbol: "AAPL" });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await (worker as any).queue(batch, env, undefined);
+      expect(search.requests).toHaveLength(0);
+      expect(state.acked).toBe(1);
+      expect(state.retried).toBe(0);
+      expect(warnSpy).toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   it("retries without dispatching when neither owner nor service identity exists", async () => {
