@@ -1,0 +1,5 @@
+### Fixed
+
+- Comparison-ledger reader ordering is now a total order (#2367): `compareComparisonOutcomeRows` gains the row `id` (the table's primary key) as its final tie-break after created_at, arm, and candidate_id, so rows recorded inside the same millisecond for the same arm and candidate — routine for a comparison run — list in an order determined solely by the stored rows, identically on the DO-SQLite and in-memory adapters, instead of inheriting the storage scan order. The flaky round-trip characterization pin was traced to the kernel writer's wall-clock `created_at` stamps: the pin's expected order silently required both stamps to land in the same millisecond (~93% of back-to-back pairs, measured), and failed whenever a boundary fell between them and created_at correctly ordered the rows. The pin now freezes the clock so the tie-break it asserts happens by construction (assertions unchanged), a new clock-controlled pin covers the distinct-stamp case, and a new conformance pin (both adapters) covers the id tie-break.
+
+#CDO-mha7
