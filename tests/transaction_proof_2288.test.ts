@@ -11,17 +11,29 @@
  *
  * FIDELITY — what these pins can and cannot prove (ADR D-C.5
  * caveat, stated plainly):
- *  - The DO double below IMPLEMENTS the documented
- *    transactionSync contract over node:sqlite (closure runs
- *    synchronously; a throw rolls back every write in the
- *    closure; a return commits). It proves the aspect and its
- *    DO backend USE the primitive correctly — commit, rollback,
- *    nested join, honest refusal. It CANNOT detect the real
- *    DurableObjectStorage facade deviating from its documented
- *    contract; that residual proof runs only under workerd and
- *    is still owed. These pins pin the double's contract, and
- *    the control block below proves they would go RED if the
- *    primitive stopped honouring it.
+ *  - The DO double below implements the transactionSync
+ *    contract over node:sqlite (closure runs synchronously; a
+ *    throw rolls back every write in the closure; a return
+ *    commits). It proves the aspect and its DO backend USE the
+ *    primitive correctly — commit, rollback, nested join,
+ *    honest refusal. It CANNOT detect the real
+ *    DurableObjectStorage facade deviating from the contract
+ *    the double implements; that residual proof runs only under
+ *    workerd (tests/workers/, #2348). These pins pin the
+ *    double's contract, and the control block below proves
+ *    they would go RED if the primitive stopped honouring it.
+ *
+ * DOUBLE CORRECTION (#2455, §7 disclosure): at step 0 this
+ * double modelled transactionSync as invoking its closure
+ * WITH a transaction object carrying sql — a misreading of
+ * the documented contract, which the aspect then implemented
+ * too, so the pins proved the aspect against its own
+ * assumption. The workerd proof (#2348, divergence D-1)
+ * observed the real facade: the closure is invoked with NO
+ * argument, and the storage's own sql handle, used inside the
+ * closure, is the transaction-scoped handle. The double below
+ * now implements THAT shape, and the aspect is fixed to match
+ * (#2455), so these pins pin the true contract.
  *  - The D1 double's batch() implements D1's documented batch
  *    contract (one call; all-or-nothing). Per the issue, the
  *    D1 leg is pinned against BATCH semantics, never against
@@ -54,8 +66,11 @@ import {
 /* ------------------------------------------------------------------ */
 
 /**
- * DO storage double over node:sqlite: `sql.exec` plus a
- * `transactionSync` implementing the documented contract.
+ * DO storage double over node:sqlite: a `sql` handle plus a
+ * `transactionSync` implementing the real facade's shape
+ * (#2455): the closure is invoked with NO argument; writes
+ * through the storage's own sql inside the closure are the
+ * transaction's writes.
  */
 class MockDoStorage {
   readonly sqlite = new DatabaseSync(":memory:");
@@ -77,10 +92,10 @@ class MockDoStorage {
     return { toArray: () => [], rowsRead: 0, rowsWritten: info.changes };
   }
 
-  transactionSync<T>(closure: (txn: { sql: typeof this.sql }) => T): T {
+  transactionSync<T>(closure: () => T): T {
     this.sqlite.exec("BEGIN");
     try {
-      const result = closure({ sql: this.sql });
+      const result = closure();
       this.sqlite.exec("COMMIT");
       return result;
     } catch (err) {
@@ -92,8 +107,34 @@ class MockDoStorage {
 
 /** Sabotaged primitive for the control block: no transaction at all. */
 class LyingDoStorage extends MockDoStorage {
-  override transactionSync<T>(closure: (txn: { sql: typeof this.sql }) => T): T {
-    return closure({ sql: this.sql });
+  override transactionSync<T>(closure: () => T): T {
+    return closure();
+  }
+}
+
+/**
+ * A primitive that misbehaves before the unit starts: it
+ * throws a bare, non-catalog error WITHOUT ever invoking the
+ * closure. The aspect must surface the typed refusal, never
+ * the primitive's bare error (#2455).
+ */
+class ExplodingDoStorage extends MockDoStorage {
+  override transactionSync<T>(_closure: () => T): T {
+    throw new Error("primitive exploded before the closure");
+  }
+}
+
+/**
+ * A primitive that refuses in the catalog's own terms before
+ * invoking the closure: its typed error must propagate
+ * unchanged (#2455).
+ */
+class RefusingDoStorage extends MockDoStorage {
+  override transactionSync<T>(_closure: () => T): T {
+    throw new DataFoundationError(
+      DataFoundationCode.TX_CANNOT_HONOUR,
+      "test double: the store cannot honour a unit of work",
+    );
   }
 }
 
@@ -297,6 +338,58 @@ describe("#2288 proof — DO leg (transactionSync through the SDK-shaped facade)
     expect(rec.outcomes.map((o) => o.code)).toEqual([
       DataFoundationCode.TX_CANNOT_HONOUR,
     ]);
+  });
+
+  it("refuses with the typed error when transactionSync throws before invoking the closure: nothing runs (#2455)", async () => {
+    const storage = new ExplodingDoStorage();
+    storage.sql.exec(
+      "CREATE TABLE proof_items (id TEXT PRIMARY KEY, note TEXT NOT NULL)",
+    );
+    const rec = outcomeRecorder();
+    const backend = doSqlTransactionBackend(storage as any);
+    const fn = vi.fn();
+    await expect(
+      withTransaction(
+        backend,
+        { operationName: "proof.do.exploding-primitive", emit: rec.emit },
+        fn,
+      ),
+    ).rejects.toMatchObject({
+      name: "DataFoundationError",
+      code: DataFoundationCode.TX_CANNOT_HONOUR,
+    });
+    // The rejection is the aspect's typed error (the primitive's
+    // text survives only as context inside its message), never
+    // the primitive's bare Error itself.
+    const rejection: unknown = await withTransaction(
+      backend,
+      { operationName: "proof.do.exploding-primitive" },
+      fn,
+    ).catch((err: unknown) => err);
+    expect(rejection).toBeInstanceOf(DataFoundationError);
+    expect(rejection).not.toBeInstanceOf(TypeError);
+    expect(fn).not.toHaveBeenCalled();
+    expect(rec.outcomes.map((o) => o.code)).toEqual([
+      DataFoundationCode.TX_CANNOT_HONOUR,
+    ]);
+  });
+
+  it("propagates the primitive's own catalog refusal unchanged (#2455)", async () => {
+    const storage = new RefusingDoStorage();
+    const backend = doSqlTransactionBackend(storage as any);
+    const fn = vi.fn();
+    await expect(
+      withTransaction(
+        backend,
+        { operationName: "proof.do.refusing-primitive" },
+        fn,
+      ),
+    ).rejects.toMatchObject({
+      name: "DataFoundationError",
+      code: DataFoundationCode.TX_CANNOT_HONOUR,
+      message: "test double: the store cannot honour a unit of work",
+    });
+    expect(fn).not.toHaveBeenCalled();
   });
 
   it("refuses an async wrapped call on the DO leg and rolls back its synchronous writes", async () => {
