@@ -28,6 +28,8 @@
  */
 
 import type { AgentContext } from "agents";
+import { createAsyncJobPorts } from "../../data/createAsyncJobPorts";
+import { createEvidenceSatellitePorts } from "../../data/createEvidenceSatellitePorts";
 import { createOptionsDiscoveryPorts } from "../../data/createOptionsDiscoveryPorts";
 
 export interface MaintenanceRouteContext {
@@ -114,17 +116,17 @@ export async function handleMaintenanceRoutes(
 
     if (clearable === "mas_async_jobs") {
       scope = "session";
+      // #2358 (#1976 step 4a): preview + delete serve through the
+      // async-job Maintenance port (src/data/asyncJobPorts.ts).
+      // The running-row protection and the missing-table tolerance
+      // stay here, exactly as before.
+      const maintenance = createAsyncJobPorts(sql as never).maintenance;
       const requested: string[] | undefined = Array.isArray(body.statuses)
         ? body.statuses.filter((s: unknown) => typeof s === "string")
         : undefined;
       let rows: Array<{ status: string; n: number }> = [];
       try {
-        rows = Array.from(
-          sql.exec(
-            "SELECT status, COUNT(*) AS n FROM mas_async_jobs WHERE session_id = ? GROUP BY status",
-            sessionId,
-          ),
-        ) as Array<{ status: string; n: number }>;
+        rows = maintenance.countByStatus(sessionId);
       } catch (err) {
         if (!isMissingTable(err)) throw err;
       }
@@ -143,17 +145,9 @@ export async function handleMaintenanceRoutes(
       runDelete = () => {
         try {
           if (statuses && statuses.length > 0) {
-            const placeholders = statuses.map(() => "?").join(", ");
-            sql.exec(
-              `DELETE FROM mas_async_jobs WHERE session_id = ? AND status IN (${placeholders})`,
-              sessionId,
-              ...statuses,
-            );
+            maintenance.deleteByStatuses(sessionId, statuses);
           } else if (!statuses) {
-            sql.exec(
-              "DELETE FROM mas_async_jobs WHERE session_id = ? AND status <> 'running'",
-              sessionId,
-            );
+            maintenance.deleteAllNonRunning(sessionId);
           }
           // Requested statuses all running (or empty): nothing to delete.
         } catch (err) {
@@ -163,17 +157,19 @@ export async function handleMaintenanceRoutes(
       };
     } else if (clearable === "mas_job_outcomes") {
       scope = "instance";
+      // #2358: the clear serves through the 4c job-outcome port's
+      // maintenance surface (countRows / clearRows). clearRows
+      // deletes only mas_job_outcomes rows — the meta prune
+      // watermark is preserved, as documented in the header.
+      const outcomes = createEvidenceSatellitePorts(sql as never).jobOutcomes;
       try {
-        const rows = Array.from(
-          sql.exec("SELECT COUNT(*) AS n FROM mas_job_outcomes"),
-        ) as Array<{ n: number }>;
-        wouldDelete = rows[0]?.n ?? 0;
+        wouldDelete = outcomes.countRows();
       } catch (err) {
         if (!isMissingTable(err)) throw err;
       }
       runDelete = () => {
         try {
-          sql.exec("DELETE FROM mas_job_outcomes");
+          outcomes.clearRows();
         } catch (err) {
           if (!isMissingTable(err)) throw err;
         }
@@ -183,7 +179,10 @@ export async function handleMaintenanceRoutes(
       const store = createOptionsDiscoveryPorts({ sql: sql as never, scheduleSql: sql as never }).pausedSchedulesSync;
       wouldDelete = store.list().length;
       runDelete = () => {
-        sql.exec("DELETE FROM paused_schedules");
+        // #2358: the bulk clear flows through the paused-schedule
+        // port's clear() (added with this slice) instead of a raw
+        // delete against the table.
+        store.clear();
       };
     }
 
