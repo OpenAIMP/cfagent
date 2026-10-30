@@ -96,6 +96,16 @@ export class InMemoryJobOutcomeStore implements JobOutcomeStore {
     return true;
   }
 
+  countRows(): number {
+    return this.rows.size;
+  }
+
+  clearRows(): void {
+    // The prune watermark (prunedAt) is preserved, mirroring
+    // the DO adapter's meta-table preservation.
+    this.rows.clear();
+  }
+
   list(limit = 50): JobOutcomeRow[] {
     this.maybePrune();
     return [...this.rows.values()]

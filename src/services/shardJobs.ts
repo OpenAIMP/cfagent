@@ -41,6 +41,7 @@
  * downstream is submitted, and the failure names the blocker.
  */
 
+import { createAsyncJobPorts } from "../data/createAsyncJobPorts";
 import type {
   AsyncJobChannel,
   AsyncJobSubmission,
@@ -484,6 +485,13 @@ export function planShardAdvance(input: {
  * a shard payload (shardKey undefined — the gate treats them as
  * unmatched, never as a completed shard).
  */
+/**
+ * Read a chain's rows for the planner. The SELECT serves through
+ * the async-job read port since #2358 (#1976 step 4a — the port
+ * owns the statement; chainRows in src/data/asyncJobPorts.ts).
+ * The row->ShardRow projection (shard-key + result parsing,
+ * corrupt-tolerant) stays here: it is planner domain logic.
+ */
 export function chainRowsFromSql(
   sql: {
     exec: (query: string, ...params: unknown[]) => Iterable<Record<string, unknown>>;
@@ -492,13 +500,7 @@ export function chainRowsFromSql(
   sessionId: string
 ): ShardRow[] {
   const out: ShardRow[] = [];
-  const rows = Array.from(
-    sql.exec(
-      "SELECT job_id, stage, status, payload_json, result_json, error, created_at, parent_job_id FROM mas_async_jobs WHERE chain_id = ? AND session_id = ? ORDER BY created_at ASC",
-      chainId,
-      sessionId
-    )
-  ) as Array<Record<string, unknown>>;
+  const rows = createAsyncJobPorts(sql as never).read.chainRows(chainId, sessionId) as unknown as Array<Record<string, unknown>>;
   for (const row of rows) {
     let shardKey: string | undefined;
     try {

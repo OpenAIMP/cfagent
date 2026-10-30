@@ -85,6 +85,11 @@ function removeSync(sql: SqlStorage, id: string): boolean {
   return true;
 }
 
+function clearSync(sql: SqlStorage): void {
+  ensureTable(sql);
+  sql.exec(`DELETE FROM ${PAUSED_SCHEDULES_TABLE}`);
+}
+
 function rowToRecord(row: Record<string, unknown>): PausedScheduleRecord {
   let payload: unknown;
   try {
@@ -128,6 +133,10 @@ export class SqlPausedScheduleStore {
   remove(id: string): boolean {
     return removeSync(this.sql, id);
   }
+
+  clear(): void {
+    clearSync(this.sql);
+  }
 }
 
 /** The port adapter (async surface) over DO SQLite. */
@@ -165,5 +174,9 @@ export class DoSqlitePausedScheduleStore implements PausedScheduleStore {
 
   async remove(id: string): Promise<boolean> {
     return removeSync(this.sql, id);
+  }
+
+  async clear(): Promise<void> {
+    clearSync(this.sql);
   }
 }

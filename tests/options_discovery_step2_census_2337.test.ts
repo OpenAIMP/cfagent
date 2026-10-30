@@ -24,6 +24,13 @@
  * statements live in the data layer's adapters (69 sites at
  * the step-2 base, per the audit §1 census) — the pin cannot
  * be satisfied by deleting SQL.
+ *
+ * #2358 (#1976 step 4a) count update: 69 -> 70 — the paused-
+ * schedule adapter gained ONE statement (clearSync's DELETE)
+ * when step 4a added clear() to the PausedScheduleStore port
+ * to close the maintenance route's raw-delete bypass of this
+ * family's table. The statement moved INTO the layer from
+ * routes/maintenance.ts; nothing was deleted.
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -53,7 +60,7 @@ const ADAPTER_FILES: Array<[string, number]> = [
   ["src/data/doSqliteIvHistoryAdapter.ts", 8],
   ["src/data/doSqliteStrategyProfileAdapter.ts", 7],
   ["src/data/doSqliteFeedSnapshotAdapter.ts", 7],
-  ["src/data/doSqlitePausedScheduleAdapter.ts", 6],
+  ["src/data/doSqlitePausedScheduleAdapter.ts", 7],
   ["src/data/doSqliteEnrichmentAdapter.ts", 8],
 ];
 
@@ -82,7 +89,7 @@ describe("#2337 D-D census — options/discovery family entries (shrink-only)", 
     }
   });
 
-  it("the family's statements live in the data layer's adapters (69 sites)", () => {
+  it("the family's statements live in the data layer's adapters (70 sites)", () => {
     let total = 0;
     for (const [file, expected] of ADAPTER_FILES) {
       const text = readFileSync(file, "utf8");
@@ -90,6 +97,6 @@ describe("#2337 D-D census — options/discovery family entries (shrink-only)", 
       expect(count, `${file} holds the family's statements`).toBe(expected);
       total += count;
     }
-    expect(total).toBe(69);
+    expect(total).toBe(70);
   });
 });

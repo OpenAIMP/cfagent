@@ -27,20 +27,31 @@
  */
 
 import type { SqlStorage } from "../orm";
+import { createAsyncJobPorts } from "../data/createAsyncJobPorts";
 
-/** Non-terminal job payloads, read by the already-running gate. */
-export const ACTIVE_JOB_PAYLOADS_SQL =
-  "SELECT payload_json FROM mas_async_jobs WHERE status IN ('queued', 'running')";
+/**
+ * Non-terminal job payloads, read by the already-running gate.
+ *
+ * @deprecated Superseded by ACTIVE_JOB_PAYLOADS_SQL in
+ * src/data/asyncJobPorts.ts (the statement the DO adapter
+ * executes for the read port's activeJobPayloads) — #2358
+ * (#1976 step 4a). Re-exported here for existing importers;
+ * the text is identical by construction (same source).
+ */
+export { ACTIVE_JOB_PAYLOADS_SQL } from "../data/asyncJobPorts";
 
 /**
  * Create the gate's seek index. Idempotent (IF NOT EXISTS). Throws when
  * the table does not exist yet; the caller (ensureTables) creates the
  * table first, so that cannot happen in production order.
+ *
+ * @deprecated Superseded by the queue port's ensureGateIndexes
+ * (src/data/asyncJobPorts.ts, composed by
+ * src/data/createAsyncJobPorts.ts) — #2358 (#1976 step 4a). Kept
+ * as a delegation shim for the existing call sites and pins.
  */
 export function ensureAsyncJobGateIndexes(sql: SqlStorage): void {
-  sql.exec(
-    "CREATE INDEX IF NOT EXISTS idx_mas_async_jobs_status_created ON mas_async_jobs(status, created_at)",
-  );
+  createAsyncJobPorts(sql as never).queue.ensureGateIndexes();
 }
 
 /**
