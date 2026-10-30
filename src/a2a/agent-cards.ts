@@ -123,7 +123,7 @@ export const AGENT_CARDS: AgentCard[] = [
     endpoint: "/a2a/report-asset",
     cardPath: "/a2a/report-asset/agent-card.json",
     capabilities: ["pdf-generation", "asset-fetch"],
-    operations: ["report_asset.generate", "report_asset.get"],
+    operations: ["report_asset.generate", "report_asset.get", "report_asset.list"],
   },
   {
     name: "browser",
@@ -144,6 +144,16 @@ export const AGENT_CARDS: AgentCard[] = [
     cardPath: "/a2a/slack/agent-card.json",
     capabilities: ["pre-trade-approval", "transaction-snap"],
     operations: ["slack.send_pre_trade_approval", "slack.dispatch_transaction_snap"],
+  },
+  {
+    name: "sandbox",
+    description:
+      "Reports the sandbox's backend status and runs shell commands through SandboxAgent's one service (ETradeSandboxService). Honestly degraded in this deployment: no container backend is bound, so run_command returns executed:false with exitCode:null and no fabricated output until an owner binds one — check sandbox.status first.",
+    version: "1.0.0",
+    endpoint: "/a2a/sandbox",
+    cardPath: "/a2a/sandbox/agent-card.json",
+    capabilities: ["sandbox-status", "sandbox-run"],
+    operations: ["sandbox.status", "sandbox.run_command"],
   },
 ];
 

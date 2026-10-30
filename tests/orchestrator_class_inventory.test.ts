@@ -202,9 +202,16 @@ const ORCH = "agents/orchestrator.ts";
  *  delegation; the route logic itself lives in
  *  routes/serviceUser.ts, the class gains no logic) — measured
  *  2,663 lines / 123,052 B on the branch tree, so budget lines
- *  rise to 2670 and bytes rise to 123_200. */
+ *  rise to 2670 and bytes rise to 123_200.
+ *  Agent Mesh S15 (#2421) restores the class's handleA2A wiring
+ *  (one import + the thin delegation to
+ *  orchestrator/a2aDispatch.ts, which #2178 left caller-less;
+ *  the dispatch logic itself lives in that module, the class
+ *  gains no new logic surface) — measured 2,641 lines /
+ *  123,727 B on the branch tree, so budget bytes rise to
+ *  123_900; lines keep 2670. */
 const BUDGET_LINES = 2670;
-const BUDGET_BYTES = 123_200;
+const BUDGET_BYTES = 123_900;
 
 const count = (haystack: string, needle: string) =>
   haystack.split(needle).length - 1;
