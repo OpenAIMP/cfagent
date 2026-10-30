@@ -106,7 +106,6 @@ function aboveLayerCounts(pattern: RegExp): Map<string, number> {
 
 /** [file, sites, owner] — every entry retires only in its owner's slice. */
 const STORAGE_ALLOW_LIST: Array<[string, number, string]> = [
-  ["src/agents/research-agent.ts", 21, "#2361 step 4e"],
   ["src/agents/orchestrator.ts", 4, "remainder: ADR-out ai-chat lift (3) + G-7 mas_settings CREATE (1)"],
   ["src/agents/orchestrator/reportDispatch.ts", 3, "#2390 step 4g (mas_settings read/write doors)"],
   ["src/services/learnings.ts", 7, "R-1 gated — NOT step 4c (two-host question open)"],
@@ -114,7 +113,6 @@ const STORAGE_ALLOW_LIST: Array<[string, number, string]> = [
   ["src/security/sessionStore.ts", 2, "step 5 (SessionStore / kv_store)"],
   ["src/services/masRetentionIndexes.ts", 2, "#2362 step 4f"],
   ["src/actors/cfAgentsAdapter.ts", 1, "permanent — Agents-SDK shim (ADR-out)"],
-  ["src/agents/screener-agent.ts", 1, "#2361 step 4e"],
   ["src/services/frameworkQueueIndexes.ts", 1, "#2362 step 4f"],
 ];
 
@@ -230,6 +228,24 @@ const STEP4D_DATA_LAYER_FILES: Array<[string, number]> = [
   ["src/data/inMemoryCanonicalReportStoreAdapters.ts", 0],
 ];
 
+/** The step-4e families: zero above-layer sites remain. */
+const STEP4E_SERVICE_FILES = [
+  "src/agents/research-agent.ts",
+  "src/agents/screener-agent.ts",
+] as const;
+
+/** The step-4e statements live in the data layer, exactly. */
+const STEP4E_DATA_LAYER_FILES: Array<[string, number]> = [
+  ["src/data/doSqliteResearchStoreAdapter.ts", 20],
+  ["src/data/doSqliteScreenRunLockAdapter.ts", 7],
+  ["src/data/researchStorePorts.ts", 0],
+  ["src/data/inMemoryResearchStoreAdapters.ts", 0],
+  ["src/data/createResearchStorePorts.ts", 0],
+  ["src/data/screenRunLockPorts.ts", 0],
+  ["src/data/inMemoryScreenRunLockAdapter.ts", 0],
+  ["src/data/createScreenRunLockPorts.ts", 0],
+];
+
 describe("global D-D census: surface 1 — storage-shaped sites above the layer", () => {
   it("the above-layer population is exactly the shrink-only allow-list", () => {
     const actual = aboveLayerCounts(STORAGE_EXEC_PATTERN);
@@ -246,8 +262,10 @@ describe("global D-D census: surface 1 — storage-shaped sites above the layer"
     // orchestrator 13 of 17, reportDispatch 4 of 7, presets 4,
     // autopilot 3+1, reports 3, chatTurnHelpers 1,
     // reportSemanticIndex 1, screenerPresetResolution 1) → 54;
-    // step 4d-2 (#2360) retires the payments route's 8 → 46.
-    expect(total).toBe(46);
+    // step 4d-2 (#2360) retires the payments route's 8 → 46;
+    // step 4e (#2361) retires research-agent's 21 and
+    // screener-agent's 1 → 24.
+    expect(total).toBe(24);
   });
 
   for (const file of STEP4C_SERVICE_FILES) {
@@ -297,6 +315,18 @@ describe("global D-D census: surface 1 — storage-shaped sites above the layer"
       expect(countIn(STORAGE_EXEC_PATTERN, file)).toBe(sites);
     });
   }
+
+  for (const file of STEP4E_SERVICE_FILES) {
+    it(`${file} holds zero storage-exec sites (serves through its port)`, () => {
+      expect(countIn(STORAGE_EXEC_PATTERN, file)).toBe(0);
+    });
+  }
+
+  for (const [file, sites] of STEP4E_DATA_LAYER_FILES) {
+    it(`${file} holds exactly ${sites} storage-exec sites`, () => {
+      expect(countIn(STORAGE_EXEC_PATTERN, file)).toBe(sites);
+    });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -304,8 +334,9 @@ describe("global D-D census: surface 1 — storage-shaped sites above the layer"
 // ---------------------------------------------------------------------------
 
 const ANY_EXEC_ALLOW_LIST: Array<[string, number, string]> = [
-  ["src/agents/research-agent.ts", 1, "#2361 step 4e (facade shim)"],
-  ["src/agents/screener-agent.ts", 1, "#2361 step 4e (facade shim)"],
+  // EMPTY since step 4e (#2361): both facade-shim sites retired.
+  // The surface stays pinned — any new (x as any).exec above the
+  // layer fails this census.
 ];
 
 describe("global D-D census: surface 2 — (x as any).exec above the layer", () => {
@@ -370,6 +401,9 @@ const PORTED_TABLES = [
   // step 4d (#2359)
   "mas_autopilot", "mas_policy_verdicts", "mas_report_confirmations",
   "mas_screener_presets", "usage_events",
+  // step 4e (#2361)
+  "research_settings", "research_task_store", "research_runs",
+  "research_evaluations", "screen_run_locks",
 ] as const;
 
 /**
@@ -447,6 +481,11 @@ const PORTED_TABLE_WRITERS: Record<string, { layer: string[]; bypass?: Record<st
   mas_report_confirmations: { layer: ["src/data/doSqliteReportConfirmationAdapter.ts"] },
   mas_screener_presets: { layer: ["src/data/doSqliteScreenerPresetAdapter.ts"] },
   usage_events: { layer: ["src/data/doSqliteUsageEventAdapter.ts"] },
+  research_settings: { layer: ["src/data/doSqliteResearchStoreAdapter.ts"] },
+  research_task_store: { layer: ["src/data/doSqliteResearchStoreAdapter.ts"] },
+  research_runs: { layer: ["src/data/doSqliteResearchStoreAdapter.ts"] },
+  research_evaluations: { layer: ["src/data/doSqliteResearchStoreAdapter.ts"] },
+  screen_run_locks: { layer: ["src/data/doSqliteScreenRunLockAdapter.ts"] },
 };
 
 const WRITE_VERB =
