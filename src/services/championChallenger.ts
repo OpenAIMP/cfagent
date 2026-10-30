@@ -50,6 +50,16 @@
  * a storage without transactionSync, or no registered runner
  * resolves to the sequential legacy execution — registration
  * and the storage argument are what turn the wrap on.
+ *
+ * Issue #2357 (#1976 step 4b, ADR 0022 D-C/D-I step 4): the
+ * transition's legs now run through the strategy-cluster ports
+ * (src/data/challengerPorts.ts, strategyWeightsPorts.ts,
+ * strategyPolicyPorts.ts, adaptationAuditPorts.ts; composed by
+ * createStrategyClusterPorts.ts) — the aspect wraps a PORT call,
+ * as D-C intends. The wrap itself is unchanged: same runner
+ * seam, same re-read discipline, same refusal set and order;
+ * the #2346 sabotage pins pass verbatim and this slice's
+ * conformance re-proves the property on the new seam.
  */
 
 import { loadEvaluationDataset } from "./researchEvaluationDatasets";
@@ -81,6 +91,37 @@ import {
   DataFoundationCode,
   DataFoundationError,
 } from "../aspects/errorCodes";
+import { DoSqliteChallengerStore } from "../data/doSqliteChallengerAdapter";
+import type {
+  ChallengerSqlExecutor,
+  ChallengerStore,
+} from "../data/challengerPorts";
+
+export type {
+  ActiveStrategySet,
+  Challenger,
+  ChallengerApprovalRecord,
+  ChallengerCriteria,
+  ChallengerEvaluation,
+  ChallengerKind,
+  ChallengerSpec,
+  ChallengerStatus,
+  FoldScore,
+} from "../data/challengerPorts";
+import type {
+  ActiveStrategySet,
+  Challenger,
+  ChallengerApprovalRecord,
+  ChallengerCriteria,
+  ChallengerEvaluation,
+  ChallengerKind,
+  ChallengerSpec,
+  ChallengerStatus,
+} from "../data/challengerPorts";
+
+function challengerStore(sql: ChallengerSqlExecutor): ChallengerStore {
+  return new DoSqliteChallengerStore(sql);
+}
 
 /** Actors that run the autonomous loop. They may CREATE challengers;
  *  they may never APPROVE or PROMOTE them. */
@@ -94,138 +135,18 @@ export const SYSTEM_ACTORS = [
   "recommendation-agent",
 ] as const;
 
-export type ChallengerKind = "weights" | "active_set" | "ranking";
-export type ChallengerStatus =
-  | "proposed"
-  | "evaluated"
-  | "promoted"
-  | "kept_champion"
-  | "retired"
-  | "rolled_back";
-
-export interface ChallengerSpec {
-  /** Target v2 weights (strategy → weight), applied under the challenger's regime. */
-  weights?: Record<string, number>;
-  /** Target active set (or ranking order for kind "ranking"). */
-  activeStrategies?: string[];
-  ranking?: string[];
-  /** Strategy to gate off (retire outcome). */
-  retireStrategy?: string;
-}
-
-export interface ChallengerCriteria {
-  /** Minimum holdout score edge over the champion. */
-  minHoldoutEdge: number;
-  /** Minimum holdout ideas evaluated for the challenger. */
-  minEvaluated: number;
-}
-
-export interface Challenger {
-  id: string;
-  userLogin: string;
-  kind: ChallengerKind;
-  title: string;
-  regime: WeightsV2Regime | null;
-  spec: ChallengerSpec;
-  criteria: ChallengerCriteria;
-  evalSetVersion: string;
-  sourceProposalId: string | null;
-  createdBy: string;
-  status: ChallengerStatus;
-  evaluation: ChallengerEvaluation | null;
-  createdAt: string;
-}
-
-export interface FoldScore {
-  championScore: number | null;
-  challengerScore: number | null;
-  evaluated: number;
-}
-
-export interface ChallengerEvaluation {
-  datasetVersion: string;
-  evaluatedAt: string;
-  selection: FoldScore;
-  holdout: FoldScore;
-  verdict: "pass" | "fail";
-  criteria: ChallengerCriteria;
-}
-
 /* ------------------------------------------------------------------ */
-/* Stores                                                              */
+/* Stores (behind the challenger port — #2357)                         */
 /* ------------------------------------------------------------------ */
 
 export function ensureChallengerTables(sql: any): void {
   ensureWeightsV2Tables(sql); // mas_settings (kill switch) + v2 weights
   ensureStrategyPolicyTables(sql);
-  sql.exec(`CREATE TABLE IF NOT EXISTS mas_challengers (
-    id TEXT PRIMARY KEY,
-    user_login TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    title TEXT NOT NULL,
-    regime TEXT,
-    spec_json TEXT NOT NULL,
-    criteria_json TEXT NOT NULL,
-    eval_set_version TEXT NOT NULL,
-    source_proposal_id TEXT,
-    status TEXT NOT NULL,
-    evaluation_json TEXT,
-    created_by TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  )`);
-  sql.exec(`CREATE TABLE IF NOT EXISTS mas_challenger_approvals (
-    id TEXT PRIMARY KEY,
-    challenger_id TEXT NOT NULL,
-    user_login TEXT NOT NULL,
-    approver TEXT NOT NULL,
-    decision TEXT NOT NULL,
-    created_at TEXT NOT NULL
-  )`);
-  sql.exec(`CREATE TABLE IF NOT EXISTS mas_challenger_promotions (
-    id TEXT PRIMARY KEY,
-    challenger_id TEXT NOT NULL,
-    user_login TEXT NOT NULL,
-    action TEXT NOT NULL,
-    prior_json TEXT NOT NULL,
-    applied_json TEXT NOT NULL,
-    weights_version INTEGER,
-    actor TEXT NOT NULL,
-    reason TEXT,
-    created_at TEXT NOT NULL
-  )`);
-  sql.exec(`CREATE TABLE IF NOT EXISTS mas_strategy_bank_active (
-    id TEXT PRIMARY KEY,
-    user_login TEXT NOT NULL,
-    version INTEGER NOT NULL,
-    strategies_json TEXT NOT NULL,
-    challenger_id TEXT,
-    created_at TEXT NOT NULL
-  )`);
+  challengerStore(sql).ensureTables();
 }
 
 function newId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-}
-
-function rowToChallenger(r: any): Challenger {
-  return {
-    id: String(r.id),
-    userLogin: String(r.user_login),
-    kind: r.kind as ChallengerKind,
-    title: String(r.title),
-    regime: (r.regime ?? null) as WeightsV2Regime | null,
-    spec: JSON.parse(String(r.spec_json)) as ChallengerSpec,
-    criteria: JSON.parse(String(r.criteria_json)) as ChallengerCriteria,
-    evalSetVersion: String(r.eval_set_version),
-    sourceProposalId: (r.source_proposal_id ?? null) as string | null,
-    createdBy: String(r.created_by),
-    status: r.status as ChallengerStatus,
-    evaluation: r.evaluation_json
-      ? (JSON.parse(String(r.evaluation_json)) as ChallengerEvaluation)
-      : null,
-    createdAt: String(r.created_at),
-  };
 }
 
 export function getChallenger(
@@ -234,14 +155,7 @@ export function getChallenger(
   id: string
 ): Challenger | null {
   ensureChallengerTables(sql);
-  const rows = Array.from(
-    sql.exec(
-      `SELECT * FROM mas_challengers WHERE id = ? AND user_login = ?`,
-      id,
-      userLogin
-    )
-  ) as any[];
-  return rows.length ? rowToChallenger(rows[0]) : null;
+  return challengerStore(sql).getChallenger(userLogin, id);
 }
 
 /**
@@ -251,13 +165,7 @@ export function getChallenger(
  */
 export function listChallengers(sql: any, userLogin: string): Challenger[] {
   ensureChallengerTables(sql);
-  const rows = Array.from(
-    sql.exec(
-      `SELECT * FROM mas_challengers WHERE user_login = ? ORDER BY created_at DESC LIMIT 200`,
-      userLogin
-    )
-  ) as any[];
-  return rows.map(rowToChallenger);
+  return challengerStore(sql).listChallengers(userLogin);
 }
 
 function setChallengerStatus(
@@ -267,20 +175,7 @@ function setChallengerStatus(
   evaluation: ChallengerEvaluation | null | undefined,
   now: Date
 ): void {
-  sql.exec(
-    `UPDATE mas_challengers SET status = ?, evaluation_json = ?, updated_at = ? WHERE id = ? AND user_login = ?`,
-    status,
-    evaluation === undefined
-      ? challenger.evaluation
-        ? JSON.stringify(challenger.evaluation)
-        : null
-      : evaluation
-        ? JSON.stringify(evaluation)
-        : null,
-    now.toISOString(),
-    challenger.id,
-    challenger.userLogin
-  );
+  challengerStore(sql).setChallengerStatus(challenger, status, evaluation, now);
 }
 
 /**
@@ -321,24 +216,7 @@ export function createChallenger(
     evaluation: null,
     createdAt: now.toISOString(),
   };
-  sql.exec(
-    `INSERT INTO mas_challengers (id, user_login, kind, title, regime, spec_json, criteria_json, eval_set_version, source_proposal_id, status, evaluation_json, created_by, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    challenger.id,
-    userLogin,
-    challenger.kind,
-    challenger.title,
-    challenger.regime,
-    JSON.stringify(challenger.spec),
-    JSON.stringify(challenger.criteria),
-    challenger.evalSetVersion,
-    challenger.sourceProposalId,
-    challenger.status,
-    null,
-    challenger.createdBy,
-    challenger.createdAt,
-    challenger.createdAt
-  );
+  challengerStore(sql).insertChallenger(challenger);
   return challenger;
 }
 
@@ -390,35 +268,19 @@ export function recordChallengerApproval(
     }
   }
   const now = input.now ?? new Date();
-  sql.exec(
-    `INSERT INTO mas_challenger_approvals (id, challenger_id, user_login, approver, decision, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-    newId("apr"),
+  challengerStore(sql).insertApproval({
+    id: newId("apr"),
     challengerId,
     userLogin,
-    input.approver,
-    input.decision,
-    now.toISOString()
-  );
+    approver: input.approver,
+    decision: input.decision,
+    createdAt: now.toISOString(),
+  });
   return { ok: true };
 }
 
 function approvedApprover(sql: any, userLogin: string, challengerId: string): string | null {
-  const rows = Array.from(
-    sql.exec(
-      `SELECT approver FROM mas_challenger_approvals WHERE challenger_id = ? AND user_login = ? AND decision = 'approved' ORDER BY created_at DESC`,
-      challengerId,
-      userLogin
-    )
-  ) as any[];
-  return rows.length ? String(rows[0].approver) : null;
-}
-
-export interface ChallengerApprovalRecord {
-  id: string;
-  challengerId: string;
-  approver: string;
-  decision: "approved" | "rejected";
-  createdAt: string;
+  return challengerStore(sql).getApprovedApprover(userLogin, challengerId);
 }
 
 /**
@@ -435,20 +297,7 @@ export function listChallengerApprovals(
   challengerId: string
 ): ChallengerApprovalRecord[] {
   ensureChallengerTables(sql);
-  const rows = Array.from(
-    sql.exec(
-      `SELECT * FROM mas_challenger_approvals WHERE challenger_id = ? AND user_login = ? ORDER BY created_at ASC`,
-      challengerId,
-      userLogin
-    )
-  ) as any[];
-  return rows.map((r) => ({
-    id: String(r.id),
-    challengerId: String(r.challenger_id),
-    approver: String(r.approver),
-    decision: r.decision as "approved" | "rejected",
-    createdAt: String(r.created_at),
-  }));
+  return challengerStore(sql).listApprovals(userLogin, challengerId);
 }
 
 /* ------------------------------------------------------------------ */
@@ -601,20 +450,18 @@ function recordPromotion(
   reason: string | null,
   now: Date
 ): void {
-  sql.exec(
-    `INSERT INTO mas_challenger_promotions (id, challenger_id, user_login, action, prior_json, applied_json, weights_version, actor, reason, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    newId("prm"),
-    challenger.id,
-    challenger.userLogin,
+  challengerStore(sql).insertPromotion({
+    id: newId("prm"),
+    challengerId: challenger.id,
+    userLogin: challenger.userLogin,
     action,
-    JSON.stringify(prior ?? null),
-    JSON.stringify(applied ?? null),
+    prior,
+    applied,
     weightsVersion,
     actor,
     reason,
-    now.toISOString()
-  );
+    createdAt: now.toISOString(),
+  });
 }
 
 export function listPromotionRecords(
@@ -623,27 +470,7 @@ export function listPromotionRecords(
   challengerId: string
 ): Array<{ action: string; prior: any; applied: any; actor: string; reason: string | null }> {
   ensureChallengerTables(sql);
-  const rows = Array.from(
-    sql.exec(
-      `SELECT * FROM mas_challenger_promotions WHERE challenger_id = ? AND user_login = ? ORDER BY created_at ASC`,
-      challengerId,
-      userLogin
-    )
-  ) as any[];
-  return rows.map((r) => ({
-    action: String(r.action),
-    prior: JSON.parse(String(r.prior_json)),
-    applied: JSON.parse(String(r.applied_json)),
-    actor: String(r.actor),
-    reason: (r.reason ?? null) as string | null,
-  }));
-}
-
-export interface ActiveStrategySet {
-  strategies: string[];
-  version: number;
-  challengerId: string | null;
-  createdAt: string;
+  return challengerStore(sql).listPromotionRecords(userLogin, challengerId);
 }
 
 export function getActiveStrategySet(
@@ -651,19 +478,7 @@ export function getActiveStrategySet(
   userLogin: string
 ): ActiveStrategySet | null {
   ensureChallengerTables(sql);
-  const rows = Array.from(
-    sql.exec(
-      `SELECT * FROM mas_strategy_bank_active WHERE user_login = ? ORDER BY version DESC LIMIT 1`,
-      userLogin
-    )
-  ) as any[];
-  if (!rows.length) return null;
-  return {
-    strategies: JSON.parse(String(rows[0].strategies_json)) as string[],
-    version: Number(rows[0].version),
-    challengerId: (rows[0].challenger_id ?? null) as string | null,
-    createdAt: String(rows[0].created_at),
-  };
+  return challengerStore(sql).getActiveStrategySet(userLogin);
 }
 
 function appendActiveSet(
@@ -673,17 +488,17 @@ function appendActiveSet(
   challengerId: string | null,
   now: Date
 ): number {
-  const current = getActiveStrategySet(sql, userLogin);
+  const store = challengerStore(sql);
+  const current = store.getActiveStrategySet(userLogin);
   const version = (current?.version ?? 0) + 1;
-  sql.exec(
-    `INSERT INTO mas_strategy_bank_active (id, user_login, version, strategies_json, challenger_id, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-    newId("act"),
+  store.insertActiveSet({
+    id: newId("act"),
     userLogin,
     version,
-    JSON.stringify(strategies),
+    strategies,
     challengerId,
-    now.toISOString()
-  );
+    createdAt: now.toISOString(),
+  });
   return version;
 }
 
