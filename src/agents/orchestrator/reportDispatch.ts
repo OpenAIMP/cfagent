@@ -8,6 +8,7 @@
  */
 
 import type { AgentContext } from "agents";
+import { createOrchestratorTablePorts, type OrchestratorTablePorts } from "../../data/createOrchestratorTablePorts";
 import type { DatabaseORM } from "../../orm";
 import type { Env } from "../../types";
 import { ETradeEmailTradingService } from "../../trading";
@@ -81,38 +82,39 @@ export function setReportDispatchHitl(ctx: ReportDispatchContext, enabled: boole
  * fileName / title — never report bytes); the canonical report copy
  * lives once in mas_reports and is referenced by reportId.
  */
+/** The family's ports over the context's sql handle (#2359).
+ *  Only the confirmations port is used here: the settings pair
+ *  above stays raw — mas_settings is owner gate G-7. */
+function ports(ctx: ReportDispatchContext): OrchestratorTablePorts {
+  return createOrchestratorTablePorts(ctx.ensureTables() as never);
+}
+
 export function createReportConfirmation(ctx: ReportDispatchContext,
   kind: "email" | "webhook" | "screener",
   payloadJson: string,
   reportId?: string | null
 ): string {
-  const sql = ctx.ensureTables();
+  const confirmations = ports(ctx).confirmations;
   const now = new Date().toISOString();
   // Lazy sweep: drop confirmations that expired unconfirmed.
-  sql.exec(
-    "DELETE FROM mas_report_confirmations WHERE status = 'pending' AND created_at < ?",
+  confirmations.sweepExpiredPending(
     new Date(Date.now() - ctx.reportConfirmationTtlMs).toISOString()
   );
   const id = `rc_${crypto.randomUUID().slice(0, 8)}`;
-  sql.exec(
-    "INSERT INTO mas_report_confirmations (id, kind, payload_json, status, created_at, report_id) VALUES (?, ?, ?, ?, ?, ?)",
+  confirmations.insertConfirmation({
     id,
     kind,
     payloadJson,
-    "pending",
-    now,
-    reportId ?? null
-  );
+    status: "pending",
+    createdAt: now,
+    reportId: reportId ?? null,
+  });
   return id;
 }
 
 export function getReportConfirmation(ctx: ReportDispatchContext, id: string): any | null {
   try {
-    const sql = ctx.ensureTables();
-    const rows = Array.from(
-      sql.exec("SELECT * FROM mas_report_confirmations WHERE id = ?", id)
-    ) as any[];
-    return rows[0] ?? null;
+    return ports(ctx).confirmations.getById(id);
   } catch {
     return null;
   }
@@ -120,13 +122,11 @@ export function getReportConfirmation(ctx: ReportDispatchContext, id: string): a
 
 export function decideReportConfirmation(ctx: ReportDispatchContext, id: string, status: "approved" | "rejected" | "expired", decidedBy: string | null): void {
   try {
-    const sql = ctx.ensureTables();
-    sql.exec(
-      "UPDATE mas_report_confirmations SET status = ?, decided_at = ?, decided_by = ? WHERE id = ?",
+    ports(ctx).confirmations.decide(
+      id,
       status,
       new Date().toISOString(),
-      decidedBy,
-      id
+      decidedBy
     );
   } catch (err) {
     console.warn("[OrchestratorAgent] Failed to decide report confirmation:", err);
