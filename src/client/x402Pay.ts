@@ -1,4 +1,5 @@
 import { resolveX402Network, usdToAtomic, x402ClaimMessage } from "../services/x402Networks";
+import { describeX402PaymentPath, type X402PaymentPathLabel } from "../services/x402PaymentPath";
 
 export interface X402Challenge {
   network: string;
@@ -24,7 +25,12 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function describeChallenge(challenge: X402Challenge) {
   const net = resolveX402Network(challenge.network);
-  return { net, label: net ? `${net.name} USDC` : challenge.network };
+  // #2406 (Phase 1.1): the price line states its payment path — the
+  // inbound x402 path is on-chain (testnet funds on base-sepolia, no
+  // real money), never the simulated local-ledger path. Callers render
+  // paymentPath.shortLabel next to the price.
+  const paymentPath: X402PaymentPathLabel = describeX402PaymentPath(challenge.network);
+  return { net, label: net ? `${net.name} USDC` : challenge.network, paymentPath };
 }
 
 async function ensureChain(provider: Eip1193Provider, chainIdHex: string, net: NonNullable<ReturnType<typeof resolveX402Network>>) {

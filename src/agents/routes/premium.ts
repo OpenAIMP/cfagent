@@ -21,6 +21,16 @@
  * source "research_report" (generation id = sha256 of the report JSON),
  * both inside try/catch so persistence failure cannot break the endpoint.
  *
+ * Payment-path labeling (#2406, Phase 1.1): these three endpoints are
+ * the INBOUND x402 path — an on-chain USDC transfer verified per
+ * payment by the gate (base-sepolia default: testnet funds, no real
+ * money). They are NOT the simulated local-ledger path: the agent
+ * wallet's simulated proofs are rejected by verifyPayment (#122) and
+ * are labeled simulated wherever a price is shown (see
+ * src/services/x402PaymentPath.ts). The 402 body carries the path
+ * label in `paymentPath`; prices are pinned ($0.05 / $0.10 / $0.02)
+ * and stand unless the owner changes them.
+ *
  * Handlers that used OrchestratorAgent state receive it via the explicit
  * PremiumRouteContext parameter; there are no new globals and no
  * back-references into the class.
