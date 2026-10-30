@@ -46,6 +46,11 @@ import {
   listMembershipsFromEntries,
   readMembershipById,
 } from "./security/iaaaMembershipStore";
+import { createKvPermissionDenialStore } from "./security/iaaaPermissionDenialStore";
+import {
+  MANAGEABLE_DENIED_PERMISSIONS,
+  canManagePermissionDenial,
+} from "./security/permissionDenials";
 import { canGrantRole, type AuthorizationScope, type Role } from "./security/authorization";
 import { createAccessRequestStore } from "./security/iaaaAccessRequests";
 import { buildAdminOverview, computeAdminCounts, isPlatformAdmin } from "./security/iaaaAdminOverview";
@@ -637,6 +642,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         tenantId: resolveIaaaTenant(env),
         permission: "integration:connect",
         membershipStore: createKvMembershipStore(sessionStore(env)),
+        permissionDenialStore: createKvPermissionDenialStore(sessionStore(env)),
         nowMs: Date.now(),
       });
       if (pep.enforced && !pep.allowed) {
@@ -750,6 +756,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         tenantId: resolveIaaaTenant(env),
         permission: "integration:connect",
         membershipStore: createKvMembershipStore(sessionStore(env)),
+        permissionDenialStore: createKvPermissionDenialStore(sessionStore(env)),
         nowMs: Date.now(),
       });
       if (pep.enforced && !pep.allowed) {
@@ -835,6 +842,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         tenantId: resolveIaaaTenant(env),
         permission: "integration:connect",
         membershipStore: createKvMembershipStore(sessionStore(env)),
+        permissionDenialStore: createKvPermissionDenialStore(sessionStore(env)),
         nowMs: Date.now(),
       });
       if (pep.enforced && !pep.allowed) {
@@ -904,6 +912,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         tenantId: resolveIaaaTenant(env),
         permission: "integration:connect",
         membershipStore: createKvMembershipStore(sessionStore(env)),
+        permissionDenialStore: createKvPermissionDenialStore(sessionStore(env)),
         nowMs: Date.now(),
       });
       if (pep.enforced && !pep.allowed) {
@@ -2378,6 +2387,8 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       path === "/api/iaaa/membership/grant" ||
       path === "/api/iaaa/membership/revoke" ||
       path === "/api/iaaa/membership/edit" ||
+      path === "/api/iaaa/permission/deny" ||
+      path === "/api/iaaa/permission/clear" ||
       path === "/api/iaaa/memberships" ||
       path === "/api/iaaa/deactivate" ||
       path === "/api/iaaa/offboard"
@@ -2416,6 +2427,31 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
             tenantId: event.tenantId,
             correlationId: crypto.randomUUID(),
             action: permission,
+            decision: "allow",
+            policyVersion: IAAA_AUDIT_POLICY_VERSION,
+            outcome: "succeeded",
+          });
+          return result.ok;
+        };
+      };
+      // #2450: audit writer for permission-deny actions. Mirrors
+      // wiredAuditWriter, but records the deny action itself
+      // ("permission:deny" / "permission:clear") instead of the
+      // role:assign permission the obligation channel evaluates.
+      // The obligation evaluation still runs on role:assign (the
+      // manager's authority + step-up), while the audit record
+      // names the action actually taken.
+      const denyAuditWriter = (action: "permission:deny" | "permission:clear"): ObligationAuditWriter => {
+        return async (event) => {
+          const result = await recordAuditEvent(createWiredAuditStore(env), {
+            timestamp: event.nowMs,
+            type: "iaaa.lifecycle",
+            actorPrincipalId: event.principalId,
+            actorType: "human",
+            initiatingPrincipalId: event.principalId,
+            tenantId: event.tenantId,
+            correlationId: crypto.randomUUID(),
+            action,
             decision: "allow",
             policyVersion: IAAA_AUDIT_POLICY_VERSION,
             outcome: "succeeded",
@@ -2712,6 +2748,125 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
             oldRevoked,
             ...(oldRevoked ? {} : { warning: "New membership granted but the old record could not be revoked; the principal currently holds both." }),
           });
+        }
+        // #2450 — per-user integration:connect denial. The blanket
+        // member grant gives every member connect; these routes let
+        // a tenant-admin revoke it for one member (deny) and restore
+        // it (clear), without touching the member's other grants.
+        // The revoke control's UI belongs to the user management
+        // module (#2462); these routes are the layer it will call.
+        if (path === "/api/iaaa/permission/deny") {
+          if (request.method !== "POST") {
+            return Response.json({ error: "Method not allowed" }, { status: 405 });
+          }
+          const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+          const targetId = typeof body?.internalUserId === "string" ? body.internalUserId.trim() : "";
+          const permission = typeof body?.permission === "string" && body.permission.trim() !== "" ? body.permission.trim() : "integration:connect";
+          if (targetId === "") {
+            return Response.json({ error: "internalUserId is required." }, { status: 400 });
+          }
+          if (!(MANAGEABLE_DENIED_PERMISSIONS as readonly string[]).includes(permission)) {
+            return Response.json({ error: "Only integration:connect may be denied per user in this slice." }, { status: 400 });
+          }
+          if (targetId === session.internalUserId) {
+            return Response.json({ error: "Self-denial is forbidden: another admin must deny your permissions.", code: "SELF_DENY" }, { status: 403 });
+          }
+          const denyTenantId = typeof body?.tenantId === "string" && body.tenantId.trim() !== "" ? body.tenantId.trim() : tenantId;
+          const managed = await canManagePermissionDenial(membershipStore, {
+            managerInternalUserId: session.internalUserId,
+            targetTenantId: denyTenantId,
+            nowMs,
+          });
+          if (managed.decision === "deny") {
+            return Response.json(
+              { error: "Forbidden: denial denied.", code: managed.reason, reason: managed.reason },
+              { status: 403 },
+            );
+          }
+          const obligated = await evaluateWithObligations(membershipStore, {
+            internalUserId: session.internalUserId,
+            tenantId: denyTenantId,
+            permission: "role:assign",
+            scope: "tenant",
+            nowMs,
+            authTimeMs: session.authTimeMs,
+            audit: denyAuditWriter("permission:deny"),
+          });
+          if (obligated.decision === "deny") {
+            return Response.json(
+              { error: "Forbidden: denial obligation failed.", code: obligated.reason, reason: obligated.reason },
+              { status: 403 },
+            );
+          }
+          const denialStore = createKvPermissionDenialStore(sessionStore(env));
+          const existing = (await denialStore.getDenialsByUser(targetId)).find(
+            (d) => d.tenantId === denyTenantId && d.permission === "integration:connect",
+          );
+          if (existing) {
+            return Response.json({ ok: true, denial: existing, alreadyDenied: true });
+          }
+          const denial = await denialStore.putDenial({
+            denialId: crypto.randomUUID(),
+            internalUserId: targetId,
+            tenantId: denyTenantId,
+            permission: "integration:connect",
+            deniedBy: session.internalUserId,
+            deniedAtMs: nowMs,
+          });
+          return Response.json({ ok: true, denial }, { status: 201 });
+        }
+        if (path === "/api/iaaa/permission/clear") {
+          if (request.method !== "POST") {
+            return Response.json({ error: "Method not allowed" }, { status: 405 });
+          }
+          const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+          const targetId = typeof body?.internalUserId === "string" ? body.internalUserId.trim() : "";
+          const permission = typeof body?.permission === "string" && body.permission.trim() !== "" ? body.permission.trim() : "integration:connect";
+          if (targetId === "") {
+            return Response.json({ error: "internalUserId is required." }, { status: 400 });
+          }
+          if (!(MANAGEABLE_DENIED_PERMISSIONS as readonly string[]).includes(permission)) {
+            return Response.json({ error: "Only integration:connect may be cleared per user in this slice." }, { status: 400 });
+          }
+          if (targetId === session.internalUserId) {
+            return Response.json({ error: "Self-clear is forbidden: another admin must restore your permissions.", code: "SELF_GRANT" }, { status: 403 });
+          }
+          const denyTenantId = typeof body?.tenantId === "string" && body.tenantId.trim() !== "" ? body.tenantId.trim() : tenantId;
+          const managed = await canManagePermissionDenial(membershipStore, {
+            managerInternalUserId: session.internalUserId,
+            targetTenantId: denyTenantId,
+            nowMs,
+          });
+          if (managed.decision === "deny") {
+            return Response.json(
+              { error: "Forbidden: clear denied.", code: managed.reason, reason: managed.reason },
+              { status: 403 },
+            );
+          }
+          const obligated = await evaluateWithObligations(membershipStore, {
+            internalUserId: session.internalUserId,
+            tenantId: denyTenantId,
+            permission: "role:assign",
+            scope: "tenant",
+            nowMs,
+            authTimeMs: session.authTimeMs,
+            audit: denyAuditWriter("permission:clear"),
+          });
+          if (obligated.decision === "deny") {
+            return Response.json(
+              { error: "Forbidden: clear obligation failed.", code: obligated.reason, reason: obligated.reason },
+              { status: 403 },
+            );
+          }
+          const denialStore = createKvPermissionDenialStore(sessionStore(env));
+          const existing = (await denialStore.getDenialsByUser(targetId)).find(
+            (d) => d.tenantId === denyTenantId && d.permission === "integration:connect",
+          );
+          if (!existing) {
+            return Response.json({ ok: true, cleared: false });
+          }
+          await denialStore.clearDenial(existing.denialId);
+          return Response.json({ ok: true, cleared: true, denialId: existing.denialId });
         }
         if (path === "/api/iaaa/deactivate") {
           if (request.method !== "POST") {

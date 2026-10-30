@@ -114,6 +114,11 @@ const ROLE_GRANTS: Record<Role, readonly Permission[]> = {
     "artifact:edit",
     "artifact:export",
     "action:propose",
+    // #2450: an ordinary member can connect their own brokerage.
+    // integration:use / integration:manage stay admin-held, and a
+    // per-user denial (permissionDenials.ts) can revoke connect
+    // for a specific member without touching the rest of the role.
+    "integration:connect",
   ],
   approver: ["action:approve"],
   auditor: ["task:read", "artifact:read", "audit:read"],
@@ -148,6 +153,33 @@ export interface MembershipStore {
   getMembershipsByUser(internalUserId: string): Promise<Membership[]>;
   put(membership: Membership): Promise<void>;
   revokeMembership(membershipId: string, nowMs: number): Promise<boolean>;
+}
+
+/**
+ * #2450 — a per-user permission denial.
+ *
+ * A denial is NOT a membership edit and NOT a membership revoke:
+ * revoking a membership kills ALL of that user's permissions, and a
+ * RoleBinding has no per-permission field. A denial removes exactly
+ * one permission for one user in one tenant; clearing it restores
+ * exactly that permission. The record carries no secret, token, or
+ * credential — only who denied what, for whom, and when. Audit
+ * history lives in the audit funnel (the deny/clear routes write
+ * audit-before-allow records); the store itself holds only live
+ * denials, so clearing deletes the record.
+ */
+export interface PermissionDenial {
+  denialId: string;
+  internalUserId: string;
+  tenantId: string;
+  permission: Permission;
+  deniedBy: string;
+  deniedAtMs: number;
+}
+
+/** Minimal reader surface the PDP needs: denials by user. */
+export interface PermissionDenialReader {
+  getDenialsByUser(internalUserId: string): Promise<PermissionDenial[]>;
 }
 
 export function createMemoryMembershipStore(): MembershipStore {
@@ -290,21 +322,33 @@ export function getCompiledPolicySnapshot(): PolicySnapshot {
 
 /**
  * PIP port: supplies the attributes the PDP evaluates. Today the
- * only attribute set is memberships; federation, transformation,
- * or caching land here later, behind this interface — never by
- * giving the PDP another store to read directly.
+ * attribute sets are memberships and, when the provider supplies
+ * them, per-user permission denials (#2450); federation,
+ * transformation, or caching land here later, behind this
+ * interface — never by giving the PDP another store to read
+ * directly. getPermissionDenials is optional so every existing
+ * provider keeps working denial-unaware; live gates that must
+ * honor denials pass a denial-aware provider explicitly.
  */
 export interface AttributeProvider {
   getMembershipsByUser(internalUserId: string): Promise<Membership[]>;
+  getPermissionDenials?(internalUserId: string): Promise<PermissionDenial[]>;
 }
 
 /** Adapt any MembershipStore to the PIP port (the store is not the PDP). */
 export function membershipStoreToAttributeProvider(
   store: MembershipStore,
+  denialReader?: PermissionDenialReader,
 ): AttributeProvider {
   return {
     getMembershipsByUser: (internalUserId: string) =>
       store.getMembershipsByUser(internalUserId),
+    ...(denialReader
+      ? {
+          getPermissionDenials: (internalUserId: string) =>
+            denialReader.getDenialsByUser(internalUserId),
+        }
+      : {}),
   };
 }
 
@@ -324,7 +368,8 @@ export type DecisionReason =
   | "NOT_OWN_SCOPE"
   | "SCOPE_MISMATCH"
   | "NOT_ASSIGNED_APPROVER"
-  | "PLATFORM_SCOPE_DENIED";
+  | "PLATFORM_SCOPE_DENIED"
+  | "PERMISSION_DENIED";
 
 export interface ResourceScope {
   resourceId?: string;
@@ -451,6 +496,22 @@ export async function authorizeWithPolicy(
     return deny(request, "MEMBERSHIP_REVOKED", version);
   }
 
+  // #2450 — per-user permission denials, consulted BEFORE role
+  // grants: deny-beats-grant. Placement is deliberate: a user with
+  // no (active) membership in this tenant keeps the NO_MEMBERSHIP /
+  // MEMBERSHIP_REVOKED reason above, so a denial never leaks past
+  // the membership boundary and never overrides it. Platform scope
+  // skips this check: denials are tenant-scoped records, and
+  // platform permissions are not deniable through this layer.
+  // A provider without denials behaves exactly as before.
+  if (attributes.getPermissionDenials) {
+    const denials = await attributes.getPermissionDenials(actor);
+    const denied = denials.some(
+      (d) => d.tenantId === tenantId && d.permission === request.permission,
+    );
+    if (denied) return deny(request, "PERMISSION_DENIED", version);
+  }
+
   let blockingReason: DecisionReason | null = null;
   for (const membership of activeMemberships) {
     for (const binding of membership.roleBindings) {
@@ -520,15 +581,19 @@ export async function authorizeWithPolicy(
  * Back-compatible PDP entry point: the compiled policy, with the
  * caller's store adapted to the PIP port. Decisions are identical
  * to authorizeWithPolicy() with the compiled snapshot — this is a
- * delegation, not a second implementation.
+ * delegation, not a second implementation. Pass a denial reader
+ * when the caller must honor per-user permission denials (#2450);
+ * without one the decision is denial-unaware, exactly as before.
+ * Live gates that must honor denials pass the reader explicitly.
  */
 export async function authorize(
   store: MembershipStore,
   request: AuthorizationRequest,
+  denialReader?: PermissionDenialReader,
 ): Promise<AuthorizationDecision> {
   return authorizeWithPolicy(
     getCompiledPolicySnapshot(),
-    membershipStoreToAttributeProvider(store),
+    membershipStoreToAttributeProvider(store, denialReader),
     request,
   );
 }

@@ -29,6 +29,7 @@ import {
   membershipStoreToAttributeProvider,
   type MembershipStore,
   type Permission,
+  type PermissionDenialReader,
 } from "./authorization";
 import {
   isLegacyPdpGraceExpired,
@@ -57,13 +58,20 @@ export interface RoutePepInput {
   tenantId: string;
   permission: Permission;
   membershipStore: MembershipStore;
+  /**
+   * #2450: when supplied, the PDP honors per-user permission
+   * denials (deny-beats-grant) for this check. Without it the
+   * decision is denial-unaware, exactly as before. The four
+   * integration:connect gates pass the KV denial store.
+   */
+  permissionDenialStore?: PermissionDenialReader;
   nowMs: number;
 }
 
 export async function evaluateRoutePep(
   input: RoutePepInput,
 ): Promise<RoutePepOutcome> {
-  const { env, session, tenantId, permission, membershipStore, nowMs } = input;
+  const { env, session, tenantId, permission, membershipStore, permissionDenialStore, nowMs } = input;
   if (!shouldEnforcePdp(env, session, nowMs)) {
     return { enforced: false };
   }
@@ -80,7 +88,10 @@ export async function evaluateRoutePep(
       resolved.source === "snapshot" && resolved.snapshot
         ? snapshotPolicyProvider(resolved.snapshot)
         : compiledPolicyProvider(),
-    attributeProvider: membershipStoreToAttributeProvider(membershipStore),
+    attributeProvider: membershipStoreToAttributeProvider(
+      membershipStore,
+      permissionDenialStore,
+    ),
   });
   const decision = await pdp.decide({
     internalUserId: session.internalUserId,
