@@ -94,7 +94,7 @@ export interface GoldenRunOptions {
 export const MESH_GOLDEN_TASKS: readonly MeshGoldenTask[] = [
   {
     id: "chat-screen-run",
-    title: "Chat-turn stock screen runs as a ScreenerScreenWorkflow run (S8 path)",
+    title: "NLQ-surface stock screen runs as a ScreenerScreenWorkflow run (S8 path, via the NLQ stock-screen port — the surface the async nlq.execute capability, A2A, and the error fallback bind; since #2488 the chat turn itself reaches the same workflow through the door tasks below)",
     door: "chat-turn",
     className: "ScreenerAgent",
     operation: "nlq.execute",
@@ -106,10 +106,34 @@ export const MESH_GOLDEN_TASKS: readonly MeshGoldenTask[] = [
   },
   {
     id: "chat-screen-identity-refusal",
-    title: "Chat-turn screen refuses with no acting identity, before any workflow start",
+    title: "NLQ-surface screen refuses with no acting identity, before any workflow start (NLQ stock-screen port)",
     door: "chat-turn",
     className: "ScreenerAgent",
     operation: "nlq.execute",
+    expectation: {
+      outcome: "refused",
+      refusalCode: "identity_required",
+      facts: { workflowStarts: 0 },
+    },
+  },
+  {
+    id: "door-chat-screen-run",
+    title: "Chat-turn stock screen through the mesh screen door runs as a ScreenerScreenWorkflow run (#2488 door path: turn tool → queue → executor → run_stock_screen → door service)",
+    door: "chat-turn",
+    className: "ScreenerAgent",
+    operation: "run_stock_screen",
+    expectation: {
+      outcome: "completed",
+      facts: { workflowStarts: 1, matchedCount: 2 },
+      traceHopKinds: ["workflow-start", "workflow-step", "projection"],
+    },
+  },
+  {
+    id: "door-chat-screen-identity-refusal",
+    title: "Chat-turn screen through the mesh screen door refuses with no acting identity, before any workflow start (#2488)",
+    door: "chat-turn",
+    className: "ScreenerAgent",
+    operation: "run_stock_screen",
     expectation: {
       outcome: "refused",
       refusalCode: "identity_required",
@@ -141,7 +165,7 @@ export const MESH_GOLDEN_TASKS: readonly MeshGoldenTask[] = [
   },
   {
     id: "chat-paid-screen",
-    title: "Chat paid request: budget door, one PaymentWorkflow start, screener started by the payment flow (S10 path)",
+    title: "NLQ-surface paid request: budget door, one PaymentWorkflow start, screener started by the payment flow (S10 path, via the NLQ stock-screen port)",
     door: "chat-turn",
     className: "PaymentsAgent",
     operation: "check_payment_budget",
@@ -152,10 +176,33 @@ export const MESH_GOLDEN_TASKS: readonly MeshGoldenTask[] = [
   },
   {
     id: "chat-paid-budget-refusal",
-    title: "Chat paid request refuses on a budget denial: zero payment starts, zero screener runs, no free fallback",
+    title: "NLQ-surface paid request refuses on a budget denial: zero payment starts, zero screener runs, no free fallback (NLQ stock-screen port)",
     door: "chat-turn",
     className: "PaymentsAgent",
     operation: "check_payment_budget",
+    expectation: {
+      outcome: "refused",
+      refusalCode: "budget_denied",
+      facts: { budgetChecks: 1, paymentStarts: 0, screenerStarts: 0 },
+    },
+  },
+  {
+    id: "door-chat-paid-screen",
+    title: "Chat paid request through the mesh screen door: budget door, one PaymentWorkflow start, screener started by the payment flow (#2488 door path)",
+    door: "chat-turn",
+    className: "ScreenerAgent",
+    operation: "run_stock_screen",
+    expectation: {
+      outcome: "completed",
+      facts: { budgetChecks: 1, paymentStarts: 1, screenerStarts: 1, coverageConsumed: 1 },
+    },
+  },
+  {
+    id: "door-chat-paid-budget-refusal",
+    title: "Chat paid request through the mesh screen door refuses on a budget denial: zero payment starts, zero screener runs, no free fallback (#2488)",
+    door: "chat-turn",
+    className: "ScreenerAgent",
+    operation: "run_stock_screen",
     expectation: {
       outcome: "refused",
       refusalCode: "budget_denied",
