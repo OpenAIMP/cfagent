@@ -29,6 +29,7 @@
  */
 
 import { PortThink } from "../actors/thinkAdapter";
+import type { A2AAttribution } from "../a2a/meshCredentials";
 import {
   dispatchPaymentsA2A,
   paymentsA2AOutcome,
@@ -142,6 +143,14 @@ export class PaymentsAgent extends PortThink {
     amountCents: number;
     idempotencyKey: string;
     paymentProof: string;
+    /**
+     * Two-part attribution, part 2 (issue #2426): the edge-
+     * authenticated A2A caller identity, threaded by the dispatch
+     * from handleA2A's attribution argument. Recorded with the
+     * payment's audit record beside the agentId (part 1). Absent
+     * for non-A2A callers, where no edge attribution exists.
+     */
+    caller?: string;
   }): Promise<PaymentRecord> {
     const guard = await this.getGuard(req.agentId);
     const paymentReq = {
@@ -174,6 +183,7 @@ export class PaymentsAgent extends PortThink {
       idempotencyKey: req.idempotencyKey,
       payer: proof?.payer,
       proofSignature: proof?.signature,
+      ...(req.caller ? { caller: req.caller } : {}),
     });
     if (duplicate) {
       throw new Error("duplicate idempotency key");
@@ -255,8 +265,18 @@ export class PaymentsAgent extends PortThink {
    * state derives from the ledger of record), so the URL-name
    * instance serves real data. Returns the collected { text, data }
    * outcome.
+   *
+   * Issue #2426: the edge passes its two-part attribution as the
+   * third argument (the caller its credential authenticated + this
+   * surface); the dispatch threads the caller into payments.process
+   * so the recorded audit attribution names both parts. In-process
+   * callers omit it and no caller part is recorded.
    */
-  async handleA2A(body: unknown, origin: string): Promise<PaymentsA2AOutcome> {
+  async handleA2A(
+    body: unknown,
+    origin: string,
+    attribution?: A2AAttribution,
+  ): Promise<PaymentsA2AOutcome> {
     void origin; // reserved for per-origin policy (cfpay parity); unused in v1
     const data = await dispatchPaymentsA2A(this.env, body, {
       executor: {
@@ -265,6 +285,7 @@ export class PaymentsAgent extends PortThink {
         listPayments: (limit) => this.listPayments(limit),
         processPaidRequest: (req) => this.processPaidRequest(req),
       },
+      ...(attribution ? { attribution } : {}),
     });
     return paymentsA2AOutcome(data);
   }

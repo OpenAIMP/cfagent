@@ -109,7 +109,7 @@ recovery column reads as it does.
 
 | Aspect | IMPLEMENTED | NOT-APPLICABLE | GAP |
 |---|---|---|---|
-| `identity` | 11 | 2 | 1 |
+| `identity` | 12 | 2 | 0 |
 | `state` | 10 | 4 | 0 |
 | `connections` | 3 | 11 | 0 |
 | `scheduling` | 3 | 11 | 0 |
@@ -121,7 +121,7 @@ recovery column reads as it does.
 | `sdk-scheduling` | 2 | 12 | 0 |
 | `fibers` | 0 | 2 | 12 |
 | `skills` | 0 | 2 | 12 |
-| Total | 58 | 82 | 28 |
+| Total | 59 | 82 | 27 |
 
 168 cells (14 roster entries × 12 aspects), zero unclassified. The
 two honest headlines: **recovery has its first IMPLEMENTED cells** —
@@ -141,6 +141,12 @@ owner's Agents SDK Skills addition (#2225 comment 6517280689):
 no class overrides `getSkills()`, the adapter is present in the
 pinned Think, and the two non-Agent entries are NOT-APPLICABLE
 because no harness exists for the aspect to apply to.
+**Identity closed its last GAP in S16 (#2426)**: SlackAgent
+gained its registry identity record and its per-agent mesh
+credential, and the column's three IMPLEMENTED-cell residuals
+(ScreenerAgent's tenant literals, ScheduledAgent's audit actor,
+OrchestratorAgent's sessionKey attribution) were dispositioned —
+see §4 and the cells.
 
 ## 4. GAP register
 
@@ -149,16 +155,20 @@ because no harness exists for the aspect to apply to.
 | ResearchAgent | `recovery` | Programme backlog (re-dispositioned by #2409 — no resumable record exists to pin; closing needs a design decision) |
 | TradingAgent | `sessions` | Programme backlog (re-dispositioned by #2375 — S9 landed the door caller, not a turn) |
 | ScreenerAgent | `recovery` | Programme backlog (workflow layer proven by #2409; agent-level resume of an interrupted screen unowned) |
-| SlackAgent | `identity` | S16 (G14 identity records + mesh credentials) |
 | All 12 PortThink agents | `fibers` | Programme backlog (no slice yet) |
 | All 12 PortThink agents | `skills` | Programme backlog (owner addition, #2225 comment 6517280689 — adoption is a separate owner-sequenced decision; no slice yet) |
 
 Residuals recorded inside IMPLEMENTED cells (not GAPs, but tracked):
-OrchestratorAgent's `sessionKey()` attribution (S16);
-ScreenerAgent's two `tenantId: "default"` report-path literals (S16);
-ScheduledAgent's `actor: "system"` audit literal (S16);
-AiSearchAgent's unthreaded session login for turn-tool/RPC callers
-(#2246 follow-up).
+OrchestratorAgent's `sessionKey()` chat-turn partition (restated by
+S16 (#2426): the opaque DO id does partition duty, and two-part
+attribution landed on the A2A door — reworking chat-turn row
+attribution itself is a session-scoping change, not an identity
+gap); AiSearchAgent's unthreaded session login for turn-tool/RPC
+callers (#2246 follow-up). Retired by S16 (#2426): ScreenerAgent's
+two `tenantId: "default"` literals (the run owner's login is
+threaded) and ScheduledAgent's `actor: "system"` literal (the
+threaded operator login, or the named `SCHEDULED_AGENT_AUDIT_ACTOR`,
+is recorded) — dispositions in their cells.
 
 ## 5. Per-agent matrix
 
@@ -166,7 +176,7 @@ AiSearchAgent's unthreaded session login for turn-tool/RPC callers
 
 | Aspect | State | Evidence |
 |---|---|---|
-| `identity` | IMPLEMENTED | Per-login instances: server.ts resolves SEARCH_AGENT.idFromName(userLogin) (src/server.ts:364). Fixed names (default_trader, system_webhook_receiver) are addresses, never identities (src/security/serviceIdentity.ts:52-61); unattended work acts under getServiceUserLogin (serviceIdentity.ts:45), fail-closed when unconfigured. S3 (#2327) retired the research-stub default; behavioral pins in tests/mesh_identity_sweep_s3_2327.test.ts. Residual: mas_* rows still attribute via sessionKey() (the opaque DO id string, orchestrator.ts:464+) — an address-shaped value doing attribution duty; two-part (agent + principal) attribution is S16's work. |
+| `identity` | IMPLEMENTED | Per-login instances: server.ts resolves SEARCH_AGENT.idFromName(userLogin) (src/server.ts:364). Fixed names (default_trader, system_webhook_receiver) are addresses, never identities (src/security/serviceIdentity.ts:52-61); unattended work acts under getServiceUserLogin (serviceIdentity.ts:45), fail-closed when unconfigured. S3 (#2327) retired the research-stub default; behavioral pins in tests/mesh_identity_sweep_s3_2327.test.ts. Residual: chat-turn mas_* rows still partition by sessionKey() (the opaque DO id string) — an address doing partition duty. S16 (#2426) landed two-part attribution on the A2A door: the edge-authenticated caller rides into handleA2A and is recorded on the payments path, and mas payment rows carry proposer/agent + authorizer/principal DIDs, so sessionKey is no longer the sole attribution on any mesh door. Reworking chat-turn row attribution itself is a session-scoping change, not an identity gap. |
 | `state` | IMPLEMENTED | Instance-local durable state: ctx.storage KV plus the SQLite mas_* tables (mas_messages/mas_events/mas_memory/mas_transactions) in the instance's own storage. |
 | `connections` | IMPLEMENTED | The fleet's chat surface: routeAgentRequest (src/server.ts:488) with session gates, reached by the client's useAgent; the class also serves DO fetch forwards (its onRequest and mounted routes). |
 | `scheduling` | IMPLEMENTED | Heavy self-scheduling for per-login machinery: the port schedule facets delegate to this.schedule/this.scheduleEvery (orchestrator.ts:448-495), ScheduledTasksService runs on the instance, and worker-cron forwards (research tick, sweeps) land here. |
@@ -217,7 +227,7 @@ AiSearchAgent's unthreaded session login for turn-tool/RPC callers
 
 | Aspect | State | Evidence |
 |---|---|---|
-| `identity` | IMPLEMENTED | Callers must name themselves: budgetCheck requires an explicit agentId and fails closed without one (payments-agent.ts, post-S3 — "budget check requires an explicit agentId"); processPaidRequest likewise requires agentId. Recorded spend carries two-part attribution in the ledger (payments-agent:<agentId>). Behavioral pins: tests/mesh_identity_sweep_s3_2327.test.ts. |
+| `identity` | IMPLEMENTED | Callers must name themselves: budgetCheck requires an explicit agentId and fails closed without one (payments-agent.ts, post-S3 — "budget check requires an explicit agentId"); processPaidRequest likewise requires agentId. Recorded spend carries two-part attribution in the ledger (payments-agent:<agentId>). S16 (#2426) authenticated the second part: A2A callers are verified by the payments surface's per-agent mesh credential at the edge, and the edge-authenticated caller is recorded beside the agentId in the payments_agent.recorded audit payload — asserted + authenticated, not asserted alone. Behavioral pins: tests/mesh_identity_sweep_s3_2327.test.ts and tests/mesh_identity_s16_2426.test.ts. |
 | `state` | IMPLEMENTED | Derived-state posture: live state is computed per call from the orchestrator-owned payments ledger (mas_transactions via src/payments/ledger.ts). Its own ctx.storage holds only the retired legacy blob (payments/budgetGuard keys), read solely by migrateLegacyLedger. |
 | `connections` | NOT-APPLICABLE | RPC-only actor: portHooks deliberately unset, no turn, no WebSocket surface in practice. |
 | `scheduling` | NOT-APPLICABLE | No scheduling role: it registers no schedules and owns no scheduled work; anything time-based reaches it from callers recorded elsewhere in this row. |
@@ -234,7 +244,7 @@ AiSearchAgent's unthreaded session login for turn-tool/RPC callers
 
 | Aspect | State | Evidence |
 |---|---|---|
-| `identity` | IMPLEMENTED | Recorded-owner identity: userLogin() returns the owner recorded at first run (OWNER_STORAGE_KEY, screener-agent.ts:407-436), else the login in a screener:-prefixed instance name, else the service identity for instance "default" only — otherwise it throws ("ScreenerAgent has no owner identity recorded for this instance"). Name resolution also fails closed (src/agents/screenerAgentName.ts:28-38). Residual: two goal-screen report paths still stamp a literal tenantId: "default" (screener-agent.ts:1314, :1336 — count pinned). That is a tenant-attribution default, not an acting-identity default; S16 retires it. |
+| `identity` | IMPLEMENTED | Recorded-owner identity: userLogin() returns the owner recorded at first run (OWNER_STORAGE_KEY, screener-agent.ts:407-436), else the login in a screener:-prefixed instance name, else the service identity for instance "default" only — otherwise it throws ("ScreenerAgent has no owner identity recorded for this instance"). Name resolution also fails closed (src/agents/screenerAgentName.ts:28-38). Residual: S16 (#2426) retired the tenantId literal this cell recorded: both goal-gather paths (the gather run context and the enrichment) thread the run owner's login as tenantId — the owner is guaranteed present, since userLogin() throws without one (count pinned: zero "default" literals remain, both sites thread userLogin). Transition note: goal-gather captures written before S16 sit under the retired "default" partition and are not visible to reads keyed by the owner's login; captures are run-scoped reproducible provider snapshots, not records of account. |
 | `state` | IMPLEMENTED | Instance-local ctx.storage plus SQLite: the task ledger, run history, latest results, and provider config tables. |
 | `connections` | NOT-APPLICABLE | RPC-only in practice; no client, no connection surface. |
 | `scheduling` | NOT-APPLICABLE | None of its own; fired by the orchestrator, server routes, ScheduledAgent goal chains, and workflow shards. |
@@ -251,7 +261,7 @@ AiSearchAgent's unthreaded session login for turn-tool/RPC callers
 
 | Aspect | State | Evidence |
 |---|---|---|
-| `identity` | IMPLEMENTED | Singleton instance "default"; goals carry their owner login in the goal records and fired work acts as the goal owner. Post-S3 its budget checks name the spend bucket explicitly (AGENTIC_SPEND_AGENT_ID, scheduled-agent.ts:329 and the synthesized-schedule path). Residual: synthesized-schedule audit rows still carry the literal actor "system" (scheduled-agent.ts:937 — pinned); S16 retires it. |
+| `identity` | IMPLEMENTED | Singleton instance "default"; goals carry their owner login in the goal records and fired work acts as the goal owner. Post-S3 its budget checks name the spend bucket explicitly (AGENTIC_SPEND_AGENT_ID, scheduled-agent.ts:329 and the synthesized-schedule path). Residual: S16 (#2426) retired the "system" audit actor this cell recorded: the reconciliation audit row in reconcileChainScheduleProjection carries the operator login the admin-gated route threads in, or SCHEDULED_AGENT_AUDIT_ACTOR ("scheduled-agent") when no actor is supplied — the agent's own named identity for its maintenance act (count pinned: zero "system" literals remain). |
 | `state` | IMPLEMENTED | All instance-local ctx.storage: the goals key (seeded with DEFAULT_SCHEDULES on first read, :224-225), tick history, and synthesized schedules. |
 | `connections` | NOT-APPLICABLE | No turn path and no port hooks by design (class header); reachable via stub RPC from server.ts and, since #2341, from the orchestrator's chat turn through the G1 door (src/agents/orchestrator/meshDoors.ts). |
 | `scheduling` | IMPLEMENTED | It IS the user-visible goal catalogue (survey §4 ruling): the worker cron calls server.ts scheduled(), which invokes onCron() on the singleton; each due goal is budget-gated through PaymentsAgent before firing. The mechanism is the worker cron, deliberately not the SDK scheduler. |
@@ -302,7 +312,7 @@ AiSearchAgent's unthreaded session login for turn-tool/RPC callers
 
 | Aspect | State | Evidence |
 |---|---|---|
-| `identity` | GAP | S13 (#2412) retired the synthetic fallback this cell cited: sessionKey() throws when ctx.id is absent instead of returning the retired master literal, and getSlackService no longer re-asserts it (absence pinned below; behavioral pin in tests/mesh_channels_s13_2412.test.ts). The cell stays a GAP for the G14 remainder: the class holds no registry identity record and no per-agent mesh credential — Slack ingress still authenticates with the app-level signing secret and bot token. Owner: S16 (G14 identity records + mesh credentials). |
+| `identity` | IMPLEMENTED | S13 (#2412) retired the synthetic fallback this cell cited: sessionKey() throws when ctx.id is absent instead of returning the retired master literal, and getSlackService no longer re-asserts it (absence pinned below; behavioral pin in tests/mesh_channels_s13_2412.test.ts). S16 (#2426) closed the G14 remainder: the class holds a registry identity record (MESH_IDENTITIES in src/agents/registry.ts — DID did:agent:openaimp:slack, identity source, attribution shape) and its A2A surface carries a per-agent mesh credential (A2A_TOKEN_SLACK, verified timing-safely at the edge; the shared token is its transitional fallback). Channel ingress keeps its own gate — the app-level Slack signing secret — which is the channel's credential, recorded as such in the registry's channel and identity records. Pins: tests/mesh_identity_s16_2426.test.ts. |
 | `state` | IMPLEMENTED | SQLite via getOrm() over this.ctx.storage.sql — schema ensured by the store's designated initializer classes, not this class (the #2345 R-7 composition pin: this file deliberately carries no initializeSchema); the S13 suite (#2412) exercises the boot/ORM paths over a fresh store through the converged ingress. The class is instantiated in production via its A2A door and the G1 chat door (see routing). |
 | `connections` | NOT-APPLICABLE | No connection surface of its own: its signature-gated onRequest ingress delegates Slack payloads to the shared channel handler (src/agents/routes/tradingIntegrations.ts) — since S13 (#2412) it is the same implementation the production server.ts forwarders terminate in on OrchestratorAgent instances named slack_<teamId>, not a parallel one (registry channel posture FORWARDER). |
 | `scheduling` | NOT-APPLICABLE | No scheduling role: it registers no schedules and owns no scheduled work; anything time-based reaches it from callers recorded elsewhere in this row. |
@@ -420,11 +430,12 @@ on. Later rounds should add, in owning-slice order:
   approval door + TradingTradeWorkflow) but drives no turn on the
   class, so its sessions GAP stays in the programme backlog until a
   slice drives a real turn on it.
-- SlackAgent's identity remainder — S16. S13 (#2412) landed the
-  first-instantiation work: ingress converged onto the shared
-  channel handler, the synthetic session fallback retired
-  fail-closed, and the recovery GAP converted (see its row); the
-  identity GAP that remains is the G14 records/credentials part.
+- SlackAgent's identity remainder — landed by S16 (#2426). S13
+  (#2412) landed the first-instantiation work: ingress converged
+  onto the shared channel handler, the synthetic session fallback
+  retired fail-closed, and the recovery GAP converted (see its
+  row); S16 closed the identity GAP with the registry identity
+  record and the surface's per-agent mesh credential.
 - A fibers adoption decision (SDK primitive behind the actor port,
   or an explicit programme decision to keep the GAP) — currently
   unowned in the backlog; the matrix keeps it visible until a slice
@@ -475,5 +486,14 @@ on. Later rounds should add, in owning-slice order:
   service identity (an HMAC-authenticated system caller, not a
   user login). The rest — ScreenerAgent's `tenantId` literals,
   ScheduledAgent's `actor: "system"`, the DID `"anonymous"`
-  derivations — are recorded in this matrix as GAPs or residuals
-  with their owning slice (S16), not silently dropped.
+  derivations — were recorded in this matrix as GAPs or residuals
+  with their owning slice (S16), not silently dropped, and S16
+  (#2426) dispositioned all three: the tenant literals now thread
+  the run owner's login; the audit actor is the threaded operator
+  login or the named `SCHEDULED_AGENT_AUDIT_ACTOR`; and a DID is
+  never derived from an empty login (both derivations fail
+  closed). Attestation is likewise keyed-or-labelled since S16:
+  a real HMAC-SHA256 with a verify function when
+  `DID_ATTESTATION_KEY` is bound, an explicitly unkeyed content
+  label (`UnkeyedContentLabel2026`) otherwise — no surface calls
+  the unkeyed value a proof.

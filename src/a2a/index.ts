@@ -6,7 +6,7 @@ export * from "./agent-cards";
 
 import { A2A_CARDS, A2A_CARD_PATHS, getAgentCard } from "./agent-cards";
 import { resolveA2AAgent, resolveA2AInstanceName } from "./resolution";
-import { timingSafeEqual } from "../security/webhookSecurity";
+import { authenticateA2A } from "./meshCredentials";
 
 /**
  * Route an incoming A2A request to the right DO stub.
@@ -28,30 +28,40 @@ export async function handleA2A(request: Request, env: any): Promise<Response> {
   }
 
   if (request.method === "POST") {
-    // Edge auth (#291 A5, cfpay parity): A2A dispatch requires a bearer
-    // token (env A2A_API_TOKEN), compared timing-safely. FAIL CLOSED —
-    // an unset token disables dispatch entirely (503) rather than
-    // serving it unauthenticated; a missing/wrong token is a 401.
-    // Discovery (GET cards above) stays public. This gate sits ahead of
-    // agent resolution so unauthenticated callers learn nothing about
-    // which agents exist.
-    const expected = (env as any).A2A_API_TOKEN as string | undefined;
-    if (!expected) {
+    // Edge auth (#291 A5, cfpay parity; per-agent credentials since
+    // S16, #2426): A2A dispatch requires the surface's own bearer
+    // credential (env A2A_TOKEN_<SURFACE>), compared timing-safely
+    // by src/a2a/meshCredentials.ts. While a surface has no
+    // per-agent credential set, the shared token authenticates it
+    // as a recorded TRANSITIONAL fallback (removal condition in
+    // meshCredentials.ts). FAIL CLOSED — a surface with neither
+    // credential configured disables its dispatch (503) rather
+    // than serving it unauthenticated; a missing/wrong credential
+    // is a 401. Discovery (GET cards above) stays public. This gate
+    // sits ahead of agent resolution: authentication decides first,
+    // and an unknown surface name gets the same 401/404 sequence
+    // the shared-token edge produced.
+    const match = path.match(/^\/a2a\/([\w-]+)$/);
+    const authHeader = request.headers.get("authorization") ?? "";
+    const presented = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+    const auth = authenticateA2A(
+      env as Record<string, unknown>,
+      match ? match[1] : null,
+      presented,
+    );
+    if (!auth.ok && auth.reason === "unconfigured") {
       return Response.json(
         { jsonrpc: "2.0", id: null, error: { code: -32001, message: "A2A dispatch is not configured" } },
         { status: 503 },
       );
     }
-    const authHeader = request.headers.get("authorization") ?? "";
-    const presented = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
-    if (!presented || !timingSafeEqual(presented, expected)) {
+    if (!auth.ok) {
       return Response.json(
         { jsonrpc: "2.0", id: null, error: { code: -32002, message: "Unauthorized" } },
         { status: 401 },
       );
     }
 
-    const match = path.match(/^\/a2a\/([\w-]+)$/);
     if (!match) return new Response("Not found", { status: 404 });
     // Resolution is A2A's own map (#2223, src/a2a/resolution.ts) —
     // NOT the planner's OPERATION_CATALOG, whose entries and
@@ -96,7 +106,11 @@ export async function handleA2A(request: Request, env: any): Promise<Response> {
         { status: 400 },
       );
     }
-    const outcome = (await stub.handleA2A(body, url.origin)) as {
+    // Two-part attribution (S16, #2426): the edge-authenticated
+    // caller + the surface served ride into the dispatch as the
+    // third argument. Agents whose records carry attribution
+    // (PaymentsAgent) declare the parameter; the rest ignore it.
+    const outcome = (await stub.handleA2A(body, url.origin, auth.attribution)) as {
       text?: string;
       data?: unknown;
     };

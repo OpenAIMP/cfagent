@@ -73,7 +73,7 @@ export const API_ENDPOINT_CATALOG: ApiEndpointEntry[] = [
     aliases: ["/.well-known/*"],
     kind: "http",
     auth: "public",
-    authNote: "Delegated to handleA2A (agent-card discovery plus JSON-RPC dispatch). GET cards are public by design; POST invocation requires Bearer A2A_API_TOKEN at the edge (timing-safe, fail-closed 503 when unset, 401 before agent resolution) — verified from the worker entrypoint in issue 1763 (tests/a2a_entrypoint_auth_1763.test.ts). No session check at the edge; the token, not a session, is the invocation credential.",
+    authNote: "Delegated to handleA2A (agent-card discovery plus JSON-RPC dispatch). GET cards are public by design; POST invocation requires the surface's per-agent Bearer credential (A2A_TOKEN_<SURFACE>) at the edge (timing-safe, fail-closed 503 when the surface has no credential configured, 401 before agent resolution) — the shared A2A_API_TOKEN is accepted transitionally for surfaces whose per-agent secret is unset (S16, issue 2426); edge enforcement verified from the worker entrypoint in issue 1763 (tests/a2a_entrypoint_auth_1763.test.ts). No session check at the edge; the credential, not a session, is the invocation credential.",
     source: "src/server.ts branch: path.startsWith /a2a/",
     prefixes: ["/a2a/", "/.well-known/"],
   },
@@ -1552,7 +1552,7 @@ export const IAAA_CATALOG_GAPS: CatalogGap[] = [
   {
     area: "api",
     item: "A2A per-agent enforcement (VERIFIED in issue 1763 — former gap, closed)",
-    detail: "Verified from the worker entrypoint in issue 1763: POST /a2a/* requires Bearer A2A_API_TOKEN in src/a2a/index.ts handleA2A, enforced before agent resolution (503 when unset, 401 otherwise), and the worker dispatch in src/server.ts routes /a2a/* there before any session route. Per-agent handleA2A implementations add no second auth check; the edge token is the invocation credential (per-caller attribution remains gap G-AUD-6 in the issue-1763 attribution audit).",
+    detail: "Verified from the worker entrypoint in issue 1763: POST /a2a/* requires a Bearer credential in src/a2a/index.ts handleA2A, enforced before agent resolution (503 when the surface has no credential configured, 401 otherwise), and the worker dispatch in src/server.ts routes /a2a/* there before any session route. Per-agent handleA2A implementations add no second auth check; the edge credential is the invocation credential. Since S16 (issue 2426) the credential is per-agent (A2A_TOKEN_<SURFACE>, the shared A2A_API_TOKEN transitional) and the edge passes the authenticated caller into handleA2A as two-part attribution, recorded by the payments path (the wider per-caller attribution register remains gap G-AUD-6 in the issue-1763 attribution audit).",
     source: "src/a2a/index.ts handleA2A; tests/a2a_entrypoint_auth_1763.test.ts",
   },
   {
