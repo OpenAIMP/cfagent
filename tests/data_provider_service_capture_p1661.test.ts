@@ -82,7 +82,7 @@ describe("S1 scheduled discovery constructions", () => {
   it("scheduled callback discovery construction passes platformDeps with blobStorage", () => {
     const block = constructionBefore(
       src("agents/orchestrator/scheduledCallbacks.ts"),
-      "service.autonomousStrategyDiscovery({ ...payload, userLogin, environment })"
+      "service.autonomousStrategyDiscovery({ ...payload, userLogin: resolvedLogin, environment })"
     );
     expect(block).toContain("blobStorage");
   });
