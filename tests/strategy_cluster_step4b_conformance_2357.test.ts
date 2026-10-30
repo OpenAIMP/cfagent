@@ -307,10 +307,15 @@ for (const [name, make] of ADAPTERS) {
 
     it("settingsRead: absent reads null (G-7 read-only surface)", () => {
       const p = make();
-      // The cluster ensure creates mas_settings (the weights
-      // family's pre-existing DDL ensure) — reads then see the
-      // empty table, exactly as in production composition.
-      p.weights.ensureTables();
+      // #2390 (step 4g) adaptation: the settings port's
+      // ensureSchema creates mas_settings now — the weights
+      // family's duplicate DDL ensure retired under the G-7
+      // ruling (the settings adapter is the single ensurer).
+      // The assertion is unchanged: after the family's ensure,
+      // reads see the empty table, exactly as in production
+      // composition (where the orchestrator's ensureTables
+      // invokes the same port ensure).
+      p.settings.ensureSchema();
       expect(p.settingsRead.get("adaptation.killSwitch")).toBeNull();
       expect(p.settingsRead.has("adaptation.killSwitch")).toBe(false);
     });
