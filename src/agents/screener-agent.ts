@@ -27,12 +27,8 @@ import {
 import { getServiceUserLogin } from "../security/serviceIdentity";
 import { DatabaseORM } from "../orm";
 import { ETradeService } from "../services/etrade";
-import {
-  acquireScreenRunLock,
-  isScreenRunning as isScreenRunningLock,
-  releaseScreenRunLock,
-  type ScreenRunLockSql,
-} from "../services/screenRunLock";
+import { createScreenRunLockPort } from "../data/createScreenRunLockPorts";
+import type { ScreenRunLockPort } from "../data/screenRunLockPorts";
 import { defaultBreakerRegistry } from "../breakers/createBreakerPorts";
 import {
   applyPortfolioContextToOpportunities,
@@ -376,12 +372,13 @@ export class ScreenerAgent extends PortThink {
 
   private getOrm(): DatabaseORM {
     if (!this.orm) {
-      this.orm = new DatabaseORM({
-        exec: (sql: string, params?: unknown[]) => {
-          const stmt = (this.ctx.storage.sql as any).exec(sql, ...(params ?? []));
-          return [...stmt];
-        },
-      } as any);
+      // Issue #2361 (#1976 step 4e): the standard composition —
+      // DatabaseORM over the instance's own storage handle, the
+      // construction every other host uses. The hand-rolled exec
+      // facade that stood here (a wrapper whose only effect was
+      // spreading the cursor into an array, which the ORM's
+      // Array.from reads already do) is retired.
+      this.orm = new DatabaseORM(this.ctx.storage.sql);
     }
     return this.orm;
   }
@@ -575,10 +572,20 @@ export class ScreenerAgent extends PortThink {
    * slices runScreen's source up to the next async method, so no
    * async method may sit between runScreen and runScreenInner.
    */
-  private lockSql(): ScreenRunLockSql {
-    const sql = (this.ctx.storage as any).sql;
-    return (statement: string, params: unknown[]) =>
-      [...sql.exec(statement, ...(params ?? []))] as Array<Record<string, unknown>>;
+  private screenRunLockCache: ScreenRunLockPort | null = null;
+
+  /**
+   * Issue #2361 (#1976 step 4e): the run lock behind its port,
+   * composed over this instance's own storage. The accessor is
+   * synchronous and memoized — composition executes nothing, and
+   * the lock operations themselves stay synchronous (the #1993
+   * atomicity the port contract requires).
+   */
+  private screenRunLock(): ScreenRunLockPort {
+    if (!this.screenRunLockCache) {
+      this.screenRunLockCache = createScreenRunLockPort(this.ctx.storage.sql);
+    }
+    return this.screenRunLockCache;
   }
 
   async isScreenRunning(
@@ -586,7 +593,7 @@ export class ScreenerAgent extends PortThink {
     userLogin?: string,
   ): Promise<{ running: boolean; startedAt: number | null }> {
     const login = userLogin ?? (await this.userLogin());
-    return isScreenRunningLock(this.lockSql(), login, universe || "nasdaq100");
+    return this.screenRunLock().isRunning(login, universe || "nasdaq100");
   }
 
   /**
@@ -638,7 +645,7 @@ export class ScreenerAgent extends PortThink {
     if (req.userLogin) await this.recordOwner(req.userLogin);
     const lockLogin = await this.userLogin();
     const lockUniverse = req.universe || "nasdaq100";
-    const lock = acquireScreenRunLock(this.lockSql(), lockLogin, lockUniverse);
+    const lock = this.screenRunLock().acquire(lockLogin, lockUniverse);
     if (!lock.acquired) {
       const age = lock.startedAt ? Math.round((Date.now() - lock.startedAt) / 1000) : 0;
       throw new Error(`Screen already running for ${lockUniverse} (started ${age}s ago). Please wait for it to complete.`);
@@ -650,7 +657,7 @@ export class ScreenerAgent extends PortThink {
       return await this.runScreenInner(req, timestamp, cfg);
     } finally {
       // Always release the lock, even on failure.
-      releaseScreenRunLock(this.lockSql(), lockLogin, lockUniverse, lock.token);
+      this.screenRunLock().release(lockLogin, lockUniverse, lock.token);
     }
   }
 
