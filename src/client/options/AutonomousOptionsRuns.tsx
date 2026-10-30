@@ -8,11 +8,9 @@
  * and its top opportunities — and polls while mounted so a scheduled run
  * appears without a page reload.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Badge, Button, EmptyState } from "../components/ui";
-import { apiFetch as fetch } from "../apiFetch";
-import { usePolling } from "../usePolling";
-import { getPollingConfig } from "../pollingConfig";
+import { subscribeOptionsLatest, refreshOptionsLatest } from "../optionsLatestShared";
 
 interface OptionsRunOpportunity {
   symbol?: string;
@@ -36,33 +34,27 @@ export function AutonomousOptionsRuns() {
   const [runs, setRuns] = useState<OptionsRun[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    try {
-      const res = await fetch("/api/options/latest");
-      const data = (await res.json()) as { runs?: OptionsRun[]; error?: string };
-      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-      setRuns(Array.isArray(data.runs) ? data.runs : []);
-      setLoadError(null);
-    } catch (err) {
-      setLoadError(err instanceof Error ? err.message : "Failed to load options runs");
-    }
-  }, []);
-
+  // Issue #2470 S4: latest runs via the shared subscription, so this
+  // panel and ScheduledOptionsManager produce one network poll per
+  // cadence when both are mounted. Cadence, hidden-pause, and
+  // externalized tuning live in the shared module, unchanged from
+  // #2422. Failure is reported, never faked.
   useEffect(() => {
-    void load();
-  }, [load]);
-
-  // Issue #2419: shared treatment — hidden-pause + externalized
-  // cadence (was a hand-rolled 60s setInterval with no visibility
-  // handling). The immediate load above is unchanged.
-  const optionsLatestMs = getPollingConfig().optionsLatestPollMs;
-  usePolling(load, { fastMs: optionsLatestMs, idleMs: optionsLatestMs });
+    return subscribeOptionsLatest((snap) => {
+      if (snap.ok) {
+        setRuns(snap.runs as OptionsRun[]);
+        setLoadError(null);
+      } else {
+        setLoadError(snap.error || "Failed to load options runs");
+      }
+    });
+  }, []);
 
   return (
     <section className="autonomous-runs" aria-label="Autonomous options runs">
       <div className="autonomous-runs-head">
         <h3>🤖 Autonomous Options Runs</h3>
-        <Button variant="ghost" tone="subtle" onClick={() => void load()}>
+        <Button variant="ghost" tone="subtle" onClick={() => refreshOptionsLatest()}>
           ↻ Refresh
         </Button>
       </div>

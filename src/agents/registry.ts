@@ -24,6 +24,18 @@
 
 export type MeshAgentKind = "agent" | "durable-object" | "mcp-agent";
 
+/**
+ * Recorded capability posture of a fleet class (S20, #2469 — the
+ * status the Agents view renders). "live": bound, routed, and no
+ * recorded degradation. "degraded": the class runs, but a named
+ * capability fact recorded in `notes` limits it — the reason is
+ * carried in `statusReason` and evidenced in repo facts, pinned by
+ * tests/mesh_agents_view_s20_2469.test.ts. (The third posture of
+ * the tool-family vocabulary, "absent", has no instance among the
+ * classes: every registered class exists and is bound.)
+ */
+export type MeshAgentStatus = "live" | "degraded";
+
 export interface MeshAgentEntry {
   className: string;
   kind: MeshAgentKind;
@@ -33,6 +45,10 @@ export interface MeshAgentEntry {
   bindings: string[];
   sourceFile: string;
   role: string;
+  /** Recorded capability posture (S20, #2469). */
+  status: MeshAgentStatus;
+  /** Why the status is what it is — recorded evidence, not inference. */
+  statusReason: string;
   notes?: string;
 }
 
@@ -135,6 +151,9 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     bindings: ["SEARCH_AGENT", "ORCHESTRATOR_AGENT"],
     sourceFile: "src/agents/orchestrator.ts",
     role: "Primary conversational agent: chat turns, the MAS tool surface, NLQ and goal/chain execution; owns the mas_* SQL ledger the fleet reads from.",
+    status: "live",
+    statusReason:
+      "Bound on SEARCH_AGENT + ORCHESTRATOR_AGENT and routed for every chat turn; no recorded degradation.",
     notes:
       "Exported from src/server.ts both as OrchestratorAgent and under the legacy alias SearchAgent (the SEARCH_AGENT binding's class_name). Service and A2A addressing uses the shared orchestrator instance.",
   },
@@ -145,6 +164,9 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     bindings: ["RESEARCH_AGENT"],
     sourceFile: "src/agents/research-agent.ts",
     role: "Deep-research runs: discovery, source gathering, synthesis, optional publication.",
+    status: "live",
+    statusReason:
+      "Bound on RESEARCH_AGENT and reachable through the chat door and agent-as-a-tool; no recorded degradation.",
   },
   {
     className: "TradingAgent",
@@ -153,6 +175,9 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     bindings: ["TRADING_AGENT"],
     sourceFile: "src/agents/trading-agent.ts",
     role: "E*TRADE trading agent: quotes, previews, and the human approval door; starts TradingTradeWorkflow for approved executions.",
+    status: "live",
+    statusReason:
+      "Bound on TRADING_AGENT; proposals and the approval door are live (executions stay behind the human approval door by design, S9).",
     notes:
       "Chat reaches the proposal side through the G1 door (#2349, src/agents/orchestrator/meshDoors.ts), addressed to the acting user's own instance (trading:<login>): trade proposals via the preview-only stock_trading/options_trading services plus the accounts/positions/quote reads. Since S9/G4 (#2375) the chat turn also reaches the approval door through the same door: startTradeApproval starts the TradingTradeWorkflow run for a proposal and decideTradeApproval delivers the human's decision (authorizer DID derived server-side from the acting login), and the workflow's settle step calls executeApprovedOrder — which remains the one approval-door method with no direct chat caller.",
   },
@@ -163,6 +188,9 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     bindings: ["PAYMENTS_AGENT"],
     sourceFile: "src/agents/payments-agent.ts",
     role: "Payments agent: DID-attested drafts and x402/MPP premium legs over the payments ledger.",
+    status: "live",
+    statusReason:
+      "Bound on PAYMENTS_AGENT; budget checks and paid-request processing live behind the BudgetGuard; no recorded degradation.",
     notes:
       "Chat reaches budgetCheck + the read side (todaySpent/listPayments) through the G1 door (#2341, src/agents/orchestrator/meshDoors.ts), checks attributed to AGENTIC_SPEND_AGENT_ID; processPaidRequest has no chat caller by design — the chat paid-request flow is S10/G5 (PaymentWorkflow).",
   },
@@ -173,6 +201,9 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     bindings: ["SCREENER_AGENT"],
     sourceFile: "src/agents/screener-agent.ts",
     role: "Screening execution agent: stock and options screens; hosts ScreenerScreenWorkflow steps.",
+    status: "live",
+    statusReason:
+      "Bound on SCREENER_AGENT and hosting ScreenerScreenWorkflow steps; no recorded degradation.",
   },
   {
     className: "ScheduledAgent",
@@ -181,6 +212,9 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     bindings: ["SCHEDULED_AGENT"],
     sourceFile: "src/agents/scheduled-agent.ts",
     role: "Schedule catalogue and synthesized schedules/goals; singleton instance \"default\"; fires screens, research, and QA runs.",
+    status: "live",
+    statusReason:
+      "Bound on SCHEDULED_AGENT; catalogue and triggers live; no recorded degradation.",
     notes:
       "Chat reaches the goal catalogue through the G1 door (#2341, src/agents/orchestrator/meshDoors.ts): list/inspect + trigger, acting identity required. Add/remove/enable stay on the session-gated /api/schedule/* routes.",
   },
@@ -191,6 +225,9 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     bindings: ["REPORT_ASSET_AGENT"],
     sourceFile: "src/agents/report-asset-agent.ts",
     role: "Report asset storage and serving; blobs in R2 (REPORTS_BUCKET) when bound, metadata in DO storage.",
+    status: "live",
+    statusReason:
+      "Bound on REPORT_ASSET_AGENT; list/get/generation paths live; no recorded degradation.",
     notes:
       "Chat reaches the user's assets through the G1 door (#2349, src/agents/orchestrator/meshDoors.ts), addressed to the acting user's own instance (assets:<login>): list (listAssets metadata) + get, replacing the turn's indirect reach through the report pipeline. Generation stays with the pipeline/A2A callers.",
   },
@@ -201,6 +238,9 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     bindings: ["BROWSER_AGENT"],
     sourceFile: "src/agents/browserAgent.ts",
     role: "Browser fetch, inspect, and screenshot over the Browser Rendering binding (BROWSER, declared in wrangler.jsonc).",
+    status: "live",
+    statusReason:
+      "Bound on BROWSER_AGENT with the BROWSER rendering binding declared in wrangler.jsonc (#2253); no recorded degradation.",
     notes:
       "Chat reaches it through the G1 door (#2351, src/agents/orchestrator/meshDoors.ts), addressed to the fixed instance \"browser\" (A2A parity — the class is stateless/env-driven): transaction snap, page capture, and table scrape, results verbatim (a placeholder-labelled screenshot or a not-delivered outcome stays labelled). The door takes no caller-supplied webhookUrl — delivery targets are env configuration only (the survey §2.8 call, decided in #2351 following the #2223 A2A precedent).",
   },
@@ -211,6 +251,9 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     bindings: ["SLACK_AGENT"],
     sourceFile: "src/agents/slackAgent.ts",
     role: "Slack app agent: slash commands, events, interactions, approval buttons.",
+    status: "live",
+    statusReason:
+      "Bound on SLACK_AGENT; ingress converged onto the shared channel handler (S13); no recorded degradation.",
     notes:
       "Production Slack ingress arrives via the src/server.ts forwarder routes onto per-team OrchestratorAgent instances. Since S13/G10 (#2412) the agent's own gated ingress is no longer a parallel implementation: onRequest delegates to the same shared channel handler (src/agents/routes/tradingIntegrations.ts) with an agent-hosted context, so the gate, principal resolution, NLQ dep set, event dedup, and service are identical on both hosts (the channel record carries the full posture). Chat reaches its outbound side through the G1 door (#2351, src/agents/orchestrator/meshDoors.ts), addressed to the fixed instance \"slack\" (A2A parity): the pre-trade approval ticket (posts the HITL gate; approves/executes nothing) and the transaction snap, with no caller-supplied webhookUrl.",
   },
@@ -221,6 +264,9 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     bindings: ["AI_SEARCH_AGENT"],
     sourceFile: "src/agents/aiSearchAgent.ts",
     role: "AI Search agent (#2223): three-path search — Cloudflare AI Search namespace binding, the shared instance's MCP endpoint, REST fallback (src/agents/aiSearchPaths.ts).",
+    status: "degraded",
+    statusReason:
+      "Degraded: the ai_search_namespaces binding is dashboard-issued and NOT declared in wrangler.jsonc, so the namespace path is config-gated; the class degrades honestly to its MCP-endpoint and REST paths (see notes).",
     notes:
       "Landed after the mesh survey base (migration v12). The ai_search_namespaces binding is NOT declared in wrangler.jsonc — its namespace value is dashboard-issued (see src/types.ts) — so the namespace path is config-gated and degrades honestly to the other two paths. Chat reach (G1, verified in #2351): the chat turn already reaches this agent through the ai_search_agent_search command (#2250, src/mcp/cloudflareAgentCommands.ts) — a typed stub over the AI_SEARCH_AGENT binding on the fixed service instance \"aisearch\", threading the turn's session login as callerLogin so report-type results are served only to their owner. No mesh-door command is added for it: a second door to the same agent would be a parallel implementation.",
   },
@@ -231,6 +277,9 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     bindings: ["TICKER_AGENT"],
     sourceFile: "src/agents/ticker-agent.ts",
     role: "Public market-quotes tape: one shared instance (\"ticker\") broadcasting quote ticks over WebSocket (#2230).",
+    status: "live",
+    statusReason:
+      "Bound on TICKER_AGENT; the public quotes tape broadcast is live; no recorded degradation.",
     notes: "Landed after the mesh survey base (migration v11). Not routed through routeAgentRequest; no A2A surface.",
   },
   {
@@ -240,6 +289,9 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     bindings: ["SANDBOX_AGENT"],
     sourceFile: "src/agents/sandbox-agent.ts",
     role: "Sandbox command agent (#2253): delegates execution to ETradeSandboxService.",
+    status: "degraded",
+    statusReason:
+      "Degraded: no container backend is configured (no containers declared in wrangler.jsonc), so run_command honestly returns executed:false; the class and its A2A surface are live, the execution backend is absent (see notes).",
     notes:
       "Landed after the mesh survey base (migration v13). No container backend is configured, so runs honestly return executed:false. The A2A surface recorded as a follow-up landed in S15 (#2421): card + resolution + src/agents/sandboxA2aDispatch.ts (sandbox.status, sandbox.run_command) on the A2A edge gate; S16 (#2426) gave the surface its own mesh credential (A2A_TOKEN_SANDBOX — see the identity records), with the shared token as its transitional fallback. Chat/MCP still reach the sandbox capability by constructing the service directly, not through this class (the #2253 wiring follow-up; see the census).",
   },
@@ -250,6 +302,9 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     bindings: ["SESSION_STORE"],
     sourceFile: "src/security/sessionStore.ts",
     role: "Session, identity, and broker-token store: app sessions, OAuth tokens, channel identity mappings. A plain Durable Object, not an agent.",
+    status: "live",
+    statusReason:
+      "Bound on SESSION_STORE; the session/identity store every door authenticates against; no recorded degradation.",
   },
   {
     className: "OptionsScannerMCP",
@@ -258,6 +313,9 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     bindings: ["OPTIONS_SCANNER_MCP"],
     sourceFile: "src/services/cloudflareWalletsScanner.ts",
     role: "Paid options-scanner MCP server (x402).",
+    status: "live",
+    statusReason:
+      "Bound on OPTIONS_SCANNER_MCP; the paid scanner surface is live. Registered for binding completeness — OUT of mesh scope per #2225.",
     notes: "Registered for binding completeness; OUT of mesh scope per #2225 (no changes to this class in the programme).",
   },
 ];
@@ -930,6 +988,126 @@ export const MESH_DOORS: MeshDoorEntry[] = [
     gate: "Runs inside the parent turn's identity and instance boundary.",
   },
 ];
+
+// ---------------------------------------------------------------------------
+// Per-door cost budgets (S19, #2460, programme G13c) — for each
+// door: the cost unit, the cap where one honestly exists, the
+// accounting source where cost is measurable, the enforcement
+// state, and the recorded gaps where it is not. The discipline
+// is the SubrequestBudget one-ledger/hard-cap shape (#1204):
+// a cap is recorded ONLY where a real enforcing surface charges
+// a real ledger — today that is exactly the PaymentsAgent
+// BudgetGuard (src/payments/budget-guard.ts), restored from
+// mas_transactions on every check, whose DEFAULT_BUDGET caps
+// the S19 suite pins this record against. Where a door's cost
+// cannot be measured, the record says so in `gaps` and carries
+// NO numbers: a fabricated cap would be a control that does not
+// exist. The door-level guard substrate (ledger + coded refusal)
+// lives in src/services/meshDoorBudgets.ts.
+// ---------------------------------------------------------------------------
+
+export interface MeshDoorCostBudgetEntry {
+  door: MeshDoorEntry["id"];
+  /** The cost unit this record prices. */
+  unit: string;
+  /** Caps in `unit`, only where a real enforcing surface applies them. */
+  caps: { perCall?: number; perDay?: number } | null;
+  /** The named surface that measures this door's cost, or null. */
+  accountingSource: string | null;
+  /** What the accounting covers — and what it does not. */
+  accountingScope: string | null;
+  enforcement: "enforced" | "accounting-only" | "not-measurable";
+  /** The surface that refuses over-cap work. Enforced records only. */
+  enforcingSurface: string | null;
+  /** Cost facets that cannot be measured today, stated plainly. */
+  gaps: string[];
+}
+
+export const MESH_DOOR_COST_BUDGETS: MeshDoorCostBudgetEntry[] = [
+  {
+    door: "chat-turn",
+    unit: "usd-cents (paid-action spend)",
+    caps: { perCall: 1000, perDay: 5000 },
+    accountingSource:
+      "mas_transactions (the ledger of record, src/payments/ledger.ts), read through PaymentsAgent.todaySpent / listPayments (src/agents/payments-agent.ts)",
+    accountingScope:
+      "Spend is bucketed by agentId — AGENTIC_SPEND_AGENT_ID for orchestrator-attributed spend — not by door: the same bucket is charged by chat-initiated and schedule-initiated paid actions, so a ledger row's door attribution is partial (the S16 caller attribution and the S17 trace id ride the payment audit record, not the bucket).",
+    enforcement: "enforced",
+    enforcingSurface:
+      "BudgetGuard (src/payments/budget-guard.ts) restored from the ledger inside PaymentsAgent.budgetCheck / processPaidRequest, fail-closed; the chat paid path reaches it through the S5 budget door (check_payment_budget) and the S10 paid-screen flow (src/agents/orchestrator/nlqPorts.ts)",
+    gaps: [
+      "Model/token cost of a chat turn is not metered anywhere in the turn path (the doors-and-layers §7.1 named gap): no per-turn usage record exists to price, so no token cap can honestly be recorded for this door. AI Gateway (#1741) is not activated (no AI_GATEWAY_ID set), so gateway-side metering is unavailable either.",
+    ],
+  },
+  {
+    door: "http-routes",
+    unit: "usd-cents (x402 settled charges)",
+    caps: null,
+    accountingSource:
+      "Native ledger rows written from verified x402 facilitator settlements (S11, #2396; the three priced endpoints verified end-to-end by #2406) — src/payments/ledger.ts / mas_transactions",
+    accountingScope:
+      "Only the priced endpoints are metered: a settled charge is recorded per request with its amount. Unpriced routes record no cost at all.",
+    enforcement: "accounting-only",
+    enforcingSurface: null,
+    gaps: [
+      "No per-request cost metering exists for unpriced routes (no usage record is written on the general route path).",
+      "No aggregate cap exists at the route layer: the per-request charge is the operator PriceCatalogue price itself, and spend caps live in PaymentsAgent's BudgetGuard behind the chat/A2A paid paths, not in route handlers — so this door is accounted, not capped.",
+    ],
+  },
+  {
+    door: "mcp",
+    unit: "usd-cents (x402 scanner charges)",
+    caps: null,
+    accountingSource:
+      "The paid scanner surface (/mcp/scanner, OptionsScannerMCP) settles through the same x402 / native-ledger path as the priced HTTP routes",
+    accountingScope:
+      "Only the scanner surface is metered. The McpToolFactory catalog's commands record no per-call cost.",
+    enforcement: "accounting-only",
+    enforcingSurface: null,
+    gaps: [
+      "Catalog commands carry no per-call cost metering: an external MCP call writes no usage row, so no cap can be charged on this door today.",
+      "The mesh-door commands are not served on this door at all (no actingLogin carrier for external callers, S5) — their cost belongs to the chat-turn record, which is where they execute.",
+    ],
+  },
+  {
+    door: "a2a",
+    unit: "usd-cents (paid-request spend)",
+    caps: { perCall: 1000, perDay: 5000 },
+    accountingSource:
+      "mas_transactions via PaymentsAgent.processPaidRequest, which records only after facilitator verification (the S16/S17 attribution rides the record)",
+    accountingScope:
+      "Per-agentId bucket, with S16's two-part attribution: the edge-authenticated caller is recorded beside the agentId on the payments audit record — A2A-origin spend is the one door whose rows carry caller attribution end to end.",
+    enforcement: "enforced",
+    enforcingSurface:
+      "BudgetGuard inside PaymentsAgent.processPaidRequest, reached from src/agents/payments/a2aDispatch.ts — a denied check throws before any payment work runs",
+    gaps: [
+      "Non-payment A2A calls are unmetered. S17 records a trace hop per A2A call in agent_mesh_trace_hops, so invocation counts are observable — but hop recording is best-effort by design, and a lossy ledger cannot ground a hard cap, so no invocation cap is recorded for this door.",
+    ],
+  },
+  {
+    door: "agent-as-a-tool",
+    unit: "model-tokens (sub-agent turns)",
+    caps: null,
+    accountingSource: null,
+    accountingScope: null,
+    enforcement: "not-measurable",
+    enforcingSurface: null,
+    gaps: [
+      "A sub-agent dispatch runs inside the parent turn's identity and instance boundary and consumes the parent turn's model usage — which is itself unmetered (see the chat-turn record's gap). No per-dispatch usage record exists to price or cap.",
+    ],
+  },
+];
+
+/** The cost-budget record for one door. */
+export function doorCostBudget(
+  door: MeshDoorEntry["id"],
+): MeshDoorCostBudgetEntry {
+  const record = MESH_DOOR_COST_BUDGETS.find((r) => r.door === door);
+  if (!record) {
+    throw new Error(`no cost-budget record for door ${door}`);
+  }
+  return record;
+}
 
 // ---------------------------------------------------------------------------
 // Workflows — the three ThinkWorkflow classes and their starters.
@@ -1918,4 +2096,40 @@ export const MESH_G12_PROOF = {
   doors: ["chat-turn", "http-routes", "mcp", "a2a", "agent-as-a-tool"],
   scope:
     "Proven for the census cells the golden catalog enumerates, at binding-seam fidelity; unenumerated cells rest on the S15 parity pins.",
+} as const;
+
+// ---------------------------------------------------------------------------
+// Skills-packaging assessment (S19, #2460) — the owner addition
+// on #2225 (comment 6517280689) asked whether Agents SDK Skills
+// are the RSI loop's knowledge-packaging format. This record is
+// the decision-grade answer. It is an ASSESSMENT ONLY: S14
+// recorded the agent-skills tool family ABSENT and the G7 matrix
+// records the skills aspect GAP for every PortThink agent, and
+// both records stand unchanged — adoption is a separate
+// owner-sequenced decision after this programme, and this slice
+// builds no adoption machinery (no getSkills override, no skill
+// source, no binding).
+// ---------------------------------------------------------------------------
+
+export const MESH_SKILLS_ASSESSMENT = {
+  issue: 2460,
+  question:
+    "Agents SDK Skills (SKILL.md packs, loaded on demand via Think.getSkills()) as the RSI improvement loop's knowledge-packaging format — the format in which the loop's accumulated know-how (calibration notes, door playbooks, evaluation findings) would be carried to future turns.",
+  recommendation: "adopt-as-packaging",
+  adoptionState:
+    "deferred — adoption itself is an owner-gated decision for the post-programme harness discussion; this record recommends the format for when that decision is taken, and adopts nothing now",
+  fits: [
+    "A SKILL.md pack is a plain file in the repository: versioned, diffable, and reviewable through the same gitops gate (issue → PR → CI → merge) that the loop already writes back through — packaging knowledge as packs keeps the loop's only write path the gated repository (doors-and-layers §7.4).",
+    "The RSI loop's knowledge products are procedural know-how in prose — how a door behaves, what a falsified thesis taught, how a golden task is diagnosed — which is exactly the shape a skill pack carries (instructions plus bundled resources), unlike the registry (facts) or the eval store (outcomes).",
+    "The adapter is already present in the pinned SDK (@cloudflare/think 0.23.0's Think.getSkills(), inherited through PortThink), so packaging in this format does not pre-commit to a vendor-specific store: sources may be code-manifest (in-repo) packs, which is the source shape that keeps packs under repository review.",
+  ],
+  doesNotFit: [
+    "A skill is instructions the model follows — it is not evidence and not enforcement. Gates, budgets, falsification criteria, and the evidence bar stay in deterministic code and the registry; anything safety-relevant must never live only in a pack, because a pack cannot refuse anything.",
+    "A pack is consumed at turn time by a model, so its content is guidance, not a record: the loop's evidence (traces, eval outcomes, ledger rows) remains the system of record, and a pack that disagrees with the record is simply wrong prose until a gated change fixes it.",
+    "Fleet adoption is not a flip: the skills aspect is GAP for all 12 PortThink agents (matrix), adoption is a per-class getSkills() override plus a chosen source, and whether the port's adapter-driven turn surfaces Think's skills tools end-to-end is still unverified (the S14 conformance caveat).",
+  ],
+  controlPoint:
+    "Source write-access is the control point: a skill is instructions the model follows, so a pack is only as trustworthy as the review that merged it. In-repo (code-manifest) packs inherit the repository's review; an out-of-repo source (an R2 bucket, a workspace directory) would move the control point to that store's write ACL and would need its own owner decision and gate story before use.",
+  consistency:
+    "Consistent with S14 (#2417): the agent-skills tool family in this registry remains ABSENT and the matrix's skills GAP cells are unchanged by this assessment. The recommendation names a format for a future adoption decision; it is not adoption.",
 } as const;

@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Button, Notice } from "./components/ui";
-import { usePolling } from "./usePolling";
-import { getPollingConfig } from "./pollingConfig";
+import { subscribeOptionsLatest, refreshOptionsLatest } from "./optionsLatestShared";
 import { apiFetch as fetch } from "./apiFetch";
 import { listProfiles } from "./scannerApi";
 import type { StrategyProfile } from "../trading";
@@ -281,35 +280,26 @@ export function ScheduledOptionsManager({
   }, [activeEnv, userLogin]);
 
 
-  // Issue #223: latest autonomous options runs. Polls so a scheduled fire
-  // shows up without a manual refresh; failure is reported, never faked.
-  const fetchLatestRuns = useCallback(async () => {
-    setRunsLoading(true);
-    try {
-      const res = await fetch("/api/options/latest", { headers: authHeaders() });
-      const data = (await res.json().catch(() => ({}))) as any;
-      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
-      setLatestRuns(Array.isArray(data?.runs) ? data.runs.slice(0, 5) : []);
-      setRunsError(null);
-    } catch (err: any) {
-      setRunsError(err?.message || "Could not load autonomous options runs");
-    } finally {
-      setRunsLoading(false);
-    }
-  }, [authHeaders]);
-
+  // Issue #2470 S4: latest autonomous options runs, via the shared
+  // subscription (one network poll per cadence even when
+  // AutonomousOptionsRuns is mounted too). Cadence, hidden-pause,
+  // and externalized tuning live in the shared module, unchanged
+  // from #2422. Mount and host-refresh show the loading flag; poll
+  // ticks update silently, so the indicator no longer flashes every
+  // cadence (data updates identically). Failure is reported, never
+  // faked.
   useEffect(() => {
-    fetchLatestRuns();
-  }, [fetchLatestRuns]);
-
-  // Issue #2419: shared treatment — hidden-pause + externalized
-  // cadence (was a hand-rolled 60s setInterval with no visibility
-  // handling). The immediate fetch above is unchanged. Note the
-  // double-poll residual: AutonomousOptionsRuns polls the same
-  // /api/options/latest endpoint on the same cadence; dedup would
-  // need a shared fetch cache and is deliberately not forced here.
-  const optionsLatestMs = getPollingConfig().optionsLatestPollMs;
-  usePolling(fetchLatestRuns, { fastMs: optionsLatestMs, idleMs: optionsLatestMs });
+    setRunsLoading(true);
+    return subscribeOptionsLatest((snap) => {
+      setRunsLoading(false);
+      if (snap.ok) {
+        setLatestRuns((snap.runs as OptionsRunSummary[]).slice(0, 5));
+        setRunsError(null);
+      } else {
+        setRunsError(snap.error || `HTTP ${snap.status}`);
+      }
+    });
+  }, []);
 
   // Open the modal for a NEW schedule (never an edit session).
   const openCreateModal = () => {
@@ -733,10 +723,11 @@ export function ScheduledOptionsManager({
     if (prevRefreshSignal.current !== refreshSignal) {
       prevRefreshSignal.current = refreshSignal;
       fetchSchedules();
-      fetchLatestRuns();
+      setRunsLoading(true);
+      refreshOptionsLatest();
       fetchAudit();
     }
-  }, [refreshSignal, fetchSchedules, fetchLatestRuns, fetchAudit]);
+  }, [refreshSignal, fetchSchedules, fetchAudit]);
 
   // S7: the host's tab filter narrows which screening kinds show.
   const visibleSchedules = schedules.filter((s) =>

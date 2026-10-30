@@ -6,7 +6,7 @@
  * - getValidatedSession idle expiry (default 30 min, caller-overridable),
  *   with legacy sessions (no lastActivityMs) still validating — the
  *   Phase 1 contract is preserved, not silently tightened.
- * - touchSession's >= 60s rule (documented ±60s precision).
+ * - touchSession's >= 300s rule (documented ±300s precision; #2470 S2).
  * - updateSessionWithStore persisting under the SAME id with TTL =
  *   remaining absolute time, never extending absolute expiry.
  * - Auth audit event builders + best-effort recording (Slice 5).
@@ -155,7 +155,7 @@ describe("buildExtendedSessionData (Phase 2a)", () => {
 // touchSession
 // ---------------------------------------------------------------------------
 
-describe("touchSession (Phase 2a, ±60s precision)", () => {
+describe("touchSession (Phase 2a, ±300s precision)", () => {
   it("touches a session that has never recorded activity", () => {
     const session = baseSession();
     const result = touchSession(session, NOW);
@@ -164,22 +164,22 @@ describe("touchSession (Phase 2a, ±60s precision)", () => {
     expect(session.lastActivityMs).toBeUndefined(); // never mutates the input
   });
 
-  it("does not touch a session active less than 60s ago", () => {
-    const session = baseSession({ lastActivityMs: NOW - 59_000 });
+  it("does not touch a session active less than 300s ago", () => {
+    const session = baseSession({ lastActivityMs: NOW - 299_000 });
     const result = touchSession(session, NOW);
     expect(result.touched).toBe(false);
-    expect(result.session.lastActivityMs).toBe(NOW - 59_000);
+    expect(result.session.lastActivityMs).toBe(NOW - 299_000);
   });
 
-  it("touches a session active exactly 60s ago", () => {
+  it("touches a session active exactly one touch interval ago", () => {
     const session = baseSession({ lastActivityMs: NOW - IAAA_TOUCH_MIN_INTERVAL_MS });
     const result = touchSession(session, NOW);
     expect(result.touched).toBe(true);
     expect(result.session.lastActivityMs).toBe(NOW);
   });
 
-  it("touches a session active more than 60s ago and preserves every other field", () => {
-    const session = baseSession({ lastActivityMs: NOW - 61_000, internalUserId: "user-1" });
+  it("touches a session active more than 300s ago and preserves every other field", () => {
+    const session = baseSession({ lastActivityMs: NOW - 301_000, internalUserId: "user-1" });
     const result = touchSession(session, NOW);
     expect(result.touched).toBe(true);
     expect(result.session).toEqual({ ...session, lastActivityMs: NOW });

@@ -199,37 +199,44 @@ export async function withTransaction<T>(
 /* DO leg — storage.transactionSync                                    */
 /* ------------------------------------------------------------------ */
 
-/** Structural shape of the DO storage transaction primitive. */
+/**
+ * Structural shape of the DO storage surface the leg needs —
+ * the real DurableObjectStorage shape, as observed under
+ * workerd by #2348 (divergence D-1): `transactionSync` invokes
+ * its closure with NO argument, and the storage's own `sql`
+ * handle, used inside the closure, is the transaction-scoped
+ * handle. (Step 0 modelled a `txn` argument carrying sql; the
+ * real facade has no such argument — see #2455.)
+ */
 export interface DoTransactionStorage {
-  transactionSync?: <T>(
-    closure: (txn: {
-      sql: { exec(query: string, ...params: unknown[]): unknown };
-    }) => T,
-  ) => T;
+  sql: {
+    exec(query: string, ...params: unknown[]): unknown;
+  };
+  transactionSync?: <T>(closure: () => T) => T;
 }
 
 class DoSqlUnit implements TransactionUnit {
   readonly backendKind = "do-sql" as const;
-  private txnSql: {
+  private handle: {
     exec(query: string, ...params: unknown[]): unknown;
   } | null = null;
 
-  open(txnSql: { exec(query: string, ...params: unknown[]): unknown }): void {
-    this.txnSql = txnSql;
+  open(handle: { exec(query: string, ...params: unknown[]): unknown }): void {
+    this.handle = handle;
   }
 
   close(): void {
-    this.txnSql = null;
+    this.handle = null;
   }
 
   exec(query: string, ...params: unknown[]): void {
-    if (!this.txnSql) {
+    if (!this.handle) {
       throw new DataFoundationError(
         DataFoundationCode.TX_CANNOT_HONOUR,
         "DO transaction unit used outside its transactionSync closure.",
       );
     }
-    this.txnSql.exec(query, ...params);
+    this.handle.exec(query, ...params);
   }
 }
 
@@ -253,25 +260,54 @@ export class DoSqlTransactionBackend implements TransactionBackend {
         "DO storage exposes no transactionSync primitive; the unit was refused before any write ran.",
       );
     }
+    const sql = this.storage.sql;
+    if (!sql || typeof sql.exec !== "function") {
+      throw new DataFoundationError(
+        DataFoundationCode.TX_CANNOT_HONOUR,
+        "DO storage exposes no sql surface; the unit was refused before any write ran.",
+      );
+    }
     let result!: T;
+    let closureRan = false;
     // transactionSync executes the closure synchronously and
     // rolls back if it throws — including the cannot-honour
-    // throw for an async wrapped call below.
-    this.storage.transactionSync((txn) => {
-      sqlUnit.open(txn.sql);
-      try {
-        const value = fn(sqlUnit);
-        if (isThenable(value)) {
-          throw new DataFoundationError(
-            DataFoundationCode.TX_CANNOT_HONOUR,
-            "The wrapped call returned a promise on the DO leg; transactionSync closures must be synchronous, so the unit was rolled back and refused.",
-          );
+    // throw for an async wrapped call below. The facade invokes
+    // the closure with no argument (#2348 D-1): the unit is
+    // opened on the storage's own sql, which inside the closure
+    // is the transaction-scoped handle.
+    try {
+      this.storage.transactionSync(() => {
+        closureRan = true;
+        sqlUnit.open(sql);
+        try {
+          const value = fn(sqlUnit);
+          if (isThenable(value)) {
+            throw new DataFoundationError(
+              DataFoundationCode.TX_CANNOT_HONOUR,
+              "The wrapped call returned a promise on the DO leg; transactionSync closures must be synchronous, so the unit was rolled back and refused.",
+            );
+          }
+          result = value;
+        } finally {
+          sqlUnit.close();
         }
-        result = value;
-      } finally {
-        sqlUnit.close();
+      });
+    } catch (err) {
+      if (!closureRan && !(err instanceof DataFoundationError)) {
+        // The primitive itself failed before the closure ran —
+        // a transactionSync that throws without ever invoking
+        // the unit. No write ran, so this is a refusal, not a
+        // rollback: surface the typed catalog error rather than
+        // the primitive's bare error. (A catalog error thrown by
+        // the primitive, and any error thrown from inside the
+        // closure, propagate unchanged.)
+        throw new DataFoundationError(
+          DataFoundationCode.TX_CANNOT_HONOUR,
+          `DO storage transactionSync failed before the unit's closure ran (${err instanceof Error ? err.message : String(err)}); the unit was refused before any write ran.`,
+        );
       }
-    });
+      throw err;
+    }
     return result;
   }
 }

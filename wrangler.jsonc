@@ -210,6 +210,16 @@
     // secrets set). Rollback is removing google from the list below
     // and redeploying — no code change.
     "IAAA_WIRING_ENABLED": "1",
+    // Issue #2444 — wired session freshness gate (DO request meter).
+    // A cached wired session fetched within this window (ms) is served
+    // without a fresh store read. Default 30s when unset. SECURITY
+    // TRADE-OFF: revocation/step-up propagation is delayed up to the
+    // window (CISO domain, #945 open item) — merge sign-off on this
+    // value belongs to the owner/CISO. Rollback is setting this to
+    // "0" (gating disabled) and redeploying — no code change. NOTE:
+    // removing the var does NOT disable gating (the code default is
+    // 30s); only "0" disables it.
+    "IAAA_WIRED_FRESHNESS_MS": "30000",
     "IAAA_ENABLED_PROVIDERS": "github,google",
     // Issue #945, GitHub activation (owner-authorized, updated 2026-10-23
     // after #1182 stable identity): bootstrap the owner by issuer:subject

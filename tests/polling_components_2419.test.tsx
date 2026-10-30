@@ -88,12 +88,15 @@ describe("heavy-hub polling wiring (#2419)", () => {
     expect(src).not.toContain("setInterval(");
   });
 
-  it("ScheduledOptionsManager polls through usePolling with an externalized cadence", () => {
+  it("ScheduledOptionsManager shares the options-latest poll (#2470 S4, cadence externalized in the shared module)", () => {
     const src = readFileSync("src/client/ScheduledOptionsManager.tsx", "utf8");
-    expect(src).toContain('from "./usePolling"');
-    expect(src).toContain("usePolling(fetchLatestRuns");
-    expect(src).toContain("getPollingConfig().optionsLatestPollMs");
-    expect(src).not.toContain("setInterval(fetchLatestRuns");
+    expect(src).toContain('from "./optionsLatestShared"');
+    expect(src).toContain("subscribeOptionsLatest(");
+    expect(src).not.toContain('fetch("/api/options/latest"');
+    expect(src).not.toContain("usePolling(fetchLatestRuns");
+    const shared = readFileSync("src/client/optionsLatestShared.ts", "utf8");
+    expect(shared).toContain("getPollingConfig().optionsLatestPollMs");
+    expect(shared).toContain("startPolling(");
   });
 
   it("Chat auto-refresh uses the shared treatment with an externalized floor", () => {

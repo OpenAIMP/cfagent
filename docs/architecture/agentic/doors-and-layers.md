@@ -300,7 +300,13 @@ are not layers in the stack: each one observes or constrains every layer.
   realizations, falsification-gated decisions). Evidence is what makes
   improvement claims checkable rather than asserted.
 - Cost and token metering per door, per agent, per run (G13 budgets).
-  Today: absent in the turn path — a named gap.
+  Today: absent in the turn path — a named gap. Per-door budget
+  records landed as S19 (#2460): the registry's
+  `MESH_DOOR_COST_BUDGETS` states, for each door, what is enforced
+  (the PaymentsAgent BudgetGuard caps on the chat/A2A spend
+  facets), what is accounted only (x402 charges), and what is
+  still not measurable (turn-path tokens; sub-agent dispatches) —
+  gaps recorded, never priced with invented numbers.
 
 ### 7.2 Knowledge plane — what the platform can recall
 
@@ -346,7 +352,14 @@ repository — never around it:
    design).
 3. **Propose** — findings become §5 issues through the proposal pipeline;
    the platform files its own change proposals with the same evidence bar
-   as any lane's.
+   as any lane's. The pipeline landed as S19 (#2460,
+   `src/services/meshProposalPipeline.ts`): it reads eval outcomes
+   through the S18 store port, re-verifies its evidence bar (sample
+   floor + strict-majority failure, #1742's discipline) at check
+   time, and files through an injectable seam — filing is its
+   maximum reach. It ships as library + tests; a production caller
+   is a named, owner-sequenced follow-up, so today the stage is
+   built and proven, not yet scheduled.
 4. **Gate** — gitops decides: branch, PR, CI, review, merge. No
    self-merge, no direct production mutation. Prompt steps never decide
    money or screening outcomes; where generation is used (Phase 6), a

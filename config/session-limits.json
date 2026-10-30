@@ -6,7 +6,7 @@
   "idleTimeoutMs": 28800000,
   "minIdleTimeoutMs": 300000,
   "stepUpFreshnessMs": 900000,
-  "touchIntervalMs": 60000,
+  "touchIntervalMs": 300000,
   "cachePositiveTtlMs": 60000,
   "cacheNegativeTtlMs": 10000,
   "cacheMaxEntries": 2000,

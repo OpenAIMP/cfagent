@@ -180,18 +180,18 @@ describe("validateAndTouchWiredSession", () => {
     expect(deps.invalidates).toEqual(["sess-1"]);
   });
 
-  it("wired session untouched for >=60s is touched, persisted, and invalidated", async () => {
+  it("wired session untouched for >=300s is touched, persisted, and invalidated", async () => {
     const fresh = wiredSession({ lastActivityMs: 1_000_000 });
     const deps = depsFor({ fresh });
     const result = await validateAndTouchWiredSession(
       deps,
       wiredSession(),
       "sess-1",
-      1_120_000,
+      1_301_000,
     );
     expect(result.wired).toBe(true);
     if (result.wired) {
-      expect(result.session?.lastActivityMs).toBe(1_120_000);
+      expect(result.session?.lastActivityMs).toBe(1_301_000);
       expect(result.session?.internalUserId).toBe("user-1");
     }
     expect(deps.persists).toBe(1);
@@ -217,11 +217,11 @@ describe("validateAndTouchWiredSession", () => {
       deps,
       wiredSession(),
       "sess-1",
-      1_120_000,
+      1_301_000,
     );
     expect(result.wired).toBe(true);
     if (result.wired) {
-      expect(result.session?.lastActivityMs).toBe(1_120_000);
+      expect(result.session?.lastActivityMs).toBe(1_301_000);
     }
     expect(deps.invalidates).toEqual([]);
   });

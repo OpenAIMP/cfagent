@@ -11,7 +11,7 @@
 import type { Env, ScheduledTaskResult, StageChainConfig, TradeRecord, ScreenedStockItem } from "../types";
 import { DatabaseORM } from "../orm";
 import { codedMessage } from "../outcomes/outcomeAspects";
-import { renewETradeAccessToken, getStoredTokens } from "../security/etradeOAuth";
+import { renewETradeAccessToken, getStoredTokens, etradeIdentityFromLogin } from "../security/etradeOAuth";
 import { getServiceUserLogin } from "../security/serviceIdentity";
 import { createMessagingPorts } from "../messaging/createMessagingPorts";
 import { toScreenerEnvelope } from "../messaging/screenerEventEnvelope";
@@ -496,6 +496,14 @@ export class ScheduledTasksService {
    * blob storage (the host DO storage, when the host supplied it) and
    * the alert/record path is the follow-up bridge plus a direct Slack
    * alert inside the guard. Never throws.
+   *
+   * Issue #2440: the run-as login resolves to its session identity
+   * via the alias record before the guard runs, so tokens stored
+   * under internal-id or alias-login keys resolve exactly as the
+   * panel seam resolves them. The login is already trusted here —
+   * it is the schedule's owner login — and an unresolvable login
+   * yields an empty identity, keeping today's login-only lookup
+   * (the helper never throws: a store blip falls back to {}).
    */
   private async guardScheduledAuth(
     userLogin: string,
@@ -511,10 +519,12 @@ export class ScheduledTasksService {
       blob && typeof blob.get === "function" && typeof blob.put === "function"
         ? blob
         : undefined;
+    const identity = await etradeIdentityFromLogin(this.env, userLogin);
     const res = await guardScheduledETradeAuth({
       env: this.env,
       userLogin,
       environment,
+      identity,
       store,
       bridge: this.followupScheduler,
       kind,

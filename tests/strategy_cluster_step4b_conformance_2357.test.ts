@@ -49,9 +49,20 @@ import {
 import { aspectTransactionRunner } from "../src/data/transactionRunner";
 import type { Challenger } from "../src/data/challengerPorts";
 
-/** SqlStorage-shaped executor over node:sqlite (real semantics). */
+/**
+ * SqlStorage-shaped executor over node:sqlite (real semantics),
+ * doubling as its own storage: `sql` is the storage's own
+ * handle (this), and `transactionSync` invokes its closure
+ * with NO argument — the real facade's shape, as observed by
+ * #2348 and implemented by the aspect after #2455 (the pre-fix
+ * double passed a `{ sql }` argument; corrected here,
+ * semantics unchanged).
+ */
 class SqliteTestStorage {
   readonly sqlite = new DatabaseSync(":memory:");
+  get sql(): SqliteTestStorage {
+    return this;
+  }
   exec(query: string, ...params: unknown[]): unknown[] {
     const stmt = this.sqlite.prepare(query);
     if (/^\s*(SELECT|PRAGMA)/i.test(query)) {
@@ -60,10 +71,10 @@ class SqliteTestStorage {
     stmt.run(...(params as never[]));
     return [];
   }
-  transactionSync<T>(closure: (txn: { sql: SqliteTestStorage }) => T): T {
+  transactionSync<T>(closure: () => T): T {
     this.sqlite.exec("BEGIN");
     try {
-      const result = closure({ sql: this });
+      const result = closure();
       this.sqlite.exec("COMMIT");
       return result;
     } catch (err) {
