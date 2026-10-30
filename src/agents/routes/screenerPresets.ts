@@ -25,6 +25,8 @@
  */
 
 import type { SqlStorage } from "../../orm";
+import { createOrchestratorTablePorts } from "../../data/createOrchestratorTablePorts";
+import type { ScreenerPresetPort, ScreenerPresetRow } from "../../data/orchestratorTablePorts";
 import {
   parseOptionScreenerFilter,
   parseStockScreenerFilter,
@@ -37,17 +39,7 @@ export interface ScreenerPresetsRouteContext {
 
 const MAX_NAME_LENGTH = 100;
 
-interface PresetRow {
-  id: string;
-  user_login: string;
-  name: string;
-  asset_class: string;
-  criteria_json: string;
-  created_at: string;
-  updated_at: string;
-}
-
-function rowToPreset(row: PresetRow) {
+function rowToPreset(row: ScreenerPresetRow) {
   return {
     id: row.id,
     name: row.name,
@@ -92,16 +84,17 @@ export async function handleScreenerPresetRoutes(
   ctx: ScreenerPresetsRouteContext
 ): Promise<Response | null> {
   const userLogin = request.headers.get("x-user-login") || sessionId;
+  // Issue #2359 (#1976 step 4d): all three handlers serve
+  // through the screener-preset port (the table's port home);
+  // the validation + response shaping stays in this module.
+  // Composed lazily per branch, as the legacy handlers only
+  // touched storage on a matched path.
+  const presets = (): ScreenerPresetPort =>
+    createOrchestratorTablePorts(ctx.ensureTables() as never).presets;
 
   if (path.endsWith("/screener/presets") && request.method === "GET") {
     try {
-      const sql = ctx.ensureTables();
-      const rows = Array.from(
-        sql.exec(
-          "SELECT id, user_login, name, asset_class, criteria_json, created_at, updated_at FROM mas_screener_presets WHERE user_login = ? ORDER BY updated_at DESC, created_at DESC",
-          userLogin
-        )
-      ) as PresetRow[];
+      const rows = presets().listByUser(userLogin);
       return Response.json({ presets: rows.map(rowToPreset) });
     } catch {
       return Response.json({ error: "Failed to list presets." }, { status: 500 });
@@ -120,19 +113,17 @@ export async function handleScreenerPresetRoutes(
       return Response.json({ error: validated.error }, { status: 400 });
     }
     try {
-      const sql = ctx.ensureTables();
       const now = new Date().toISOString();
       const id = crypto.randomUUID();
-      sql.exec(
-        "INSERT INTO mas_screener_presets (id, user_login, name, asset_class, criteria_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      presets().insertPreset({
         id,
-        userLogin,
-        validated.name,
-        validated.assetClass,
-        JSON.stringify(validated.criteria),
-        now,
-        now
-      );
+        user_login: userLogin,
+        name: validated.name,
+        asset_class: validated.assetClass,
+        criteria_json: JSON.stringify(validated.criteria),
+        created_at: now,
+        updated_at: now,
+      });
       return Response.json(
         {
           preset: {
@@ -154,14 +145,10 @@ export async function handleScreenerPresetRoutes(
   if (path.startsWith("/screener/presets/") && request.method === "DELETE") {
     const id = path.slice("/screener/presets/".length);
     try {
-      const sql = ctx.ensureTables();
-      const existing = Array.from(
-        sql.exec("SELECT id FROM mas_screener_presets WHERE id = ? AND user_login = ?", id, userLogin)
-      );
-      if (existing.length === 0) {
+      if (!presets().existsForUser(id, userLogin)) {
         return Response.json({ error: "Preset not found." }, { status: 404 });
       }
-      sql.exec("DELETE FROM mas_screener_presets WHERE id = ? AND user_login = ?", id, userLogin);
+      presets().deleteForUser(id, userLogin);
       return Response.json({ deleted: true });
     } catch {
       return Response.json({ error: "Failed to delete preset." }, { status: 500 });
