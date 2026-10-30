@@ -1,6 +1,8 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { Chat } from "./Chat";
+import { BootToast } from "./BootToast";
+import { signedInMessage, stripAuthOutcomeParam } from "./authOutcome";
 import { ToastProvider } from "./components/ui";
 import { applyThemeToDocument, getStoredTheme, initThemeListener } from "./theme";
 import { applyTypographyToDocument, getStoredFontScale, getStoredFontStyle, initTypographyListener } from "./typography";
@@ -40,7 +42,11 @@ if (!user) {
   // is the login start. Remember the page being refreshed so the
   // post-login boot returns to it instead of the default tab.
   try {
-    const next = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    // #2402: the saved return page never carries the outcome
+    // parameter, so a post-login restore cannot reshow an outcome.
+    const next = stripAuthOutcomeParam(
+      `${window.location.pathname}${window.location.search}${window.location.hash}`
+    );
     if (next.startsWith("/") && !next.startsWith("//")) {
       window.sessionStorage.setItem("auth:next", next);
     }
@@ -49,6 +55,23 @@ if (!user) {
   }
   window.location.replace("/auth/login/github");
 } else {
+  // #2402: one-time sign-in confirmation. The parameter is stripped
+  // before anything else reads the URL, so a refresh never reshows
+  // it; the message text comes from the verified boot user, never
+  // from the URL.
+  const bootMessage = signedInMessage(
+    (window as any).__AUTH_OUTCOME__,
+    user.name ?? user.login
+  );
+  try {
+    const cleaned = stripAuthOutcomeParam(window.location.href);
+    if (cleaned !== window.location.href) {
+      window.history.replaceState({}, "", cleaned);
+    }
+  } catch {
+    // Ignore history failures; the toast still shows once, and the
+    // parameter is harmless if it survives.
+  }
   // Restore the page saved before the login redirect, before Chat reads
   // the URL, so a refresh lands back on the same tab/view.
   try {
@@ -63,6 +86,7 @@ if (!user) {
   createRoot(document.getElementById("root")!).render(
     <React.StrictMode>
       <ToastProvider>
+        <BootToast message={bootMessage} />
         <Chat user={user} />
       </ToastProvider>
     </React.StrictMode>

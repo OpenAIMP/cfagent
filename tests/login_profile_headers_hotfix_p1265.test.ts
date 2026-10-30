@@ -12,8 +12,9 @@
  * stubs accepted any profile headers, so the gap was invisible.
  *
  * These pins assert the exact headers on the wire for both factory
- * providers, and that a 403 from the profile endpoint still yields
- * today's error page/status (behaviour preservation). The legacy
+ * providers, and that a 403 from the profile endpoint still fails
+ * closed with the login-page outcome redirect (#2402 supersedes
+ * the old error page/status). The legacy
  * (wiring-off) GitHub flow also sent these headers; #1254 PR-B
  * deleted that flow, and the factory is now their only sender —
  * the GitHub pins below run on the generic /auth/callback/github
@@ -143,10 +144,6 @@ function sessionEntries(store: Map<string, string>): [string, any][] {
     .map(([k, v]) => [k, JSON.parse(v)]);
 }
 
-const minimalPage = (message: string) =>
-  `<!DOCTYPE html><html><head><title>Authentication Error</title></head>` +
-  `<body><h1>Authentication Error</h1><p>${message}</p></body></html>`;
-
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -162,7 +159,9 @@ describe("factory userinfo request headers (#1265)", () => {
     );
     // Login completes as the characterization expects.
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("/");
+    // #2402: the success outcome travels on the redirect for the
+    // one-time boot confirmation.
+    expect(res.headers.get("Location")).toBe("/?auth_outcome=signed_in");
     const sessions = sessionEntries(store);
     expect(sessions).toHaveLength(1);
     expect(sessions[0][1].githubLogin).toBe("octocat");
@@ -207,7 +206,7 @@ describe("factory userinfo request headers (#1265)", () => {
     expect(userinfoCall.headers["Accept"]).toBe("application/json");
   });
 
-  it("wired GitHub callback: a 403 from the profile endpoint yields today's 502 minimal error page", async () => {
+  it("wired GitHub callback: a 403 from the profile endpoint yields the login redirect with signin_failed", async () => {
     const { env } = makeEnv({ IAAA_WIRING_ENABLED: "1" });
     stubUpstreams({ ghProfileStatus: 403 });
     const state = await createState(env);
@@ -215,9 +214,7 @@ describe("factory userinfo request headers (#1265)", () => {
       req(`/auth/callback/github?code=wired-code&state=${encodeURIComponent(state)}`),
       env
     );
-    expect(res.status).toBe(502);
-    expect(await res.text()).toBe(
-      minimalPage("Failed to fetch user profile from GitHub")
-    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/login?auth_outcome=signin_failed");
   });
 });

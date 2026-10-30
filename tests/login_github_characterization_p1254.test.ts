@@ -17,11 +17,13 @@
  *   to the static-assets handler (env.ASSETS.fetch) — they are
  *   ordinary asset paths now, in both wiring modes, and a stray
  *   callback hit creates no session and makes no upstream call;
- * - wiring OFF refuses the generic routes with the same 403
- *   every plugin provider gets — no legacy fallback anywhere;
+ * - wiring OFF refuses the generic routes with the login-page
+ *   outcome redirect every plugin provider gets (#2402 supersedes
+ *   the bare 403 text) — no legacy fallback anywhere;
  * - the wired callback runs on /auth/callback/github: session
  *   record fields, the binding write, the login success/failure
- *   audit events, and the minimal error pages byte for byte;
+ *   audit events, and the failure outcomes as login-page redirects
+ *   (#2402 supersedes the minimal error pages byte for byte);
  * - logout is unchanged (it was never part of the deleted flow).
  *
  * Pins that still describe true behaviour are byte-identical to
@@ -156,10 +158,6 @@ function auditEvents(store: Map<string, string>): any[] {
   return raw ? JSON.parse(raw) : [];
 }
 
-const minimalPage = (message: string) =>
-  `<!DOCTYPE html><html><head><title>Authentication Error</title></head>` +
-  `<body><h1>Authentication Error</h1><p>${message}</p></body></html>`;
-
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -185,11 +183,14 @@ describe("github authorize redirect (characterization)", () => {
     expect(await verifyState(env, state)).toBe(true);
   });
 
-  it("wiring OFF: /auth/login/github is the generic 403, never a legacy fallback", async () => {
+  it("wiring OFF: /auth/login/github is the login-page outcome redirect, never a legacy fallback", async () => {
     const { env } = makeEnv();
     const res = await worker.fetch(req("/auth/login/github"), env);
-    expect(res.status).toBe(403);
-    expect(await res.text()).toContain("IAAA login wiring is disabled");
+    // #2402: the bare 403 text becomes the login-page outcome.
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/login?auth_outcome=wiring_disabled");
+    const page = await worker.fetch(req("/login?auth_outcome=wiring_disabled"), env);
+    expect(await page.text()).toContain("Sign-in is currently disabled");
   });
 
   it("registry: github is an oauth2 provider with the GitHub issuer and display name", () => {
@@ -245,7 +246,9 @@ describe("wired callback on /auth/callback/github (characterization)", () => {
     stubGithub({});
     const res = await wiredCallback(env);
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("/");
+    // #2402: the success outcome travels on the redirect for the
+    // one-time boot confirmation.
+    expect(res.headers.get("Location")).toBe("/?auth_outcome=signed_in");
     expect(res.headers.get("Set-Cookie")).toContain("session_id=");
 
     const sessions = sessionEntries(store);
@@ -295,12 +298,12 @@ describe("wired callback on /auth/callback/github (characterization)", () => {
     expect(events[1].correlationId).toBe(sessionKey.replace("sessions:", ""));
   });
 
-  it("wiring OFF: the generic callback route is the generic 403 with zero upstream calls", async () => {
+  it("wiring OFF: the generic callback route is the login-page outcome redirect with zero upstream calls", async () => {
     const { env } = makeEnv();
     const calls = stubGithub({});
     const res = await worker.fetch(req("/auth/callback/github?code=x&state=bogus"), env);
-    expect(res.status).toBe(403);
-    expect(await res.text()).toContain("IAAA login wiring is disabled");
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/login?auth_outcome=wiring_disabled");
     expect(calls).toHaveLength(0);
   });
 
@@ -312,46 +315,41 @@ describe("wired callback on /auth/callback/github (characterization)", () => {
     expect(sessionEntries(store)[0][1].githubName).toBe("octocat");
   });
 
-  it("provider error parameter → 400, minimal error page byte for byte", async () => {
+  it("provider error parameter → login redirect with signin_failed", async () => {
     const { env } = makeEnv(WIRED);
     const res = await worker.fetch(req("/auth/callback/github?error=access_denied"), env);
-    expect(res.status).toBe(400);
-    expect(await res.text()).toBe(
-      minimalPage("GitHub authentication was cancelled or failed: access_denied")
-    );
+    // #2402: the minimal error page becomes the login-page outcome.
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/login?auth_outcome=signin_failed");
+    const page = await worker.fetch(req("/login?auth_outcome=signin_failed"), env);
+    expect(await page.text()).toContain("Sign-in failed");
   });
 
-  it("missing code/state → 400, minimal error page byte for byte", async () => {
+  it("missing code/state → login redirect with signin_failed", async () => {
     const { env } = makeEnv(WIRED);
     const res = await worker.fetch(req("/auth/callback/github"), env);
-    expect(res.status).toBe(400);
-    expect(await res.text()).toBe(
-      minimalPage("Missing required authorization code or state parameter")
-    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/login?auth_outcome=signin_failed");
   });
 
-  it("bad state → 403, minimal error page byte for byte, zero upstream calls", async () => {
+  it("bad state → login redirect with signin_failed, zero upstream calls", async () => {
     const { env } = makeEnv(WIRED);
     const calls = stubGithub({});
     const res = await worker.fetch(req("/auth/callback/github?code=x&state=bogus"), env);
-    expect(res.status).toBe(403);
-    expect(await res.text()).toBe(
-      minimalPage("Invalid or expired OAuth state session. Please try signing in again.")
-    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/login?auth_outcome=signin_failed");
     expect(calls).toHaveLength(0);
   });
 
-  it("token endpoint HTTP failure → 502 minimal page with the upstream status", async () => {
+  it("token endpoint HTTP failure → login redirect with signin_failed", async () => {
     const { env } = makeEnv(WIRED);
     stubGithub({ tokenStatus: 502, tokenBody: { error: "bad" } });
     const res = await wiredCallback(env);
-    expect(res.status).toBe(502);
-    expect(await res.text()).toBe(
-      minimalPage("Token exchange failed with upstream status 502")
-    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/login?auth_outcome=signin_failed");
   });
 
-  it("token 200 with an error payload → 400 minimal page with the provider description", async () => {
+  it("token 200 with an error payload → login redirect with signin_failed", async () => {
     const { env } = makeEnv(WIRED);
     stubGithub({
       tokenBody: {
@@ -360,40 +358,34 @@ describe("wired callback on /auth/callback/github (characterization)", () => {
       },
     });
     const res = await wiredCallback(env);
-    expect(res.status).toBe(400);
-    expect(await res.text()).toBe(
-      minimalPage("The code passed is incorrect or expired.")
-    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/login?auth_outcome=signin_failed");
   });
 
-  it("token 200 with no access token and no error → 400 minimal page naming GitHub", async () => {
+  it("token 200 with no access token and no error → login redirect with signin_failed", async () => {
     const { env } = makeEnv(WIRED);
     stubGithub({ tokenBody: {} });
     const res = await wiredCallback(env);
-    expect(res.status).toBe(400);
-    expect(await res.text()).toBe(minimalPage("GitHub did not grant an access token"));
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/login?auth_outcome=signin_failed");
   });
 
-  it("profile fetch failure → 502 minimal page naming GitHub", async () => {
+  it("profile fetch failure → login redirect with signin_failed", async () => {
     const { env } = makeEnv(WIRED);
     stubGithub({ profileStatus: 500, profileBody: {} });
     const res = await wiredCallback(env);
-    expect(res.status).toBe(502);
-    expect(await res.text()).toBe(
-      minimalPage("Failed to fetch user profile from GitHub")
-    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/login?auth_outcome=signin_failed");
   });
 
-  it("profile without a stable id → 400, no session/binding, MISSING_SUBJECT_ID failure audit", async () => {
+  it("profile without a stable id → login redirect, no session/binding, MISSING_SUBJECT_ID failure audit", async () => {
     const { env, store } = makeEnv(WIRED);
     stubGithub({
       profileBody: { login: "octocat", avatar_url: "https://avatars.example/x" },
     });
     const res = await wiredCallback(env);
-    expect(res.status).toBe(400);
-    expect(await res.text()).toBe(
-      minimalPage("Provider profile did not include a stable subject id; login cannot be bound")
-    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/login?auth_outcome=signin_failed");
     expect(sessionEntries(store)).toHaveLength(0);
     expect([...store.keys()].some((k) => k.includes("iaaa-binding:"))).toBe(false);
     const events = auditEvents(store);
@@ -405,14 +397,12 @@ describe("wired callback on /auth/callback/github (characterization)", () => {
     expect(events[0].tenantId).toBe("primary");
   });
 
-  it("profile without a login → 400, no session, and no audit event", async () => {
+  it("profile without a login → login redirect, no session, and no audit event", async () => {
     const { env, store } = makeEnv(WIRED);
     stubGithub({ profileBody: { id: 99, avatar_url: "https://avatars.example/x" } });
     const res = await wiredCallback(env);
-    expect(res.status).toBe(400);
-    expect(await res.text()).toBe(
-      minimalPage("Provider profile did not include a usable login key; login cannot be bound")
-    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/login?auth_outcome=signin_failed");
     expect(sessionEntries(store)).toHaveLength(0);
     expect(auditEvents(store)).toHaveLength(0);
   });
