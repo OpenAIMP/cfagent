@@ -266,12 +266,21 @@ for (const [name, make] of STORE_ADAPTERS) {
       expect(p.write.findStoredContent("nope")).toBeNull();
     });
 
-    it("duplicate id AND duplicate generation both throw (the as-found global UNIQUE backstop)", () => {
+    it("duplicate id throws; duplicate generation throws only within the same tenant (the #2398 tenant-scoped UNIQUE backstop)", () => {
+      // INVERTED for #2398 (§7 — this was the #2359 as-found pin
+      // of the GLOBAL unique backstop): the backstop is scoped
+      // on (owner, generation) now. The scenario is unchanged —
+      // same three inserts; the cross-tenant expectation flips
+      // from throw to land, and a same-tenant duplicate insert
+      // is pinned explicitly (it throws, as it did before).
       const p = make();
       p.write.ensureSchema();
       p.write.insertRow(row("r1"));
       expect(() => p.write.insertRow(row("r1", { generationId: "gen-other" }))).toThrow();
-      expect(() => p.write.insertRow(row("r2", { generationId: "gen-r1", owner: "bob" }))).toThrow();
+      expect(() => p.write.insertRow(row("r2", { generationId: "gen-r1" }))).toThrow();
+      expect(() => p.write.insertRow(row("r3", { generationId: "gen-r1", owner: "bob" }))).not.toThrow();
+      expect(p.write.findIdByGeneration("gen-r1", "alice")).toBe("r1");
+      expect(p.write.findIdByGeneration("gen-r1", "bob")).toBe("r3");
     });
 
     it("fan-out outcome recording round-trips through the raw accessor", () => {

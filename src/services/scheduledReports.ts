@@ -62,6 +62,18 @@
  * SQL — including the table DDL, whose ONE home is now the
  * write adapter's ensureSchema.
  *
+ * Issue #2398: the generation UNIQUE index is tenant-scoped
+ * — (user_login, generation_id) — matching this seam's
+ * dedupe lookup, which was always scoped on that pair. A
+ * generation id is a tenant-local idempotency key: under
+ * the pre-#2398 global index, a second tenant storing a
+ * report whose generation id another tenant had used missed
+ * the (correctly tenant-scoped) dedupe, hit the index on
+ * INSERT, and lost the report to a REPORT_FANOUT_FAILED
+ * null. The adapter's ensureSchema reconciles the index
+ * shape on existing tables (drop the global shape, rebuild
+ * tenant-scoped; indexes only, no row moves).
+ *
  * This module is SDK-free and never throws into scheduled runs: every
  * public function fails closed to null/[] on bad input or SQL errors.
  */
@@ -128,9 +140,11 @@ function storePorts(sql: SqlStorage): CanonicalReportStorePorts {
  * adapter carries the #876 additive column reconciliation
  * (mas_reports has a multi-DDL history — #308, #389, #584 —
  * so a DO's table can predate any subset of the current
- * shape) and the guarded generation UNIQUE index (duplicates
- * are logged loudly, never deleted; idempotency for such a
- * DO degrades to the SELECT-then-INSERT check in
+ * shape) and the guarded, tenant-scoped generation UNIQUE
+ * index (#2398: (user_login, generation_id), shape-reconciled
+ * from the pre-#2398 global index in the same ensure;
+ * duplicates are logged loudly, never deleted; idempotency
+ * for such a DO degrades to the SELECT-then-INSERT check in
  * storeReportAtGeneration until the rows are resolved).
  */
 export function ensureScheduledReportsTable(sql: SqlStorage): void {

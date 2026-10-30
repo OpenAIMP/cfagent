@@ -1,0 +1,3 @@
+### Fixed
+- #2398: the `mas_reports` generation UNIQUE index is tenant-scoped — `UNIQUE (user_login, generation_id)` — matching the canonical-report seam's dedupe lookup, which was always scoped on that pair. Under the pre-#2398 global index, a second tenant storing a report whose generation id another tenant had already used missed the dedupe, hit the index on INSERT, and lost the report to a `DATA_REPORT_FANOUT_FAILED` null. The write adapter's `ensureSchema` now reconciles the index shape on existing tables (a pre-#2398 global index is dropped and rebuilt tenant-scoped; indexes only, no rows move, and the #876 loud-log guard still covers tables whose stored pairs cannot take the index). Same-tenant dedupe and the insert backstop are unchanged.
+#CDO-mha7

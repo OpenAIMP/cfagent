@@ -52,7 +52,7 @@ type TablesMap = Map<string, Array<Record<string, unknown>>>;
 
 class StrictMasReportsSql extends MockSqlStorage {
   private reportsCols: ColMeta[] | null = null;
-  private uniqueIndexCols = new Map<string, string>(); // index name -> column
+  private uniqueIndexCols = new Map<string, string[]>(); // index name -> columns
   private createdIndexNames = new Set<string>();
   /** When set, every INSERT INTO mas_reports throws this error. */
   failInsertsWith: Error | null = null;
@@ -114,29 +114,41 @@ class StrictMasReportsSql extends MockSqlStorage {
       return [];
     }
 
-    // CREATE [UNIQUE] INDEX ... ON mas_reports (<col> [DESC])
+    // CREATE [UNIQUE] INDEX ... ON mas_reports (<col>, ...)
+    // ADAPTED for #2398 (§7): the generation index is composite
+    // — (user_login, generation_id) — so the double parses the
+    // full column list and detects duplicates over the column
+    // TUPLE (a NULL in any indexed column makes the row
+    // distinct), exactly as real SQLite does. Single-column
+    // indexes behave as before.
     const idxMatch = q.match(
       /CREATE\s+(UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)\s+ON\s+mas_reports\s*\(([\w\s,]+)\)/i
     );
     if (idxMatch) {
       const unique = !!idxMatch[1];
       const name = idxMatch[2];
-      const col = idxMatch[3].trim().split(/\s+/)[0];
+      const columns = idxMatch[3]
+        .split(",")
+        .map((s) => s.trim().split(/\s+/)[0])
+        .filter(Boolean);
       if (this.createdIndexNames.has(name)) return [];
-      if (!this.reportsCols?.some((c) => c.name === col)) {
-        throw new Error(`no such column: ${col}`);
+      for (const col of columns) {
+        if (!this.reportsCols?.some((c) => c.name === col)) {
+          throw new Error(`no such column: ${col}`);
+        }
       }
       if (unique) {
-        const seen = new Set<unknown>();
+        const seen = new Set<string>();
         for (const row of this.reportRows()) {
-          const v = row[col];
-          if (v === null || v === undefined) continue;
-          if (seen.has(v)) {
+          const tuple = columns.map((c) => row[c]);
+          if (tuple.some((v) => v === null || v === undefined)) continue;
+          const key = JSON.stringify(tuple);
+          if (seen.has(key)) {
             throw new Error(`UNIQUE constraint failed: index '${name}'`);
           }
-          seen.add(v);
+          seen.add(key);
         }
-        this.uniqueIndexCols.set(name, col);
+        this.uniqueIndexCols.set(name, columns);
       }
       this.createdIndexNames.add(name);
       return [];
@@ -163,11 +175,17 @@ class StrictMasReportsSql extends MockSqlStorage {
           }
         }
       }
-      for (const col of this.uniqueIndexCols.values()) {
-        const v = values.get(col);
-        if (v === null || v === undefined) continue;
-        if (this.reportRows().some((r) => r[col] === v)) {
-          throw new Error(`UNIQUE constraint failed: mas_reports.${col}`);
+      for (const columns of this.uniqueIndexCols.values()) {
+        const tuple = columns.map((c) => values.get(c));
+        if (tuple.some((v) => v === null || v === undefined)) continue;
+        if (
+          this.reportRows().some((r) =>
+            columns.every((c, i) => r[c] === tuple[i])
+          )
+        ) {
+          throw new Error(
+            `UNIQUE constraint failed: ${columns.map((c) => `mas_reports.${c}`).join(", ")}`
+          );
         }
       }
       return super.exec(query, ...args);
