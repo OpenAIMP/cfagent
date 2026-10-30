@@ -24,6 +24,7 @@
 
 import type { AgentName } from "../../types";
 import { DatabaseORM, type SqlStorage } from "../../orm";
+import { codedMessage, resolveOutcome } from "../../outcomes/outcomeAspects";
 import { runRestTool } from "./restToolBridge";
 import {
   resolveAuditWriteRestSwitch,
@@ -65,10 +66,76 @@ function auditSwitchHost(ctx: AuditRouteContext) {
   };
 }
 
+/** #2371: code candidates from a parsed payload, in precedence order.
+ * `coded_error` (the explicit outcome field) first, then `code`. Each
+ * may be a bare code string, a "[CODE] message" rendering, or an
+ * object carrying a `code` string. Anything else yields no candidate. */
+function codeCandidates(payload: Record<string, unknown>): string[] {
+  const out: string[] = [];
+  for (const key of ["coded_error", "code"]) {
+    const v = payload[key];
+    if (typeof v === "string") {
+      out.push(v);
+    } else if (v && typeof v === "object" && typeof (v as Record<string, unknown>).code === "string") {
+      out.push((v as Record<string, unknown>).code as string);
+    }
+  }
+  return out;
+}
+
+/**
+ * #2371 (renders the #2381 outcome catalog): read-time aspect
+ * resolution for one parsed payload. Returns the first cataloged code
+ * found (coded_error before code), or null when nothing resolves.
+ * Resolution goes through the single outcome resolver only
+ * (resolveOutcome, alias-aware, never throws, never invents a code):
+ * a pre-rename string resolves to the NEW code's aspects, an unknown
+ * code passes through unresolved, and a bracketed "[CODE] ..."
+ * rendering resolves only through its bracketed code. This is a
+ * projection over the catalog — not a second resolver — and it never
+ * touches stored rows.
+ */
+export interface ResolvedAuditAspects {
+  code: string;
+  businessMessage: string;
+  category: string;
+  retryable: boolean;
+  /** Audit-channel variant: the established "[CODE] business message" rendering. */
+  variant: string;
+}
+
+function resolveAuditAspects(payload: Record<string, unknown>): ResolvedAuditAspects | null {
+  try {
+    for (const candidate of codeCandidates(payload)) {
+      const trimmed = candidate.trim();
+      const bracket = /^\[([^\]]+)\]/.exec(trimmed);
+      const codes = bracket ? [bracket[1], trimmed] : [trimmed];
+      for (const code of codes) {
+        const resolved = resolveOutcome(code);
+        if (resolved.resolved && resolved.entry) {
+          return {
+            code: resolved.entry.code,
+            businessMessage: resolved.entry.businessMessage,
+            category: resolved.entry.category,
+            retryable: resolved.entry.retryable,
+            variant: codedMessage(resolved.entry.code),
+          };
+        }
+      }
+    }
+  } catch {
+    // A read never fails because of resolution.
+    return null;
+  }
+  return null;
+}
+
 /** 5-field audit projection shared by the list and detail endpoints: the
  * payload-JSON parse with { raw } fallback. The payload column is TEXT
  * (recordAudit stringifies), so a stored object can only arrive via a
- * foreign writer — { raw } keeps it readable instead of throwing. */
+ * foreign writer — { raw } keeps it readable instead of throwing.
+ * #2371: adds the additive `resolvedAspects` field (read-time only —
+ * the stored payload is returned unchanged and no row is rewritten). */
 function projectAuditEvent(e: { id: string; type: string; agent: string; payload: string; createdAt: string }) {
   let payload: Record<string, unknown> = {};
   try {
@@ -76,7 +143,7 @@ function projectAuditEvent(e: { id: string; type: string; agent: string; payload
   } catch {
     payload = { raw: e.payload };
   }
-  return { id: e.id, type: e.type, agent: e.agent, payload, created_at: e.createdAt };
+  return { id: e.id, type: e.type, agent: e.agent, payload, created_at: e.createdAt, resolvedAspects: resolveAuditAspects(payload) };
 }
 
 /**
