@@ -5,6 +5,7 @@ import {
 } from "../src/services/agenticPayments";
 import { DatabaseORM } from "../src/orm";
 import { MockSqlStorage } from "./mock-sql";
+import { createInMemoryCanonicalReportStorePorts } from "../src/data/createCanonicalReportStorePorts";
 import type { Env, X402PaymentProof } from "../src/types";
 import { AGENT_DIDS } from "../src/agents/did";
 import {
@@ -272,18 +273,24 @@ describe("Cloudflare Agentic Payments (x402 & MPP Standards)", () => {
         topPicks: ["NVDA", "AAPL"],
       });
 
+      // Issue #2408: the gate meters served calls — a served
+      // expectation now wires the in-memory usage port (the same
+      // port family the production gate meters through).
+      const meter = createInMemoryCanonicalReportStorePorts().usage;
       const res = await paymentService.handleGatedEndpoint(
         req,
         TRADING_PAID_SERVICES.OPTIONS_SCREENER.resource,
         0.05,
         "Options Screener",
-        fulfillMock
+        fulfillMock,
+        { meter, category: TRADING_PAID_SERVICES.OPTIONS_SCREENER.id }
       );
 
       expect(res.status).toBe(200);
       expect(fulfillMock).toHaveBeenCalled();
       expect(res.headers.get("PAYMENT-RESPONSE")).toBeDefined();
       expect(res.headers.get("Payment-Receipt")).toContain("id=rcpt_");
+      expect(meter.listByUser("x402:0xSubscriberWallet", 10)).toHaveLength(1);
 
       const body = await res.json() as any;
       expect(body.scannedEquities).toBe(20);

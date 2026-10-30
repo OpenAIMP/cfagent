@@ -447,7 +447,10 @@ describe("premium routes bind persisted state to the verified payer (#183)", () 
   beforeEach(() => {
     orm = makeOrm();
     etradeCapture.logins.length = 0;
-    ctx = { env: mockEnv, getOrm: () => orm } as PremiumRouteContext;
+    // Issue #2408: the route meters served calls through ctx.sql —
+    // the production host always supplies it (makePremiumRouteContext),
+    // so this route-level served expectation supplies it too.
+    ctx = { env: mockEnv, sql: new MockSqlStorage(), getOrm: () => orm } as unknown as PremiumRouteContext;
   });
 
   const premiumUrl = new URL("https://agent.internal/premium/options-scan");
