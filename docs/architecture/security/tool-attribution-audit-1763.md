@@ -11,7 +11,7 @@ and `tests/a2a_entrypoint_auth_1763.test.ts`).
 ## Method and scope
 
 - Inventory source: `src/permissions/mcpPermissionPorts.ts`
-  `MCP_TOOL_SCOPES` (81 tools: 72 canonical + 9 deprecated #1906
+  `MCP_TOOL_SCOPES` (82 tools: 73 canonical + 9 deprecated #1906
   aliases, completeness-pinned against the live
   factory registry in both directions by #1843's tests) plus the
   scanner surface (`src/services/cloudflareWalletsScanner.ts`) and
@@ -58,7 +58,7 @@ and `tests/a2a_entrypoint_auth_1763.test.ts`).
    authenticated the request is the identity, not the tool call
    itself. See gap G-AUD-3.
 
-## The 81 factory tools — verdict per tool
+## The 82 factory tools — verdict per tool
 
 Verdict key: **L** = login-attributable via door 1 (session /
 API-key); **I** = instance-attributable only via door 2 (gap
@@ -114,7 +114,7 @@ other doors. Scope column is #1843's declaration, consumed here.
 | `browser_scrape_tables` | mcp:read | L via door 2 only — acting identity required (#2351); refused on doors 1/3 (no acting-identity carrier there) |
 | `get_trade_approval_status` | mcp:read | L via door 2 only — acting identity required (#2375); refused on doors 1/3 (no acting-identity carrier there). Read-only: the TradingTradeWorkflow binding's own status surface |
 
-### mcp:write (10)
+### mcp:write (11)
 
 | Tool | Scope | /mcp verdict |
 |---|---|---|
@@ -128,6 +128,7 @@ other doors. Scope column is #1843's declaration, consumed here.
 | `browser_snap_transaction` | mcp:write | L via door 2 only — acting identity required (#2351); refused on doors 1/3 (no acting-identity carrier there) |
 | `browser_capture_page` | mcp:write | L via door 2 only — acting identity required (#2351); refused on doors 1/3 (no acting-identity carrier there) |
 | `slack_dispatch_transaction_snap` | mcp:write | L via door 2 only — acting identity required (#2351); refused on doors 1/3 (no acting-identity carrier there) |
+| `run_stock_screen` | mcp:write | L via door 2 only — acting identity required (#2488); refused on doors 1/3 (no acting-identity carrier there) |
 
 ### mcp:execute (7)
 

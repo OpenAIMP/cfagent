@@ -45,6 +45,25 @@ export interface McpToolContext {
    */
   scopedNlqModes?: import("../config/nlqModes").NlqScopedModes;
   /**
+   * #2488: optional session/user carriers for the CHAT_NLQ_MODE
+   * switch (global env from `env`). Populated by the
+   * execution-context owner; unset carriers fall through to env
+   * and then to the built-in default (off). See
+   * src/config/chatNlqModes.ts. Governs the turn's tool assembly
+   * only — never NLQ execution itself.
+   */
+  scopedChatNlqModes?: import("../config/chatNlqModes").ChatNlqScopedModes;
+  /**
+   * #2488: binding-seam overrides for the mesh screen door
+   * (run_stock_screen), populated ONLY by test harnesses through
+   * the executor-shaped context. Production contexts (turn,
+   * async-job executor, /mcp) never set it: the door then
+   * derives every seam from `env` (see
+   * src/agents/orchestrator/meshScreenDoor.ts,
+   * MeshScreenDoorSeams).
+   */
+  meshScreenDoorSeams?: import("../agents/orchestrator/meshScreenDoor").MeshScreenDoorSeams;
+  /**
    * #1723: optional session/user carriers for the KNOWLEDGE_MODE switch
    * (run comes from the per-call `mode` input, global env from
    * `env`). Populated by the execution-context owner; unset carriers

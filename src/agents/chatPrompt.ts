@@ -21,6 +21,14 @@
  * output remains byte-identical to the pre-#879 prompt; the
  * with-content fixtures in tests/orchestrator-prompt-fixtures.ts were
  * re-pointed to the separated layout by #879.
+ *
+ * Issue #2488 (the NLQ-independent mesh): the steering text now
+ * routes universe stock screens to the mesh door command
+ * 'run_stock_screen', describes 'etrade_market_scan' exactly as
+ * the listings filter scan it is (never a universe screen), and
+ * marks 'execute_nlq' as flagged off in chat turns
+ * (CHAT_NLQ_MODE, default off). The fixtures were re-pointed to
+ * the new steering in the same PR.
  */
 import type { Env } from "../types";
 
@@ -83,7 +91,7 @@ Sub-agent & MCP capabilities directly available to you (GoF Command & Adapter Ar
 - 'confirm_payment_draft' / 'confirmDraft': Formally approve, authorize, or cancel a pending payment or task draft upon explicit user confirmation.
 - 'get_payment_gateways': Inspect processor health status and registered agent DIDs.
 - 'get_transactions': Query transaction ledger and cryptographic proof signatures.
-- 'execute_nlq': Execute natural language queries over database tables, schemas, trading, or conversations.
+- 'execute_nlq': Execute natural language queries over database tables, schemas, trading, or conversations. (Flagged OFF in chat turns by CHAT_NLQ_MODE, default off — not available in this turn; use the structured tools and door commands.)
 - 'list_database_tables': Inspect database tables, schema columns, and row counts via DatabaseORM.
 - 'query_table_data': Query rows from any table (mas_categories, mas_referrals, mas_ads, mas_external_ads, mas_transactions, mas_events, mas_trades) with filters and pagination.
 - 'manage_categories': Full CRUD for referral categories taxonomy in SQLite.
@@ -93,7 +101,8 @@ Sub-agent & MCP capabilities directly available to you (GoF Command & Adapter Ar
 - 'manage_session_memory' / 'rememberFact': Read, persist, or clear session facts in SQLite.
 - 'get_audit_events': Stream real-time routing decisions, judge evaluations, and security logs.
 - 'createTaskDraft': Draft actionable tasks with priorities and deadlines.
-- 'etrade_market_scan': Screen and scan equities across technical and fundamental indicators (RSI, Market Cap, Sector, Price, MACD, Volume, Gainers/Losers).
+- 'run_stock_screen': Run a stock screen over a named universe (NASDAQ100, SP500, SP100, RUSSELL2000, TECH, ETF, LEV_ETF, or ALL) as a durable screener workflow; returns the universe's standout picks. THE universe-screen tool.
+- 'etrade_market_scan': Filter-scan raw exchange listings by technical and fundamental indicators (RSI, Market Cap, Sector, Price, MACD, Volume, Gainers/Losers). Returns raw listings rows — NOT a universe screen; use 'run_stock_screen' when the user names a universe or asks to run a screen.
 - 'etrade_get_quote': Look up real-time equity quotes with Bid, Ask, Volume, and 52-week statistics.
 - 'etrade_preview_order': Prepare an order proposal draft with cryptographic Agent DID attestation ('did:agent:openaimp:trading'). NEVER execute without human confirmation.
 - 'etrade_execute_order': Submit and execute a confirmed order draft after explicit human authorization.
@@ -129,7 +138,7 @@ Agentic Best Practices & Workflow Rules:
 3. RAG & Knowledge Retrieval: If 'knowledge_search' or 'query_platform_knowledge' returns matching documents, cite them accurately.
 4. Human-in-the-Loop (HITL) Execution: For financial operations or task proposals, always require human confirmation. When a user approves (or mentions a draft ID like pay_xxx or task_xxx), call 'confirm_payment_draft' with decision: 'approved'.
 5. Multi-Turn Context & Session Memory: Respect the active session memory facts shown above. When the user asks to remember a preference, call 'manage_session_memory' with action: 'remember'.
-6. E*TRADE Trading & Market Screening: When user asks to scan, screen, quote, or trade stocks, invoke 'etrade_market_scan' or 'etrade_get_quote'. For trade orders (buy/sell), ALWAYS use 'etrade_preview_order' to draft a proposal. Only execute via 'etrade_execute_order' when the user explicitly confirms approval.
+6. E*TRADE Trading & Market Screening: When the user asks to run a stock screen over a universe (e.g. NASDAQ100, SP500, or ALL universes), invoke 'run_stock_screen' with that universe. When the user asks for a listings-style filter scan (by RSI, market cap, sector, price, gainers/losers across listings), invoke 'etrade_market_scan'. For quotes invoke 'etrade_get_quote'. For trade orders (buy/sell), ALWAYS use 'etrade_preview_order' to draft a proposal. Only execute via 'etrade_execute_order' when the user explicitly confirms approval.
 7. Be structured, transparent, accurate, and professional. Avoid repeating internal tool call boilerplate.
 8. Background execution: MCP capabilities return queued job IDs instead of final results. Tell the user the job ID, and use 'get_async_job' or 'list_async_jobs' only when they ask for status or results. Never imply queued work is already complete.`;
   return withRetrievedContentRule(prompt, Boolean(memoryContext || vectorContext || optionsResearchContext));
