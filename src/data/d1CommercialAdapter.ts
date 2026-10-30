@@ -25,18 +25,21 @@ import {
   applyMigrations,
   MIGRATION_0007_COMMERCIAL_STORE,
   MIGRATION_0010_PAID_SUBMISSIONS,
+  MIGRATION_0026_TENANT_AUTO_REFRESH,
   type MigrationDb,
 } from "./migrationRunner";
 import {
   assertIncludedRuns,
   assertNonNegativeCredits,
   assertStoreTier,
+  DEFAULT_TENANT_AUTO_REFRESH,
   round2,
   type CommercialAccountRecord,
   type CommercialStore,
   type CreditClaimRecord,
   type CreditRedemptionRecord,
   type PaidSubmissionRecord,
+  type TenantAutoRefresh,
   type TenantSettingsRecord,
 } from "./commercialPorts";
 
@@ -63,15 +66,19 @@ export function createD1CommercialDb(d1: D1Database): CommercialDb {
 }
 
 /**
- * Idempotent schema-ensure: applies migrations 0007 and 0010 if
- * unapplied. 0010 rides with 0007 because the submission-status
- * ownership read needs the paid-submissions table wherever the
- * commercial store is ensured.
+ * Idempotent schema-ensure: applies migrations 0007, 0010, and
+ * 0026 if unapplied. 0010 rides with 0007 because the
+ * submission-status ownership read needs the paid-submissions
+ * table wherever the commercial store is ensured; 0026 (#2481)
+ * adds the per-tenant auto-refresh columns to the tenant
+ * settings row, so a commercial call site is also an ensure
+ * site for the switch.
  */
 export async function ensureCommercialSchema(db: CommercialDb): Promise<number[]> {
   return applyMigrations(db as unknown as MigrationDb, [
     MIGRATION_0007_COMMERCIAL_STORE,
     MIGRATION_0010_PAID_SUBMISSIONS,
+    MIGRATION_0026_TENANT_AUTO_REFRESH,
   ]);
 }
 
@@ -203,13 +210,84 @@ export class D1CommercialAdapter implements CommercialStore {
   }
 
   async setTenantAdsEnabled(tenantId: string, adsEnabled: boolean): Promise<TenantSettingsRecord> {
-    const record: TenantSettingsRecord = { tenantId, adsEnabled, updatedAtMs: Date.now() };
+    const existing = await this.getTenantAutoRefresh(tenantId);
+    const record: TenantSettingsRecord = {
+      tenantId,
+      adsEnabled,
+      updatedAtMs: Date.now(),
+      autoRefreshEnabled: existing.enabled,
+      autoRefreshIntervalS: existing.intervalS,
+    };
     await this.db
       .insert(agentTenantSettings)
-      .values({ tenantId, adsEnabled: adsEnabled ? 1 : 0, updatedAtMs: record.updatedAtMs })
+      .values({
+        tenantId,
+        adsEnabled: adsEnabled ? 1 : 0,
+        updatedAtMs: record.updatedAtMs,
+        autoRefreshEnabled: record.autoRefreshEnabled ? 1 : 0,
+        autoRefreshIntervalS: record.autoRefreshIntervalS,
+      })
       .onConflictDoUpdate({
         target: agentTenantSettings.tenantId,
+        // Only the ads half changes here; the auto-refresh half
+        // is preserved because it is not in the update set.
         set: { adsEnabled: adsEnabled ? 1 : 0, updatedAtMs: record.updatedAtMs },
+      });
+    return record;
+  }
+
+  // Issue #2481: per-tenant auto-refresh switch. Absent row = OFF.
+  // Callers ensure the schema (migration 0026) before reading,
+  // as the server route does; the defaults here cover an absent
+  // row and a null/zero interval, not a pre-migration table.
+  async getTenantAutoRefresh(tenantId: string): Promise<TenantAutoRefresh> {
+    const rows = await this.db
+      .select()
+      .from(agentTenantSettings)
+      .where(eq(agentTenantSettings.tenantId, tenantId))
+      .limit(1);
+    if (rows.length === 0) return { ...DEFAULT_TENANT_AUTO_REFRESH };
+    const row = rows[0] as typeof rows[0] & {
+      autoRefreshEnabled?: number | null;
+      autoRefreshIntervalS?: number | null;
+    };
+    const intervalS =
+      typeof row.autoRefreshIntervalS === "number" && row.autoRefreshIntervalS > 0
+        ? row.autoRefreshIntervalS
+        : DEFAULT_TENANT_AUTO_REFRESH.intervalS;
+    return { enabled: row.autoRefreshEnabled === 1, intervalS };
+  }
+
+  async setTenantAutoRefresh(
+    tenantId: string,
+    autoRefresh: TenantAutoRefresh,
+  ): Promise<TenantSettingsRecord> {
+    const adsEnabled = await this.getTenantAdsEnabled(tenantId);
+    const record: TenantSettingsRecord = {
+      tenantId,
+      adsEnabled,
+      updatedAtMs: Date.now(),
+      autoRefreshEnabled: autoRefresh.enabled,
+      autoRefreshIntervalS: autoRefresh.intervalS,
+    };
+    await this.db
+      .insert(agentTenantSettings)
+      .values({
+        tenantId,
+        adsEnabled: adsEnabled ? 1 : 0,
+        updatedAtMs: record.updatedAtMs,
+        autoRefreshEnabled: record.autoRefreshEnabled ? 1 : 0,
+        autoRefreshIntervalS: record.autoRefreshIntervalS,
+      })
+      .onConflictDoUpdate({
+        target: agentTenantSettings.tenantId,
+        // Only the auto-refresh half changes here; the ads half
+        // is preserved because it is not in the update set.
+        set: {
+          autoRefreshEnabled: record.autoRefreshEnabled ? 1 : 0,
+          autoRefreshIntervalS: record.autoRefreshIntervalS,
+          updatedAtMs: record.updatedAtMs,
+        },
       });
     return record;
   }
