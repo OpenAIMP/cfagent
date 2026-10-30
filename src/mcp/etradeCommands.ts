@@ -376,7 +376,7 @@ export class ETradeExecuteOrderCommand implements IMcpToolCommand<{
     const existingRecord = checkEtradeExecuteGate(context.orm, { orderId, authorizerDid });
 
     if (decision === "rejected") {
-      const result = etrade.executeOrder(orderId, authorizerDid, decision);
+      const result = await etrade.executeOrder(orderId, authorizerDid, decision);
       context.audit("etrade.order_rejected", "trading", {
         orderId,
         decision,
@@ -419,7 +419,7 @@ export class ETradeExecuteOrderCommand implements IMcpToolCommand<{
         });
       }
     } else {
-      result = etrade.executeOrder(orderId, authorizerDid, decision);
+      result = await etrade.executeOrder(orderId, authorizerDid, decision);
     }
 
     const executedPayloadHash = await orderPayloadHash({
