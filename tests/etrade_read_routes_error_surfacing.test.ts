@@ -207,6 +207,10 @@ function brokerCtx(env: Env, orm: DatabaseORM): EtradeBrokerRouteContext {
   return {
     env,
     getOrm: () => orm,
+    // Issue #2482: handlers resolve the broker environment from the
+    // persisted selection; fixtures without a selection read the
+    // deployment default from env.
+    readSettingRaw: () => null,
     audit: vi.fn(),
     getScreenerAgent: () => ({}) as any,
     persistScreenerReportCanonical: vi.fn(),

@@ -131,6 +131,7 @@ import {
   handleEtradeBrokerActivityRoutes,
 } from "./routes/etradeBroker";
 import { handleEtradeOptionsRoutes } from "./routes/etradeOptions";
+import { resolveBrokerEnvironmentFromSettings } from "./routes/brokerEnvironment";
 import { handleWatchlistsRoutes } from "./routes/watchlists";
 import { handleAlpacaMarketDataRoutes, handleAlpacaTradingRoutes } from "./routes/alpaca";
 import { handleMarketDataQuoteResearchRoutes, handleMarketDataCompareScreenRoutes } from "./routes/marketDataResearch";
@@ -2510,6 +2511,7 @@ export class OrchestratorAgent extends PortThink {
         scheduleScreenerFollowups(this.asyncJobsContext(), outcome, userLogin),
       getOrm: () => this.getOrm(),
       readSettingRaw: (key) => this.readSettingRaw(key),
+      writeSetting: (key, value) => this.writeSetting(key, value),
       audit: (type, agent, payload) => this.audit(type, agent, payload),
       getScreenerAgent: (userLogin) => this.getScreenerAgent(userLogin),
       persistScreenerReportCanonical: (result) => this.persistScreenerReportCanonical(result),
@@ -2525,8 +2527,11 @@ export class OrchestratorAgent extends PortThink {
     // computed once here and passed through the context to the E*TRADE
     // options and watchlists delegations below. The broker handlers
     // recompute their own copy inside the module.
-    const rawEnvHeader = (request.headers.get("x-environment") || url.searchParams.get("env") || "").toUpperCase().trim();
-    const requestedEnv: "TEST" | "PROD" | undefined = (rawEnvHeader === "TEST" || rawEnvHeader === "PROD") ? rawEnvHeader : undefined;
+    // Issue #2482: the binding is the persisted per-login environment
+    // selection, never the request header — options and watchlist data
+    // must agree with every other broker surface.
+    const requestedEnv: "TEST" | "PROD" | undefined =
+      resolveBrokerEnvironmentFromSettings((key) => this.readSettingRaw(key), this.env);
 
     // Issue #359-10: omnichannel trading channel routes (email / slack /
     // browser / voice trading integrations) are handled by
@@ -2557,6 +2562,7 @@ export class OrchestratorAgent extends PortThink {
       env: this.env,
       getOrm: () => this.getOrm(),
       readSettingRaw: (key) => this.readSettingRaw(key),
+      writeSetting: (key, value) => this.writeSetting(key, value),
       audit: (type, agent, payload) => this.audit(type, agent, payload),
       getScreenerAgent: (userLogin) => this.getScreenerAgent(userLogin),
       persistScreenerReportCanonical: (result) => this.persistScreenerReportCanonical(result),

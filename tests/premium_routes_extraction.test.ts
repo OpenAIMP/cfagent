@@ -100,7 +100,9 @@ describe("premium route inventory (extraction #371)", () => {
     expect(etradeIdx).toBeGreaterThan(-1);
     expect(myIdx, "premium delegation must precede the E*TRADE block").toBeLessThan(etradeIdx);
     // The E*TRADE block itself stays inline (not part of slice 08).
-    expect(orchSrc).toContain('const rawEnvHeader = (request.headers.get("x-environment")');
+    // Issue #2482: its environment binding now resolves from the
+    // persisted selection, never from the request header.
+    expect(orchSrc).toContain("resolveBrokerEnvironmentFromSettings((key) => this.readSettingRaw(key), this.env)");
   });
 });
 

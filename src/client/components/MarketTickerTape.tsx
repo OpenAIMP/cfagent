@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch } from "../apiFetch";
+import { useBrokerEnvironment } from "../brokerEnvironment";
 import { useMarketQuotes } from "../quotes/useMarketQuotes";
 import { TAPE_SYMBOLS, type QuoteSymbolMeta } from "../quotes/symbolSets";
 import {
@@ -41,13 +42,9 @@ export function MarketTickerTape({ onSelectSymbol, onSelectTab, className = "" }
   // decides the source; a source that yields nothing falls back to the
   // default set (never an empty tape). Watchlist/holdings fetches resolve
   // through the same fallback on failure.
-  const [env] = useState<string>(() => {
-    if (typeof window !== "undefined") {
-      const stored = localStorage.getItem("cfagent_env");
-      if (stored === "TEST" || stored === "PROD") return stored;
-    }
-    return "PROD";
-  });
+  // Issue #2482: the environment comes from the single broker module,
+  // never from the retired cfagent_env key.
+  const env = useBrokerEnvironment();
   const [selection, setSelection] = useState<TapeSetSelection>(() => loadTapeSelection() ?? { kind: "default" });
   const [customDraft, setCustomDraft] = useState<string>(() =>
     loadTapeSelection()?.kind === "custom" ? (loadTapeSelection() as { text: string }).text : "",

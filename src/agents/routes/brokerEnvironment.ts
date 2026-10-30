@@ -1,0 +1,124 @@
+/**
+ * Issue #2482 — the single E*TRADE environment source of truth.
+ *
+ * The persisted per-login selection lives in the user's own
+ * OrchestratorAgent DO instance settings (mas_settings, key
+ * `etrade:environment`). When no selection is persisted, the default
+ * is the deployment's chain-resolved environment (production: PROD
+ * via environment.config.json; TEST deployments: TEST via APP_ENV) —
+ * never a hardcoded value, so a TEST deployment keeps resolving TEST.
+ * Every interactive E*TRADE data route resolves through this module,
+ * never through the request header: a stale client key must not be
+ * able to split surfaces again.
+ *
+ * Deliberately NOT consulted here: token presence. A login can hold
+ * both a TEST and a PROD token, so token presence cannot disambiguate;
+ * the explicit selection can. This module changes only the environment
+ * argument fed into the token seam — the seam itself (key-scope order,
+ * identity pass-through, rejection propagation) belongs to #2442 and
+ * is untouched.
+ *
+ * The switch handler lives here (not in etradeBroker.ts) for the same
+ * reason the diagnostics handlers moved out under #995: etradeBroker.ts
+ * sits at the #359 50 KB module target, and this block is a coherent
+ * unit on its own. etradeBroker.ts delegates to it.
+ */
+
+import { resolveEnvironmentConfig } from "../../config/environment";
+import type { Env } from "../../types";
+
+export const BROKER_ENVIRONMENT_SETTING_KEY = "etrade:environment";
+
+export type BrokerEnvironment = "TEST" | "PROD";
+
+export function isBrokerEnvironment(value: unknown): value is BrokerEnvironment {
+  return value === "TEST" || value === "PROD";
+}
+
+/**
+ * Resolve the source of truth from a stored settings value. Anything
+ * other than an exact TEST/PROD falls back to PROD, matching every
+ * previous default in the codebase. This function takes no header
+ * input by construction: headers are not an authority for broker data.
+ */
+export function resolveBrokerEnvironment(stored: string | null | undefined): BrokerEnvironment {
+  return isBrokerEnvironment(stored) ? stored : "PROD";
+}
+
+/**
+ * The unset default: the deployment's chain-resolved environment, with
+ * no request override. Anything the chain resolves to outside TEST /
+ * PROD falls back to PROD.
+ */
+export function resolveBrokerEnvironmentDefault(workerEnv: Partial<Env>): BrokerEnvironment {
+  const name = resolveEnvironmentConfig(workerEnv).name;
+  return isBrokerEnvironment(name) ? name : "PROD";
+}
+
+/**
+ * Resolve from a settings reader plus the worker env. The worker env
+ * is required: silently defaulting without it could resolve PROD in a
+ * TEST deployment. Selection wins when set; otherwise the deployment
+ * default applies.
+ */
+export function resolveBrokerEnvironmentFromSettings(
+  readSettingRaw: (key: string) => string | null,
+  workerEnv: Partial<Env>,
+): BrokerEnvironment {
+  const stored = readSettingRaw(BROKER_ENVIRONMENT_SETTING_KEY);
+  if (isBrokerEnvironment(stored)) return stored;
+  return resolveBrokerEnvironmentDefault(workerEnv);
+}
+
+/**
+ * Settings access the switch handler needs. The writer is optional
+ * because older test-constructed contexts carry only the reader; the
+ * switch handler fails closed (500) without it rather than returning
+ * success while storing nothing. The worker env is required so the
+ * GET path applies the same deployment default as the data routes.
+ */
+export interface BrokerEnvironmentSwitchContext {
+  readSettingRaw(key: string): string | null;
+  writeSetting?(key: string, value: string): void;
+  env: Partial<Env>;
+}
+
+/** Issue #2482: read the current selection (GET on either spelling). */
+export function handleBrokerEnvironmentGet(ctx: BrokerEnvironmentSwitchContext): Response {
+  return Response.json({
+    environment: resolveBrokerEnvironmentFromSettings(ctx.readSettingRaw, ctx.env),
+  });
+}
+
+/**
+ * Issue #314 — single-owner handler for the environment switcher.
+ * Both spellings (`/environment/switch` and the advertised
+ * `/broker/etrade/environment` from ETradeDynamicMenu.tsx) delegate here,
+ * so the request/response contract, validation, and auth are identical.
+ *
+ * Issue #2482: the switch PERSISTS the selection to the caller's
+ * instance settings, making it the single source of truth. It must
+ * never again return success while storing nothing.
+ */
+export async function handleEnvironmentSwitch(
+  request: Request,
+  ctx: BrokerEnvironmentSwitchContext,
+): Promise<Response> {
+  try {
+    const body = (await request.json().catch(() => ({}))) as any;
+    const requested = String(body.environment || "PROD").toUpperCase().trim();
+    if (requested === "TEST" || requested === "PROD") {
+      if (!ctx.writeSetting) {
+        return Response.json(
+          { error: "Environment persistence unavailable." },
+          { status: 500 },
+        );
+      }
+      ctx.writeSetting(BROKER_ENVIRONMENT_SETTING_KEY, requested);
+      return Response.json({ success: true, environment: requested });
+    }
+    return Response.json({ error: "Invalid environment. Expected TEST or PROD." }, { status: 400 });
+  } catch (err) {
+    return Response.json({ error: "Failed to switch environment" }, { status: 500 });
+  }
+}

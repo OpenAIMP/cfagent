@@ -122,7 +122,9 @@ describe("E*TRADE options route inventory (extraction #374)", () => {
     expect(orchSrc.split(needle).length - 1, "expected exactly one call site").toBe(1);
     // The requestedEnv binding stays inline in routeRequest; the delegation
     // passes it through the context.
-    expect(orchSrc).toContain('const rawEnvHeader = (request.headers.get("x-environment")');
+    // Issue #2482: it now resolves from the persisted selection, never
+    // from the request header.
+    expect(orchSrc).toContain("resolveBrokerEnvironmentFromSettings((key) => this.readSettingRaw(key), this.env)");
     expect(orchSrc).toContain("requestedEnv,");
   });
 

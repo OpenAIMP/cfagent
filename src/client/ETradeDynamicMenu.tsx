@@ -13,6 +13,10 @@ import { DataProvidersPanel } from "./DataProvidersPanel";
 import { IaaaAdminPanel } from "./IaaaAdminPanel";
 import { PillGroup, Button, TextInput } from "./components/ui";
 import {
+  switchBrokerEnvironment,
+  useBrokerEnvironment,
+} from "./brokerEnvironment";
+import {
   AdBannerConfig,
   getStoredAdBannerConfig,
   saveStoredAdBannerConfig,
@@ -26,6 +30,12 @@ import {
 } from "./typography";
 
 export interface SettingsMenuProps {
+  /**
+   * Issue #2482: retained for interface compatibility (the hub passes
+   * the full broker props object), but it is NO LONGER an environment
+   * authority — the menu reads the single value from the
+   * brokerEnvironment module, standalone and hub-embedded alike.
+   */
   activeEnv?: "TEST" | "PROD";
   oauthStatus?: {
     authenticated?: boolean;
@@ -99,7 +109,6 @@ export interface SettingsMenuProps {
 export type ETradeDynamicMenuProps = SettingsMenuProps;
 
 export function SettingsMenu({
-  activeEnv,
   oauthStatus,
   account,
   brokerStatus,
@@ -109,7 +118,6 @@ export function SettingsMenu({
   oauthLoading = false,
   oauthMsg = "",
   setOauthMsg,
-  handleSwitchEnvironment,
   handleSwitchAndConnect,
   runDiagnostics,
   handleRenewOAuth,
@@ -148,14 +156,6 @@ export function SettingsMenu({
   const menuRef = useRef<HTMLDivElement>(null);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Fallback state if props are not yet passed from Hub
-  const [localEnv, setLocalEnv] = useState<"TEST" | "PROD">(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("etrade_active_env");
-      if (saved === "TEST" || saved === "PROD") return saved;
-    }
-    return activeEnv || "PROD";
-  });
   const [localMask, setLocalMask] = useState(true);
   const [localMsg, setLocalMsg] = useState("");
   const [localDiagLoading, setLocalDiagLoading] = useState(false);
@@ -294,13 +294,6 @@ export function SettingsMenu({
     }
   };
 
-  // Sync props when they change
-  useEffect(() => {
-    if (activeEnv) {
-      setLocalEnv(activeEnv);
-    }
-  }, [activeEnv]);
-
   // Global Typography Preferences (Single Universal Font: Inter)
   const [fontScale, setFontScale] = useState<number>(getStoredFontScale);
 
@@ -320,7 +313,10 @@ export function SettingsMenu({
     applyTypography(newScale);
   };
 
-  const effectiveEnv = activeEnv || localEnv;
+  // Issue #2482: the single environment value. The old localEnv state
+  // (backed by the etrade_active_env key, which could disagree with
+  // the hub's cfagent_env key) is gone.
+  const effectiveEnv = useBrokerEnvironment();
   const effectiveMask = maskAccount !== undefined ? maskAccount : localMask;
   const toggleMask = () => {
     if (setMaskAccount) {
@@ -414,20 +410,11 @@ export function SettingsMenu({
   }, [isOpen]);
 
   const onSwitchEnv = (target: "TEST" | "PROD") => {
-    setLocalEnv(target);
-    if (typeof window !== "undefined") {
-      localStorage.setItem("etrade_active_env", target);
-      window.dispatchEvent(new CustomEvent("etrade-env-changed", { detail: { env: target } }));
-    }
-    if (handleSwitchEnvironment) {
-      handleSwitchEnvironment(target);
-    } else {
-      fetch("/api/broker/etrade/environment", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ environment: target }),
-      }).catch(() => {});
-    }
+    // Issue #2482: one write-through path. The module persists the
+    // selection server-side and broadcasts etrade-env-changed; the hub
+    // listener refetches and resets drafts from that event, so the menu
+    // no longer calls the parent handler or posts to a second spelling.
+    void switchBrokerEnvironment(target);
   };
 
   const handleOpenTuning = () => {

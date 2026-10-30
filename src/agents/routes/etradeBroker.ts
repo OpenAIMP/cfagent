@@ -32,6 +32,11 @@
  */
 
 import { unauthenticatedResponse } from "./routeIdentity";
+import {
+  resolveBrokerEnvironmentFromSettings,
+  handleBrokerEnvironmentGet,
+  handleEnvironmentSwitch,
+} from "./brokerEnvironment";
 export { publishManualScreenerRun } from "./etradeBrokerPublish";
 import {
   computePortfolioRisk,
@@ -110,6 +115,8 @@ export interface EtradeBrokerRouteContext {
   getOrm(): DatabaseORM;
   /** Screening-settings reader (owner: OrchestratorAgent - was `this.readSettingRaw()`). */
   readSettingRaw(key: string): string | null;
+  /** Issue #2482: settings writer for the persisted environment selection (optional; the switch fails closed without it). */
+  writeSetting?(key: string, value: string): void;
   /** Audit writer (owner: OrchestratorAgent - was `this.audit`). */
   audit(
     type: string,
@@ -154,23 +161,13 @@ export interface EtradeBrokerRouteContext {
 }
 
 /**
- * Issue #314 — single-owner handler for the environment switcher.
- * Both spellings (`/environment/switch` and the advertised
- * `/broker/etrade/environment` from ETradeDynamicMenu.tsx) delegate here,
- * so the request/response contract, validation, and auth are identical.
+ * Issue #314 — the environment switcher delegates to the single-owner
+ * handler in ./brokerEnvironment (moved there under #2482: the switch
+ * block is a coherent unit, and etradeBroker.ts sits at the #359
+ * 50 KB module target). Both spellings share one contract, and the
+ * handler persists the selection — it never returns success while
+ * storing nothing.
  */
-export async function handleEnvironmentSwitch(request: Request): Promise<Response> {
-  try {
-    const body = (await request.json().catch(() => ({}))) as any;
-    const requested = String(body.environment || "PROD").toUpperCase().trim();
-    if (requested === "TEST" || requested === "PROD") {
-      return Response.json({ success: true, environment: requested });
-    }
-    return Response.json({ error: "Invalid environment. Expected TEST or PROD." }, { status: 400 });
-  } catch (err) {
-    return Response.json({ error: "Failed to switch environment" }, { status: 500 });
-  }
-}
 
 /**
  * Handles the E*TRADE broker routes (Environment & E*TRADE Trading APIs
@@ -188,18 +185,27 @@ export async function handleEtradeBrokerRoutes(
   // Environment & E*TRADE Trading APIs
   // ==========================================
 
-  const rawEnvHeader = (request.headers.get("x-environment") || url.searchParams.get("env") || "").toUpperCase().trim();
-  const requestedEnv: "TEST" | "PROD" | undefined = (rawEnvHeader === "TEST" || rawEnvHeader === "PROD") ? rawEnvHeader : undefined;
+  // Issue #2482: broker data resolves from the persisted per-login
+  // selection, never the header or ?env= param (unset: deployment default).
+  const requestedEnv: "TEST" | "PROD" | undefined =
+    resolveBrokerEnvironmentFromSettings(ctx.readSettingRaw, ctx.env);
 
   // Environment Switcher API (allows client to toggle between Sandbox TEST and Live PROD)
   // Issue #314: the advertised /api/broker/etrade/environment spelling
   // (ETradeDynamicMenu.tsx fallback) delegates to the same single-owner
   // handler, so both spellings share one contract.
+  // Issue #2482: POST persists the selection; GET reads it back.
   if (path.endsWith("/environment/switch") && request.method === "POST") {
-    return handleEnvironmentSwitch(request);
+    return handleEnvironmentSwitch(request, ctx);
   }
   if (path.endsWith("/broker/etrade/environment") && request.method === "POST") {
-    return handleEnvironmentSwitch(request);
+    return handleEnvironmentSwitch(request, ctx);
+  }
+  if (path.endsWith("/environment/switch") && request.method === "GET") {
+    return handleBrokerEnvironmentGet(ctx);
+  }
+  if (path.endsWith("/broker/etrade/environment") && request.method === "GET") {
+    return handleBrokerEnvironmentGet(ctx);
   }
 
   // Broker status & account metadata
@@ -837,8 +843,9 @@ export async function handleEtradeBrokerActivityRoutes(
   sessionId: string,
   ctx: EtradeBrokerRouteContext
 ): Promise<Response | null> {
-  const rawEnvHeader = (request.headers.get("x-environment") || url.searchParams.get("env") || "").toUpperCase().trim();
-  const requestedEnv: "TEST" | "PROD" | undefined = (rawEnvHeader === "TEST" || rawEnvHeader === "PROD") ? rawEnvHeader : undefined;
+  // Issue #2482: same single source as the broker block.
+  const requestedEnv: "TEST" | "PROD" | undefined =
+    resolveBrokerEnvironmentFromSettings(ctx.readSettingRaw, ctx.env);
 
   // Real E*TRADE REST API: Account Transactions
   if (path.endsWith("/etrade/transactions") && request.method === "GET") {
