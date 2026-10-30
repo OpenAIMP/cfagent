@@ -18,6 +18,7 @@ import { navigateToTab, readTabFromLocation, subscribeToRouteChanges } from "./r
 import { getCrumb } from "./routes";
 import { StockSearchBar } from "./components/StockSearchBar";
 import { MarketTickerTape } from "./components/MarketTickerTape";
+import { AuditEventCard } from "./components/AuditEventCard";
 import { MarketStatusPill } from "./components/MarketStatusPill";
 import { AskAgentWidget } from "./components/AskAgentWidget";
 import { getStoredTheme, applyTheme, ThemeMode, initThemeListener } from "./theme";
@@ -1000,14 +1001,7 @@ export function Chat({ user }: { user: User }) {
                     <EmptyState icon="📋" title="No audit events logged yet" />
                   ) : (
                     auditEvents.map((e) => (
-                      <Card padding="none" key={e.id} className="event-item">
-                        <div className="event-header">
-                          <span className={`event-agent-tag ${e.agent}`}>{e.agent.toUpperCase()}</span>
-                          <span className="event-type">{e.type}</span>
-                          <span className="event-time">{new Date(e.created_at).toLocaleTimeString()}</span>
-                        </div>
-                        <pre className="event-payload">{JSON.stringify(e.payload, null, 2)}</pre>
-                      </Card>
+                      <AuditEventCard key={e.id} event={e} />
                     ))
                   )}
                 </div>
