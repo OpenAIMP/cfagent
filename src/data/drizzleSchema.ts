@@ -850,3 +850,70 @@ export const agentExternalAds = sqliteTable("agent_external_ads", {
   isActive: integer("is_active").default(1),
   createdAt: text("created_at").notNull(),
 });
+
+/**
+ * D1 regularization (#1976 step 4f, issue #2362; ADR 0022
+ * D-A consequences). These five tables were self-created at
+ * runtime by their modules (step-4 audit R-8); migration 0022
+ * is now their DDL authority and this schema MAPS them — it
+ * does not create them. A parity pin holds each mapping and
+ * the 0022 DDL together on columns, and a shape pin holds
+ * both against the shapes the legacy self-create produced.
+ * Table names keep their runtime names (no agent_ prefix):
+ * the regularization versions the existing tables in place —
+ * renaming would orphan live data for zero behaviour gain.
+ */
+export const quoteSourceSetting = sqliteTable("quote_source_setting", {
+  id: integer("id").primaryKey(),
+  source: text("source").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+export const resourceSqlOps = sqliteTable("resource_sql_ops", {
+  tsMs: integer("ts_ms").notNull(),
+  ns: text("ns").notNull(),
+  op: text("op").notNull(),
+  rowsRead: integer("rows_read").notNull(),
+  rowsWritten: integer("rows_written").notNull(),
+  caller: text("caller"),
+  trigger: text("trigger"),
+  statement: text("statement"),
+  tenantId: text("tenant_id"),
+  runId: text("run_id"),
+  sessionRef: text("session_ref"),
+});
+
+export const resourceDailyRollups = sqliteTable(
+  "resource_daily_rollups",
+  {
+    day: text("day").notNull(),
+    ns: text("ns").notNull(),
+    op: text("op").notNull(),
+    caller: text("caller").notNull(),
+    trigger: text("trigger").notNull(),
+    ops: integer("ops").notNull(),
+    rowsRead: integer("rows_read").notNull(),
+    rowsWritten: integer("rows_written").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.day, table.ns, table.op, table.caller, table.trigger] }),
+  ],
+);
+
+export const resourceAlertState = sqliteTable(
+  "resource_alert_state",
+  {
+    budget: text("budget").notNull(),
+    day: text("day").notNull(),
+    alertedAt: integer("alerted_at").notNull(),
+    delivered: integer("delivered").notNull(),
+    note: text("note"),
+  },
+  (table) => [primaryKey({ columns: [table.budget, table.day] })],
+);
+
+export const resourceComparisonReports = sqliteTable("resource_comparison_reports", {
+  day: text("day").primaryKey(),
+  generatedAt: integer("generated_at").notNull(),
+  reportJson: text("report_json").notNull(),
+});

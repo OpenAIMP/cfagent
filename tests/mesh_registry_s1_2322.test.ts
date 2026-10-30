@@ -94,16 +94,20 @@ describe("mesh registry shape (#2322)", () => {
     }
   });
 
-  it("records exactly the five doors and the five channels", () => {
+  it("records exactly the five doors and the six channels (S13, #2412: NLQ webhook added; identity/gate/parity/adapter completed)", () => {
     expect(MESH_DOORS.map((d) => d.id).sort()).toEqual(
       ["a2a", "agent-as-a-tool", "chat-turn", "http-routes", "mcp"].sort(),
     );
     expect(MESH_CHANNELS.map((c) => c.id).sort()).toEqual(
-      ["email", "slack", "voice", "web-chat", "webhook"].sort(),
+      ["email", "nlq-webhook", "slack", "voice", "web-chat", "webhook"].sort(),
     );
     for (const channel of MESH_CHANNELS) {
       expect(channel.terminatesAt.length, channel.id).toBeGreaterThan(0);
       expect(channel.ingress.length, channel.id).toBeGreaterThan(0);
+      expect(channel.identity.length, channel.id).toBeGreaterThan(0);
+      expect(channel.gate.length, channel.id).toBeGreaterThan(0);
+      expect(channel.parity.length, channel.id).toBeGreaterThan(0);
+      expect(channel.adapter.length, channel.id).toBeGreaterThan(0);
     }
   });
 

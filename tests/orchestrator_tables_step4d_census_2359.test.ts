@@ -243,11 +243,15 @@ describe("4d family census: writer sets", () => {
 
   it("the closed bypasses leave only the data layer (and the named out-of-slice remainders)", () => {
     // mas_messages: orchestrator.ts bypass CLOSED; the
-    // masRetentionIndexes bypass remains for #2362.
+    // masRetentionIndexes bypass was retired by #2362
+    // (step 4f) — the index helper now lives in the data
+    // layer (§7 adaptation, justified: this pin's own
+    // comment named #2362 as the retiring slice; the writer
+    // set is unchanged in size, the writer moved in-layer).
     expect(writerSet("mas_messages")).toEqual([
       "src/data/doSqliteOrmAdapters.ts",
+      "src/data/masRetentionIndexSchema.ts",
       "src/data/ormSchema.ts",
-      "src/services/masRetentionIndexes.ts",
     ]);
     // mas_memory: unchanged — the layer was already its only
     // writer; this slice closed its READ bypasses instead.
