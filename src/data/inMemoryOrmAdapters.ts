@@ -31,7 +31,11 @@ import type {
   RepositoryQueryOptions,
 } from "./repositoryPorts";
 import type { SettingsReadPort } from "./settingsReadPorts";
-import type { TransactionLedgerPort } from "./transactionLedgerPorts";
+import type {
+  TransactionCompletionFields,
+  TransactionLedgerPort,
+  TransactionRejectionFields,
+} from "./transactionLedgerPorts";
 
 function toSnake(key: string): string {
   return key.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
@@ -253,6 +257,59 @@ export class InMemoryTransactionLedgerAdapter
   replace(record: TransactionRecord): TransactionRecord {
     this.rows.set(record.id, { ...record });
     return record;
+  }
+
+  /** #2360: the route's four status transitions with the
+   *  same field sets and WHERE shapes as the DO adapter —
+   *  no status guard on any of them (the legacy UPDATEs
+   *  have none). Each returns the rows matched. */
+  completeWithGateway(
+    id: string,
+    fields: TransactionCompletionFields
+  ): number {
+    const row = this.rows.get(id);
+    if (!row) return 0;
+    this.rows.set(id, {
+      ...row,
+      status: "completed",
+      gatewayRef: fields.gatewayRef,
+      checkoutUrl: fields.checkoutUrl,
+      authorizerDid: fields.authorizerDid,
+      note: fields.note,
+      updatedAt: fields.updatedAt,
+    });
+    return 1;
+  }
+
+  rejectWithNote(id: string, fields: TransactionRejectionFields): number {
+    const row = this.rows.get(id);
+    if (!row) return 0;
+    this.rows.set(id, {
+      ...row,
+      status: "rejected",
+      authorizerDid: fields.authorizerDid,
+      note: fields.note,
+      updatedAt: fields.updatedAt,
+    });
+    return 1;
+  }
+
+  completeByIdOrGatewayRef(ref: string, updatedAt: string): number {
+    let matched = 0;
+    for (const [id, row] of this.rows) {
+      if (row.id === ref || row.gatewayRef === ref) {
+        this.rows.set(id, { ...row, status: "completed", updatedAt });
+        matched++;
+      }
+    }
+    return matched;
+  }
+
+  completeById(id: string, updatedAt: string): number {
+    const row = this.rows.get(id);
+    if (!row) return 0;
+    this.rows.set(id, { ...row, status: "completed", updatedAt });
+    return 1;
   }
 }
 

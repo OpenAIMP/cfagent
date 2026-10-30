@@ -48,7 +48,9 @@ const CONSUMER_FILES = [
 const DATA_LAYER_FILES: Array<[string, number]> = [
   // [file, storage-exec sites at the step-3a landing]
   ["src/data/ormRepositoryCore.ts", 7],
-  ["src/data/doSqliteOrmAdapters.ts", 9],
+  // 9 at 3a; 13 since #2360 (step 4d-2) added the ledger
+  // port's four route-transition statements to this adapter.
+  ["src/data/doSqliteOrmAdapters.ts", 13],
   ["src/data/doSqliteMarketplaceAdapter.ts", 2],
   ["src/data/ormFacade.ts", 13],
   ["src/data/ormSchema.ts", 4],

@@ -1,0 +1,5 @@
+### Changed
+
+- #1976 step 4d-2 (#2360): the payments route's eight raw `mas_transactions` statements (immediate-mode create INSERT, the confirm draft read, the approve/reject status UPDATEs, the capture completion, and the webhook settlement probe + UPDATE) now run through the step-3a transaction-ledger port. The port gains four named transition operations carrying exactly the legacy field sets and WHERE shapes (`completeWithGateway`, `rejectWithNote`, `completeByIdOrGatewayRef`, `completeById` — no status guard added; the legacy UPDATEs have none), implemented on both the DO-SQLite and in-memory adapters with rows-matched counts, and the route's draft read goes through the port's `findById`. Behaviour is unchanged — pinned by new route characterization (19 pins over the real handlers on a node:sqlite double) and dual-adapter conformance (14 pins). The route was the ledger's last bypass writer (step-4 audit R-2): the global D-D census surface-1 total falls 54 → 46 and `mas_transactions`' writer set is now layer-only.
+
+#CDO-mha7
