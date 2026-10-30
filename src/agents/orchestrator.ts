@@ -55,6 +55,8 @@ import {
 import type { PaymentsFlowScopedModes } from "../config/paymentsFlowModes";
 import { diffScanRuns } from "../trading";
 import { createOptionsDiscoveryPorts } from "../data/createOptionsDiscoveryPorts";
+import { createOrchestratorTablePorts } from "../data/createOrchestratorTablePorts";
+import { createOrmPorts } from "../data/createOrmPorts";
 import { createDidAttestation, resolveAgentDidDocument } from "./did";
 import { createMAS } from "./mas";
 import { buildChatErrorFallback, type ChatErrorFallbackContext } from "./chatErrorFallback";
@@ -1106,22 +1108,26 @@ export class OrchestratorAgent extends PortThink {
     // so no lazy-creation ordering issue.
     ensureMasRetentionIndexes(sql);
     ensureSharedTable(sql, "mas_memory");
+    // Issue #2359 (#1976 step 4d): the four orchestrator-owned
+    // tables' DDL moved behind the orchestrator-table ports (one
+    // owner per table, ADR 0022 D-A). These calls run the four
+    // families' schema ensures in the legacy order: autopilot
+    // state, report confirmations (with the probed #308
+    // report_id migration), screener presets, policy verdicts
+    // (with its created-at index).
+    const tablePorts = createOrchestratorTablePorts(sql);
     // Autopilot policy state (autopilot Phase 1): server-owned run state,
     // limits, kill switch, and daily order budget. Previously all four lived in
     // browser localStorage, so a reload cleared the kill switch and a second
     // browser ran its own envelope.
-    sql.exec(`
-      CREATE TABLE IF NOT EXISTS mas_autopilot (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      )
-    `);
+    tablePorts.autopilot.ensureSchema();
     // Server-owned settings (issue #277): per-key runtime flags readable by
     // the agent and writable through the /trading/settings routes. Same
     // shape as mas_autopilot; DELETE+INSERT is used for upsert so the
     // MockSqlStorage harness (which does not parse INSERT OR REPLACE)
     // stays byte-compatible with real SQLite.
+    // Issue #2359: this DDL deliberately STAYS here — mas_settings
+    // is owner gate G-7, not part of step 4d.
     sql.exec(`
       CREATE TABLE IF NOT EXISTS mas_settings (
         key TEXT PRIMARY KEY,
@@ -1137,79 +1143,27 @@ export class OrchestratorAgent extends PortThink {
     // fileName / title); the report bytes themselves live once in
     // mas_reports, referenced by report_id. Legacy rows (pre-#308) carry
     // the full payload in payload_json and are read via a fallback.
-    sql.exec(`
-      CREATE TABLE IF NOT EXISTS mas_report_confirmations (
-        id TEXT PRIMARY KEY,
-        kind TEXT NOT NULL,
-        payload_json TEXT NOT NULL,
-        status TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        decided_at TEXT,
-        decided_by TEXT,
-        report_id TEXT
-      )
-    `);
-    // Additive migration for tables created before issue #308.
-    try {
-      const cols = Array.from(
-        sql.exec("PRAGMA table_info(mas_report_confirmations)")
-      ) as Array<{ name?: unknown }>;
-      const names = cols.map((c) => String(c?.name ?? ""));
-      if (!names.includes("report_id")) {
-        sql.exec("ALTER TABLE mas_report_confirmations ADD COLUMN report_id TEXT");
-      }
-    } catch {
-      // Non-critical: best-effort migration; fresh installs get the column.
-    }
+    tablePorts.confirmations.ensureSchema();
     // Issue #1495 (#940-A): user-scoped screener presets (DO/SQLite, not KV per #415); criteria validated by the run path's strict parsers before storage.
-    sql.exec(`
-      CREATE TABLE IF NOT EXISTS mas_screener_presets (
-        id TEXT PRIMARY KEY,
-        user_login TEXT NOT NULL,
-        name TEXT NOT NULL,
-        asset_class TEXT NOT NULL,
-        criteria_json TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      )
-    `);
+    tablePorts.presets.ensureSchema();
     // Append-only verdict ledger: every policy decision, its inputs, and a
     // signature produced server-side where the decision is made.
-    sql.exec(`
-      CREATE TABLE IF NOT EXISTS mas_policy_verdicts (
-        id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL,
-        symbol TEXT NOT NULL,
-        action TEXT NOT NULL,
-        quantity REAL NOT NULL,
-        notional REAL,
-        mode TEXT NOT NULL,
-        dry_run INTEGER NOT NULL DEFAULT 0,
-        passed INTEGER NOT NULL,
-        execution_allowed INTEGER NOT NULL,
-        requires_approval INTEGER NOT NULL,
-        binding_rule TEXT,
-        detail TEXT NOT NULL,
-        limits_json TEXT NOT NULL,
-        projections_json TEXT NOT NULL,
-        findings_json TEXT NOT NULL,
-        signature TEXT NOT NULL,
-        signing_key_id TEXT NOT NULL,
-        proposer_did TEXT NOT NULL,
-        authorizer_did TEXT NOT NULL,
-        created_at TEXT NOT NULL
-      )
-    `);
-    sql.exec("CREATE INDEX IF NOT EXISTS idx_mas_policy_verdicts_created ON mas_policy_verdicts(created_at DESC)");
+    tablePorts.verdicts.ensureSchema();
     ensureSharedTable(sql, "mas_referrals");
     ensureSharedTable(sql, "mas_ads");
 
     ensureSharedTable(sql, "mas_watchlists");
 
-    // Seed default sponsor offers if ads table is empty
+    // Seed default sponsor offers if ads table is empty.
+    // Issue #2359 (#1976 step 4d): the count + inserts serve
+    // through the step-3a ads repository port (the table's port
+    // home) instead of raw statements here. The count==0 gate
+    // makes the port's insert-or-throw equivalent to the legacy
+    // INSERT OR IGNORE: the loop only runs on an empty table,
+    // so no conflicting row can exist.
     try {
-      const adCount = Array.from(sql.exec("SELECT COUNT(*) AS count FROM mas_ads")) as Array<{ count: number }>;
-      if ((adCount[0]?.count ?? 0) === 0) {
+      const ads = createOrmPorts(sql).ads;
+      if (ads.count() === 0) {
         const now = new Date().toISOString();
         const seedAds = [
           {
@@ -1255,18 +1209,19 @@ export class OrchestratorAgent extends PortThink {
         ];
 
         for (const ad of seedAds) {
-          sql.exec(
-            "INSERT OR IGNORE INTO mas_ads (id, title, tagline, sponsor, badge, url, cta_text, accent_color, impressions, clicks, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)",
-            ad.id,
-            ad.title,
-            ad.tagline,
-            ad.sponsor,
-            ad.badge,
-            ad.url,
-            ad.cta_text,
-            ad.accent_color,
-            now
-          );
+          ads.create({
+            id: ad.id,
+            title: ad.title,
+            tagline: ad.tagline,
+            sponsor: ad.sponsor,
+            badge: ad.badge,
+            url: ad.url,
+            ctaText: ad.cta_text,
+            accentColor: ad.accent_color,
+            impressions: 0,
+            clicks: 0,
+            createdAt: now,
+          });
         }
       }
     } catch {
@@ -1287,8 +1242,12 @@ export class OrchestratorAgent extends PortThink {
     // ever have come from that seeding — purge exactly those rows from
     // stores seeded before this fix.
     try {
-      sql.exec("DELETE FROM mas_transactions WHERE id = ?", "pay_init_stripe");
-      sql.exec("DELETE FROM mas_transactions WHERE id = ?", "pay_init_paypal");
+      // Issue #2359 (#1976 step 4d): the purge serves through
+      // the step-3a transaction-ledger port (the table's port
+      // home) instead of raw DELETEs here.
+      const transactions = createOrmPorts(sql).transactions;
+      transactions.delete("pay_init_stripe");
+      transactions.delete("pay_init_paypal");
     } catch {
       // Ignore if the purge fails
     }
@@ -1635,17 +1594,18 @@ export class OrchestratorAgent extends PortThink {
   private recordMessage(role: "user" | "assistant" | "system", content: string, agent: AgentName | "orchestrator") {
     try {
       const sql = this.ensureTables();
-      const id = crypto.randomUUID();
-      const now = new Date().toISOString();
-      sql.exec(
-        "INSERT INTO mas_messages (id, session_id, role, content, agent, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-        id,
-        this.sessionKey(),
+      // Issue #2359 (#1976 step 4d): the write serves through
+      // the step-3a message port (the table's port home)
+      // instead of the raw INSERT it replaces — same row,
+      // same insert-or-throw conflict policy, same swallow.
+      createOrmPorts(sql).messages.create({
+        id: crypto.randomUUID(),
+        sessionId: this.sessionKey(),
         role,
-        content.slice(0, 30000),
+        content: content.slice(0, 30000),
         agent,
-        now
-      );
+        createdAt: new Date().toISOString(),
+      });
     } catch {
       // Don't fail execution if record insertion fails
     }
@@ -1724,12 +1684,11 @@ export class OrchestratorAgent extends PortThink {
         label: "session-memory",
         description: "Persistent session facts recorded by earlier turns (mas_memory).",
         resolve: async () => {
-          this.ensureTables();
-          const rows = Array.from(
-            this.ctx.storage.sql.exec(
-              "SELECT key, value FROM mas_memory ORDER BY updated_at DESC LIMIT 8"
-            )
-          ) as Array<{ key: string; value: string }>;
+          const sql = this.ensureTables();
+          // Issue #2359 (#1976 step 4d): the read serves through
+          // the step-3a memory port's listRecent (the identical
+          // newest-first, limit-8 projection) instead of raw SQL.
+          const rows = createOrmPorts(sql).memory.listRecent(8);
           if (rows.length === 0) return null;
           return rows.map((m) => `- ${m.key}: "${m.value}"`).join("\n");
         },
