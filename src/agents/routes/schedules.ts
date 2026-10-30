@@ -47,7 +47,10 @@ import {
   buildSchedulePayload,
   validateStrategyRequest,
 } from "../../trading";
-import { createOptionsDiscoveryPorts } from "../../data/createOptionsDiscoveryPorts";
+import {
+  buildOptionsDiscoveryPorts,
+  createOptionsDiscoveryPorts,
+} from "../../data/createOptionsDiscoveryPorts";
 import { ScheduledTasksService } from "../../services/scheduledTasks";
 import { pickFeedLoadParams } from "../../services/feedSnapshotStore";
 import {
@@ -760,12 +763,16 @@ export async function handleSchedulesRoutes(
         if (!userLogin) return Response.json({ success: false, error: "An authenticated E*TRADE account is required." }, { status: 401 });
         const rawEnvironment = (request.headers.get("x-environment") || "").toUpperCase();
         const environment = rawEnvironment === "TEST" || rawEnvironment === "PROD" ? rawEnvironment : context?.environment;
+        // Issue #2337 cutover (R-2): the on-demand trigger
+        // collects through the env-aware build's IV store —
+        // D1 when AGENT_DB is bound — the same store the
+        // scheduled collector and the read paths use.
         const service = new ScheduledTasksService(
           ctx.env,
           ctx.getOrm(),
           userLogin,
           createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).scanRuns,
-          createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).ivHistory,
+          (await buildOptionsDiscoveryPorts(ctx.env, { sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage })).ivHistory,
           undefined,
           undefined,
           ctx.scheduleScreenerFollowups
