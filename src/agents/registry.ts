@@ -980,7 +980,9 @@ export const MESH_WORKFLOWS: MeshWorkflowEntry[] = [
 // in src/. tests/mesh_every_door_s15_2421.test.ts pins the census
 // against those sources. Consumers: S16 took the A2A column as its
 // per-agent credential inventory (the identity records above);
-// S18's golden tasks exercise this exposure; S20 renders it.
+// S18 (#2439) exercised the exposure with the golden-task harness
+// and recorded G12 proven for the catalog's scope — see
+// MESH_G12_PROOF below; S20 renders it.
 // ---------------------------------------------------------------------------
 
 export interface MeshCapabilityDoorEntry {
@@ -1885,3 +1887,35 @@ export function classesExposedOn(door: MeshDoorEntry["id"]): string[] {
     (e) => e.door === door && e.status === "exposed",
   ).map((e) => e.className);
 }
+
+// ---------------------------------------------------------------------------
+// G12 proof record (S18, #2439) — S15 built the census above and
+// recorded the programme constraint that G12 is claimed proven
+// only when S18 lands. S18 landed the golden-task eval harness
+// (src/services/meshGoldenTasks.ts): every task in its catalog
+// names an EXPOSED cell of this census and drives that cell's
+// real door path (fakes only at binding seams), including the
+// census-recorded gate behavior — refusals are golden outcomes.
+// Scored results are recorded in the eval result store
+// (agent_mesh_eval_results), where S19's RSI loop reads them.
+//
+// The claim's scope is exactly the catalog: all five doors are
+// exercised, across the cells the catalog enumerates. A census
+// cell the catalog does not name is NOT proven by this record —
+// exposure for those cells still rests on the S15 parity pins,
+// as it did before S18.
+// ---------------------------------------------------------------------------
+
+export const MESH_G12_PROOF = {
+  status: "proven",
+  issue: 2439,
+  catalog: "src/services/meshGoldenTasks.ts (MESH_GOLDEN_TASKS)",
+  suites: [
+    "tests/mesh_golden_tasks_s18_2439.test.ts",
+    "tests/mesh_golden_http_s18_2439.test.ts",
+  ],
+  store: "agent_mesh_eval_results",
+  doors: ["chat-turn", "http-routes", "mcp", "a2a", "agent-as-a-tool"],
+  scope:
+    "Proven for the census cells the golden catalog enumerates, at binding-seam fidelity; unenumerated cells rest on the S15 parity pins.",
+} as const;

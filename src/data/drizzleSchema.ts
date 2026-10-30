@@ -945,3 +945,35 @@ export const agentMeshTraceHops = sqliteTable(
     primaryKey({ columns: [table.traceId, table.spanId] }),
   ],
 );
+
+/**
+ * Issue #2439 (Agent Mesh S18, G13b) — one row per scored
+ * golden-task result. The (run_id, task_id) primary key is the
+ * recording idempotency rule (the first record of a run wins).
+ * Facts and failures are JSON text: scalar evidence only (codes,
+ * ids, counts, booleans) — never payloads or free text from a
+ * door response. DDL lives in MIGRATION_0024.
+ */
+export const agentMeshEvalResults = sqliteTable(
+  "agent_mesh_eval_results",
+  {
+    runId: text("run_id").notNull(),
+    taskId: text("task_id").notNull(),
+    door: text("door").notNull(),
+    className: text("class_name").notNull(),
+    seq: integer("seq").notNull(),
+    passed: integer("passed").notNull(),
+    outcome: text("outcome").notNull(),
+    refusalCode: text("refusal_code"),
+    failuresJson: text("failures_json").notNull(),
+    traceId: text("trace_id"),
+    traceHopKindsJson: text("trace_hop_kinds_json"),
+    traceComplete: integer("trace_complete"),
+    factsJson: text("facts_json").notNull(),
+    startedAtMs: integer("started_at_ms").notNull(),
+    durationMs: integer("duration_ms").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.runId, table.taskId] }),
+  ],
+);

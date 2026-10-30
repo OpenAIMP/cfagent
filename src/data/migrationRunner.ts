@@ -1145,6 +1145,45 @@ CREATE INDEX IF NOT EXISTS agent_mesh_trace_hops_trace_idx ON agent_mesh_trace_h
 `,
 };
 
+/**
+ * Issue #2439 (Agent Mesh S18, G13b): one row per scored
+ * golden-task result, written by the eval harness
+ * (src/services/meshGoldenTasks.ts) through the eval result
+ * store port and read back by S19's RSI proposal pipeline. The
+ * (run_id, task_id) primary key is the recording idempotency
+ * rule. Facts/failures/hop-kinds are JSON text carrying scalar
+ * evidence only. Retention: eval results are small (one row per
+ * task per run) and are the RSI loop's outcome history; no purge
+ * contract is declared in this slice (the table joins the
+ * retention review with the other AgentDB tables, #1701's
+ * contract).
+ */
+export const MIGRATION_0024_AGENT_MESH_EVAL_RESULTS: DataMigration = {
+  version: 24,
+  name: "0024_agent_mesh_eval_results",
+  sql: `
+CREATE TABLE IF NOT EXISTS agent_mesh_eval_results (
+  run_id TEXT NOT NULL,
+  task_id TEXT NOT NULL,
+  door TEXT NOT NULL,
+  class_name TEXT NOT NULL,
+  seq INTEGER NOT NULL,
+  passed INTEGER NOT NULL,
+  outcome TEXT NOT NULL,
+  refusal_code TEXT,
+  failures_json TEXT NOT NULL,
+  trace_id TEXT,
+  trace_hop_kinds_json TEXT,
+  trace_complete INTEGER,
+  facts_json TEXT NOT NULL,
+  started_at_ms INTEGER NOT NULL,
+  duration_ms INTEGER NOT NULL,
+  PRIMARY KEY (run_id, task_id)
+);
+CREATE INDEX IF NOT EXISTS agent_mesh_eval_results_task_idx ON agent_mesh_eval_results (task_id, started_at_ms);
+`,
+};
+
 export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0001_AGENT_GOVERNANCE,
   MIGRATION_0002_AGENT_CHAINS_SCHEDULES,
@@ -1169,6 +1208,7 @@ export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0021_MARKETPLACE,
   MIGRATION_0022_D1_REGULARIZATION,
   MIGRATION_0023_AGENT_MESH_TRACE_HOPS,
+  MIGRATION_0024_AGENT_MESH_EVAL_RESULTS,
 ];
 
 function splitStatements(sqlText: string): string[] {
