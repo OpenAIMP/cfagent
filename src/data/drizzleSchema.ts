@@ -977,3 +977,29 @@ export const agentMeshEvalResults = sqliteTable(
     primaryKey({ columns: [table.runId, table.taskId] }),
   ],
 );
+
+/**
+ * Issue #2460 (Agent Mesh S19, G13c) — one row per RSI proposal
+ * record drafted by the proposal pipeline. Evidence refs and the
+ * evidence-bar verdict are JSON text: scalar evidence only (run
+ * ids, trace ids, counts, codes) — never payloads. The proposal
+ * text fields are the pipeline's own drafted prose (problem,
+ * change, expected effect, falsification criterion), not door
+ * output. DDL lives in MIGRATION_0025.
+ */
+export const agentMeshProposals = sqliteTable("agent_mesh_proposals", {
+  id: text("id").primaryKey(),
+  signalKey: text("signal_key").notNull(),
+  title: text("title").notNull(),
+  problem: text("problem").notNull(),
+  proposedChange: text("proposed_change").notNull(),
+  expectedEffect: text("expected_effect").notNull(),
+  falsificationCriterion: text("falsification_criterion").notNull(),
+  evidenceRefsJson: text("evidence_refs_json").notNull(),
+  state: text("state").notNull(),
+  barVerdictJson: text("bar_verdict_json"),
+  filedIssueNumber: integer("filed_issue_number"),
+  filedIssueUrl: text("filed_issue_url"),
+  createdAtMs: integer("created_at_ms").notNull(),
+  updatedAtMs: integer("updated_at_ms").notNull(),
+});

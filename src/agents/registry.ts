@@ -932,6 +932,126 @@ export const MESH_DOORS: MeshDoorEntry[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// Per-door cost budgets (S19, #2460, programme G13c) — for each
+// door: the cost unit, the cap where one honestly exists, the
+// accounting source where cost is measurable, the enforcement
+// state, and the recorded gaps where it is not. The discipline
+// is the SubrequestBudget one-ledger/hard-cap shape (#1204):
+// a cap is recorded ONLY where a real enforcing surface charges
+// a real ledger — today that is exactly the PaymentsAgent
+// BudgetGuard (src/payments/budget-guard.ts), restored from
+// mas_transactions on every check, whose DEFAULT_BUDGET caps
+// the S19 suite pins this record against. Where a door's cost
+// cannot be measured, the record says so in `gaps` and carries
+// NO numbers: a fabricated cap would be a control that does not
+// exist. The door-level guard substrate (ledger + coded refusal)
+// lives in src/services/meshDoorBudgets.ts.
+// ---------------------------------------------------------------------------
+
+export interface MeshDoorCostBudgetEntry {
+  door: MeshDoorEntry["id"];
+  /** The cost unit this record prices. */
+  unit: string;
+  /** Caps in `unit`, only where a real enforcing surface applies them. */
+  caps: { perCall?: number; perDay?: number } | null;
+  /** The named surface that measures this door's cost, or null. */
+  accountingSource: string | null;
+  /** What the accounting covers — and what it does not. */
+  accountingScope: string | null;
+  enforcement: "enforced" | "accounting-only" | "not-measurable";
+  /** The surface that refuses over-cap work. Enforced records only. */
+  enforcingSurface: string | null;
+  /** Cost facets that cannot be measured today, stated plainly. */
+  gaps: string[];
+}
+
+export const MESH_DOOR_COST_BUDGETS: MeshDoorCostBudgetEntry[] = [
+  {
+    door: "chat-turn",
+    unit: "usd-cents (paid-action spend)",
+    caps: { perCall: 1000, perDay: 5000 },
+    accountingSource:
+      "mas_transactions (the ledger of record, src/payments/ledger.ts), read through PaymentsAgent.todaySpent / listPayments (src/agents/payments-agent.ts)",
+    accountingScope:
+      "Spend is bucketed by agentId — AGENTIC_SPEND_AGENT_ID for orchestrator-attributed spend — not by door: the same bucket is charged by chat-initiated and schedule-initiated paid actions, so a ledger row's door attribution is partial (the S16 caller attribution and the S17 trace id ride the payment audit record, not the bucket).",
+    enforcement: "enforced",
+    enforcingSurface:
+      "BudgetGuard (src/payments/budget-guard.ts) restored from the ledger inside PaymentsAgent.budgetCheck / processPaidRequest, fail-closed; the chat paid path reaches it through the S5 budget door (check_payment_budget) and the S10 paid-screen flow (src/agents/orchestrator/nlqPorts.ts)",
+    gaps: [
+      "Model/token cost of a chat turn is not metered anywhere in the turn path (the doors-and-layers §7.1 named gap): no per-turn usage record exists to price, so no token cap can honestly be recorded for this door. AI Gateway (#1741) is not activated (no AI_GATEWAY_ID set), so gateway-side metering is unavailable either.",
+    ],
+  },
+  {
+    door: "http-routes",
+    unit: "usd-cents (x402 settled charges)",
+    caps: null,
+    accountingSource:
+      "Native ledger rows written from verified x402 facilitator settlements (S11, #2396; the three priced endpoints verified end-to-end by #2406) — src/payments/ledger.ts / mas_transactions",
+    accountingScope:
+      "Only the priced endpoints are metered: a settled charge is recorded per request with its amount. Unpriced routes record no cost at all.",
+    enforcement: "accounting-only",
+    enforcingSurface: null,
+    gaps: [
+      "No per-request cost metering exists for unpriced routes (no usage record is written on the general route path).",
+      "No aggregate cap exists at the route layer: the per-request charge is the operator PriceCatalogue price itself, and spend caps live in PaymentsAgent's BudgetGuard behind the chat/A2A paid paths, not in route handlers — so this door is accounted, not capped.",
+    ],
+  },
+  {
+    door: "mcp",
+    unit: "usd-cents (x402 scanner charges)",
+    caps: null,
+    accountingSource:
+      "The paid scanner surface (/mcp/scanner, OptionsScannerMCP) settles through the same x402 / native-ledger path as the priced HTTP routes",
+    accountingScope:
+      "Only the scanner surface is metered. The McpToolFactory catalog's commands record no per-call cost.",
+    enforcement: "accounting-only",
+    enforcingSurface: null,
+    gaps: [
+      "Catalog commands carry no per-call cost metering: an external MCP call writes no usage row, so no cap can be charged on this door today.",
+      "The mesh-door commands are not served on this door at all (no actingLogin carrier for external callers, S5) — their cost belongs to the chat-turn record, which is where they execute.",
+    ],
+  },
+  {
+    door: "a2a",
+    unit: "usd-cents (paid-request spend)",
+    caps: { perCall: 1000, perDay: 5000 },
+    accountingSource:
+      "mas_transactions via PaymentsAgent.processPaidRequest, which records only after facilitator verification (the S16/S17 attribution rides the record)",
+    accountingScope:
+      "Per-agentId bucket, with S16's two-part attribution: the edge-authenticated caller is recorded beside the agentId on the payments audit record — A2A-origin spend is the one door whose rows carry caller attribution end to end.",
+    enforcement: "enforced",
+    enforcingSurface:
+      "BudgetGuard inside PaymentsAgent.processPaidRequest, reached from src/agents/payments/a2aDispatch.ts — a denied check throws before any payment work runs",
+    gaps: [
+      "Non-payment A2A calls are unmetered. S17 records a trace hop per A2A call in agent_mesh_trace_hops, so invocation counts are observable — but hop recording is best-effort by design, and a lossy ledger cannot ground a hard cap, so no invocation cap is recorded for this door.",
+    ],
+  },
+  {
+    door: "agent-as-a-tool",
+    unit: "model-tokens (sub-agent turns)",
+    caps: null,
+    accountingSource: null,
+    accountingScope: null,
+    enforcement: "not-measurable",
+    enforcingSurface: null,
+    gaps: [
+      "A sub-agent dispatch runs inside the parent turn's identity and instance boundary and consumes the parent turn's model usage — which is itself unmetered (see the chat-turn record's gap). No per-dispatch usage record exists to price or cap.",
+    ],
+  },
+];
+
+/** The cost-budget record for one door. */
+export function doorCostBudget(
+  door: MeshDoorEntry["id"],
+): MeshDoorCostBudgetEntry {
+  const record = MESH_DOOR_COST_BUDGETS.find((r) => r.door === door);
+  if (!record) {
+    throw new Error(`no cost-budget record for door ${door}`);
+  }
+  return record;
+}
+
+// ---------------------------------------------------------------------------
 // Workflows — the three ThinkWorkflow classes and their starters.
 // ---------------------------------------------------------------------------
 
@@ -1918,4 +2038,40 @@ export const MESH_G12_PROOF = {
   doors: ["chat-turn", "http-routes", "mcp", "a2a", "agent-as-a-tool"],
   scope:
     "Proven for the census cells the golden catalog enumerates, at binding-seam fidelity; unenumerated cells rest on the S15 parity pins.",
+} as const;
+
+// ---------------------------------------------------------------------------
+// Skills-packaging assessment (S19, #2460) — the owner addition
+// on #2225 (comment 6517280689) asked whether Agents SDK Skills
+// are the RSI loop's knowledge-packaging format. This record is
+// the decision-grade answer. It is an ASSESSMENT ONLY: S14
+// recorded the agent-skills tool family ABSENT and the G7 matrix
+// records the skills aspect GAP for every PortThink agent, and
+// both records stand unchanged — adoption is a separate
+// owner-sequenced decision after this programme, and this slice
+// builds no adoption machinery (no getSkills override, no skill
+// source, no binding).
+// ---------------------------------------------------------------------------
+
+export const MESH_SKILLS_ASSESSMENT = {
+  issue: 2460,
+  question:
+    "Agents SDK Skills (SKILL.md packs, loaded on demand via Think.getSkills()) as the RSI improvement loop's knowledge-packaging format — the format in which the loop's accumulated know-how (calibration notes, door playbooks, evaluation findings) would be carried to future turns.",
+  recommendation: "adopt-as-packaging",
+  adoptionState:
+    "deferred — adoption itself is an owner-gated decision for the post-programme harness discussion; this record recommends the format for when that decision is taken, and adopts nothing now",
+  fits: [
+    "A SKILL.md pack is a plain file in the repository: versioned, diffable, and reviewable through the same gitops gate (issue → PR → CI → merge) that the loop already writes back through — packaging knowledge as packs keeps the loop's only write path the gated repository (doors-and-layers §7.4).",
+    "The RSI loop's knowledge products are procedural know-how in prose — how a door behaves, what a falsified thesis taught, how a golden task is diagnosed — which is exactly the shape a skill pack carries (instructions plus bundled resources), unlike the registry (facts) or the eval store (outcomes).",
+    "The adapter is already present in the pinned SDK (@cloudflare/think 0.23.0's Think.getSkills(), inherited through PortThink), so packaging in this format does not pre-commit to a vendor-specific store: sources may be code-manifest (in-repo) packs, which is the source shape that keeps packs under repository review.",
+  ],
+  doesNotFit: [
+    "A skill is instructions the model follows — it is not evidence and not enforcement. Gates, budgets, falsification criteria, and the evidence bar stay in deterministic code and the registry; anything safety-relevant must never live only in a pack, because a pack cannot refuse anything.",
+    "A pack is consumed at turn time by a model, so its content is guidance, not a record: the loop's evidence (traces, eval outcomes, ledger rows) remains the system of record, and a pack that disagrees with the record is simply wrong prose until a gated change fixes it.",
+    "Fleet adoption is not a flip: the skills aspect is GAP for all 12 PortThink agents (matrix), adoption is a per-class getSkills() override plus a chosen source, and whether the port's adapter-driven turn surfaces Think's skills tools end-to-end is still unverified (the S14 conformance caveat).",
+  ],
+  controlPoint:
+    "Source write-access is the control point: a skill is instructions the model follows, so a pack is only as trustworthy as the review that merged it. In-repo (code-manifest) packs inherit the repository's review; an out-of-repo source (an R2 bucket, a workspace directory) would move the control point to that store's write ACL and would need its own owner decision and gate story before use.",
+  consistency:
+    "Consistent with S14 (#2417): the agent-skills tool family in this registry remains ABSENT and the matrix's skills GAP cells are unchanged by this assessment. The recommendation names a format for a future adoption decision; it is not adoption.",
 } as const;
