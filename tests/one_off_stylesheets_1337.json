@@ -93,5 +93,10 @@
     "path": "src/client/workflowRuns.css",
     "lines": 268,
     "reason": "Workflow Runs ledger layout (#2095) — page-specific grid/table layout, token values only"
+  },
+  {
+    "path": "src/client/agentsPanel.css",
+    "lines": 59,
+    "reason": "Agents view layout (#2469, Agent Mesh S20/G9) — page-specific fleet/detail layout in the Workflow Runs page's pattern, token values only"
   }
 ]
