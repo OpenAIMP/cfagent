@@ -15,10 +15,11 @@
  * `OrchestratorAgent` (`PortThink extends Think extends Agent`).
  * PortThink's turn facet is inert here — `portHooks` is never set and
  * no turn ever runs — so the agent uses only the Agent WebSocket
- * surface: `onConnect` / `onMessage` / `onClose` (inherited),
+ * surface: `onConnect` / `onMessage` / `onClose`,
  * `getConnections`, and the SDK scheduler. Think's `onStart` (chat
  * session bootstrap) is deliberately NOT invoked: the ticker runs no
- * turns, and `onStart` here only installs the tick schedule.
+ * turns, and `onStart` here only reconciles the tick schedule (see
+ * below).
  *
  * Protocol parity with the old handler (both clients — app
  * `quotesService.ts` and landing `landing.ts` — are unchanged):
@@ -44,9 +45,15 @@
  * Single shared instance: the current surface is global, so
  * per-user instances would fragment the quote-cache refresh for no
  * benefit. Subscriptions live in per-connection state, which the SDK
- * re-establishes across hibernation; the tick schedule is durable
- * (`scheduleEvery` is idempotent, so `onStart` re-installing it on
- * every wake creates no duplicates).
+ * re-establishes across hibernation. The tick schedule follows
+ * listener presence (issue #2443), never wall-clock time: it is armed
+ * on first connect, cancelled on last disconnect, and reconciled on
+ * every start — armed when listeners are present (a restart that
+ * restores connections re-arms), cancelled when none are (which also
+ * retires schedules a pre-fix build armed). `scheduleEvery` is
+ * idempotent, so re-arming never creates duplicates, and a tick that
+ * fires with zero connections cancels the schedule instead of
+ * spinning the alarm forever. Work happens only when observed.
  *
  * Protocol messages are disabled (`shouldSendProtocolMessages` →
  * false): ticker clients are plain WebSockets, not `useAgent`
@@ -68,6 +75,7 @@ import {
 } from "../services/marketStream";
 import type { Env } from "../types";
 import { PortThink } from "../actors/thinkAdapter";
+import { createResourceUsagePort } from "../telemetry/createResourceUsagePorts";
 
 /** Per-connection ticker state, restored by the SDK across hibernation. */
 export interface TickerConnectionState {
@@ -76,17 +84,115 @@ export interface TickerConnectionState {
   streamProvenance: QuoteStreamProvenance;
 }
 
-/** Tick push cadence, matching the old handler's 5s interval. */
+/** Tick push cadence default, in seconds (issue #2443). Owner-visible override: the TICKER_PUSH_INTERVAL_S wrangler var (seconds); an interval CHANGE is a product call and is out of #2443. */
 export const TICKER_PUSH_INTERVAL_SECONDS = 5;
+
+/** Callback name of the tick schedule; must match the pushTicks method name. */
+export const TICKER_PUSH_CALLBACK = "pushTicks";
+
+/**
+ * Resolve the tick push cadence from env (issue #2443, AOP): the
+ * TICKER_PUSH_INTERVAL_S var wins when it parses to a positive
+ * integer; anything else (absent, non-numeric, zero, negative) falls
+ * back to the default. The arm call sites never carry a literal.
+ */
+export function resolveTickerPushIntervalSeconds(env: Env | undefined): number {
+  const raw = env?.TICKER_PUSH_INTERVAL_S;
+  if (raw !== undefined) {
+    const parsed = Number.parseInt(raw, 10);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return TICKER_PUSH_INTERVAL_SECONDS;
+}
 
 /** Name of the single shared ticker instance. */
 export const TICKER_INSTANCE_NAME = "ticker";
 
 export class TickerAgent extends PortThink {
+  /**
+   * Surface a ticker-schedule failure (issue #2443: never silently
+   * swallowed): a Workers-Logs line always, plus a best-effort event
+   * on the existing resourceSink attribution. Never throws — the
+   * lifecycle callers that report here must not break on a
+   * bookkeeping failure, and the next lifecycle event reconciles.
+   */
+  private reportTickerScheduleFailure(op: string, err: unknown): void {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[TickerAgent] ticker schedule ${op} failed: ${message}`);
+    try {
+      const sink = createResourceUsagePort(this.env as Env);
+      if (sink) {
+        void sink.record({
+          ns: "ticker",
+          op: `schedule-${op}`,
+          rowsRead: 0,
+          rowsWritten: 0,
+          caller: "TickerAgent",
+          trigger: "scheduled",
+          timestampMs: Date.now(),
+        });
+      }
+    } catch {
+      // Attribution is best-effort: the log line above is the surface.
+    }
+  }
+
+  /** Connections as an array, or null when enumeration itself fails. */
+  private listTickerConnections(): Connection<TickerConnectionState>[] | null {
+    try {
+      return [...this.getConnections<TickerConnectionState>()];
+    } catch (err) {
+      this.reportTickerScheduleFailure("list-connections", err);
+      return null;
+    }
+  }
+
+  /** Arm the tick schedule (idempotent per the SDK). Surfaces failures, never throws. */
+  private async ensureTickerPushArmed(): Promise<void> {
+    try {
+      await this.scheduleEvery(
+        resolveTickerPushIntervalSeconds(this.env as Env | undefined),
+        TICKER_PUSH_CALLBACK,
+      );
+    } catch (err) {
+      this.reportTickerScheduleFailure("arm", err);
+    }
+  }
+
+  /**
+   * Cancel every pushTicks schedule. Surfaces failures, never throws.
+   * A schedule that is already gone (cancel returns false) is not a
+   * failure — idle-cancel is idempotent by design.
+   */
+  private async cancelTickerPush(): Promise<void> {
+    let schedules: Array<{ id: string; callback: string }>;
+    try {
+      schedules = await this.listSchedules();
+    } catch (err) {
+      this.reportTickerScheduleFailure("list", err);
+      return;
+    }
+    for (const schedule of schedules) {
+      if (schedule.callback !== TICKER_PUSH_CALLBACK) continue;
+      try {
+        await this.cancelSchedule(schedule.id);
+      } catch (err) {
+        this.reportTickerScheduleFailure("cancel", err);
+      }
+    }
+  }
+
   override async onStart(): Promise<void> {
-    // Idempotent per the SDK: re-installing on every wake returns the
-    // existing schedule instead of creating a duplicate.
-    await this.scheduleEvery(TICKER_PUSH_INTERVAL_SECONDS, "pushTicks");
+    // Issue #2443 — reconcile, never arm unconditionally. With
+    // listeners present (a restart that restores connections) re-arm;
+    // with none, cancel — which also retires schedules a pre-fix
+    // build armed. Enumeration failure fails safe toward ticks: arm.
+    const connections = this.listTickerConnections();
+    if (connections === null || connections.length > 0) {
+      await this.ensureTickerPushArmed();
+    } else {
+      await this.cancelTickerPush();
+    }
   }
 
   override shouldSendProtocolMessages(): boolean {
@@ -117,6 +223,27 @@ export class TickerAgent extends PortThink {
         "bare",
       ).mode,
     });
+    // Issue #2443 — lazy-arm: the first listener starts the ticks.
+    await this.ensureTickerPushArmed();
+  }
+
+  override async onClose(
+    connection: Connection<TickerConnectionState>,
+    _code: number,
+    _reason: string,
+    _wasClean: boolean,
+  ): Promise<void> {
+    // Issue #2443 — idle-cancel. The SDK invokes onClose BEFORE
+    // removing the closing connection, so it is still counted here:
+    // exclude it by id. Enumeration failure skips the cancel (the
+    // last listener cannot be proven) — the next wake or tick
+    // reconciles instead of cancelling on a guess.
+    const connections = this.listTickerConnections();
+    if (connections === null) return;
+    const remaining = connections.filter((c) => c.id !== connection.id);
+    if (remaining.length === 0) {
+      await this.cancelTickerPush();
+    }
   }
 
   override async onMessage(
@@ -172,7 +299,18 @@ export class TickerAgent extends PortThink {
   /** Scheduled tick push: one filtered frame per subscribed connection. */
   async pushTicks(): Promise<void> {
     const env = this.env as Env | undefined;
-    for (const connection of this.getConnections<TickerConnectionState>()) {
+    const connections = this.listTickerConnections();
+    if (connections !== null && connections.length === 0) {
+      // Issue #2443 — idle: no listener remains (e.g. a pre-fix
+      // schedule outliving its connections on a warm instance).
+      // Cancel instead of spinning the alarm forever. Connected but
+      // unsubscribed clients do NOT trigger this: they may subscribe
+      // later, and only a disconnect cancels.
+      await this.cancelTickerPush();
+      return;
+    }
+    for (const connection of connections ??
+      this.getConnections<TickerConnectionState>()) {
       const state = connection.state;
       if (!state || state.symbols.length === 0) continue;
       // Copy out of the immutable connection state before passing on.
