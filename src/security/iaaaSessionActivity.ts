@@ -25,10 +25,10 @@
  *   `updateSession` cannot do this itself: session.ts must not
  *   import sessionCache.ts (sessionCache imports session.ts).
  *
- * Touch precision: `touchSession` only writes when at least 60s
+ * Touch precision: `touchSession` only writes when at least 300s
  * elapsed since the last recorded activity, so lastActivityMs is
- * accurate only to ±60s. The idle deadline therefore has the same
- * ±60s slack: a session can be up to 60s past its true idle
+ * accurate only to ±300s. The idle deadline therefore has the same
+ * ±300s slack: a session can be up to 300s past its true idle
  * deadline before a touch would have recorded newer activity.
  * This slack is deliberate (it bounds store writes on polling
  * traffic); it must not be presented as exact idle enforcement.
@@ -51,7 +51,7 @@ import {
 } from "./sessionPolicy";
 import type { SessionData } from "../types";
 
-/** Minimum elapsed activity before a touch writes (60s; see header). */
+/** Minimum elapsed activity before a touch writes (300s; see header). */
 export const IAAA_TOUCH_MIN_INTERVAL_MS = SESSION_LIMITS.touchIntervalMs;
 
 export interface TouchResult {

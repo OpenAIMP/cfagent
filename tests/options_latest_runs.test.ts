@@ -157,10 +157,17 @@ describe("options run history (#223)", () => {
     ]
       .map((p) => readFileSync(new URL(p, import.meta.url), "utf-8"))
       .join("\n");
-    expect(ui).toContain('fetch("/api/options/latest"');
+    expect(ui).toContain("subscribeOptionsLatest(");
     expect(ui).toContain("Latest Autonomous Options Runs");
     expect(ui).toContain("run.summary");
     // A failed run must show its error, not a blank card.
     expect(ui).toContain("run.error");
+    // #2470 S4: the fetch itself lives in the shared module now.
+    const shared = readFileSync(
+      new URL("../src/client/optionsLatestShared.ts", import.meta.url),
+      "utf-8",
+    );
+    expect(shared).toContain('const ENDPOINT = "/api/options/latest"');
+    expect(shared).toContain("globalThis.fetch(ENDPOINT)");
   });
 });
