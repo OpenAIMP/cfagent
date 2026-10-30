@@ -715,7 +715,7 @@ describe("Cloudflare Agentic Payments (x402 & MPP Standards)", () => {
       expect(result.rows.length).toBe(1);
     });
 
-    it("executes paid options screen via executeNLQQueryAsync with simulated receipt", async () => {
+    it("refuses paid options screen via executeNLQQueryAsync — no verified x402 payment channel in NLQ (G3, #2396)", async () => {
       const expiryDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
       const quoteTimestamp = Date.now();
       DynamicOptionsScreener.setTestChainsFixture({
@@ -757,8 +757,13 @@ describe("Cloudflare Agentic Payments (x402 & MPP Standards)", () => {
 
       const result = await executeNLQQueryAsync(orm, "session_trader", plan, mockEnv, "session_trader");
       expect(result.domain).toBe("agentic_payments");
+      expect(result.status).toBe("error");
       expect(result.summary).toContain("Paid Options Screener ($0.05 USDC)");
-      expect(result.rows.length).toBeGreaterThan(0);
+      expect(result.summary).toContain("requires a verified x402 payment");
+      expect(result.summary).toContain("/api/premium/options-scan");
+      expect(result.rows.length).toBe(0);
+      // G3: no simulated receipt is minted or recorded for the refusal.
+      expect(orm.transactions.findMany().filter((t) => t.gateway === "x402" || t.gateway === "mpp")).toHaveLength(0);
     });
   });
 
