@@ -13,6 +13,7 @@ import { MarketDataResearchHub } from "./MarketDataResearchHub";
 import { OptionsFlowsHub } from "./options/flows";
 import { WorkflowsHub } from "./WorkflowsHub";
 import { WorkflowRunsPanel } from "./WorkflowRunsPanel";
+import { AgentsPanel } from "./AgentsPanel";
 import { AdBannerConfig, applyServerAdsConfig, getStoredAdBannerConfig, saveStoredAdBannerConfig, type ServerAdsConfig } from "./adBannerConfig";
 import { PartnerDealsModal } from "./components/PartnerDealsModal";
 import { NavigationMenu, NavTabId, NavLayoutMode, NavIcons, DEFAULT_VISIBLE_NAV_TABS } from "./components/NavigationMenu";
@@ -943,6 +944,11 @@ export function Chat({ user }: { user: User }) {
   // flags, see routes.ts). docs previously rendered blank; its existing
   // panel is wired here (no props).
   const TAB_CONTENT: Record<string, ReactNode> = {
+    agents: (
+      <ErrorBoundary label="Agents">
+        <AgentsPanel />
+      </ErrorBoundary>
+    ),
     approvals: (
           <ApprovalsPanel />
     ),
