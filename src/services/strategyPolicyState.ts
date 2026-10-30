@@ -13,37 +13,38 @@
  * Writers are only called inside #755-seam applications by the
  * staged-promotion service; readers are used by the weight job and
  * the evaluation/promotion services.
+ *
+ * @deprecated Superseded by src/data/strategyPolicyPorts.ts (port),
+ * src/data/doSqliteStrategyPolicyAdapter.ts (production adapter) and
+ * src/data/createStrategyClusterPorts.ts (composition root) —
+ * #1976 step 4b (#2357, ADR 0022 D-I step 4). This module is a
+ * re-export shim: every function delegates to the DO adapter over
+ * the caller's sql handle, statement-for-statement identical to
+ * the pre-port implementation. New code should compose the port
+ * through createStrategyClusterPorts.
  */
 
+import { DoSqliteStrategyPolicyStore } from "../data/doSqliteStrategyPolicyAdapter";
+import type { StrategyPolicySqlExecutor } from "../data/strategyPolicyPorts";
+
+export type { StrategyPolicyStore } from "../data/strategyPolicyPorts";
+
+function store(sql: StrategyPolicySqlExecutor): DoSqliteStrategyPolicyStore {
+  return new DoSqliteStrategyPolicyStore(sql);
+}
+
 export function ensureStrategyPolicyTables(sql: any): void {
-  sql.exec(`CREATE TABLE IF NOT EXISTS mas_strategy_weight_caps (
-    strategy TEXT PRIMARY KEY,
-    cap REAL NOT NULL,
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-  )`);
-  sql.exec(`CREATE TABLE IF NOT EXISTS mas_strategy_gates (
-    strategy TEXT PRIMARY KEY,
-    gated_off INTEGER NOT NULL DEFAULT 0,
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-  )`);
+  store(sql).ensureTables();
 }
 
 /** The strategy's cap override, or null when the global bound applies. */
 export function getStrategyWeightCap(sql: any, strategy: string): number | null {
-  ensureStrategyPolicyTables(sql);
-  const rows = Array.from(
-    sql.exec(`SELECT cap FROM mas_strategy_weight_caps WHERE strategy = ?`, strategy)
-  ) as any[];
-  return rows.length > 0 ? rows[0].cap : null;
+  return store(sql).getCap(strategy);
 }
 
 /** All cap overrides as a strategy → cap record (for the policy fn). */
 export function getStrategyWeightCaps(sql: any): Record<string, number> {
-  ensureStrategyPolicyTables(sql);
-  const rows = Array.from(sql.exec(`SELECT strategy, cap FROM mas_strategy_weight_caps`)) as any[];
-  const out: Record<string, number> = {};
-  for (const r of rows) out[r.strategy] = r.cap;
-  return out;
+  return store(sql).getCaps();
 }
 
 /** Set a cap override; null deletes the row (exact-restore semantics). */
@@ -53,42 +54,20 @@ export function setStrategyWeightCap(
   cap: number | null,
   now: Date = new Date()
 ): void {
-  ensureStrategyPolicyTables(sql);
-  if (cap === null) {
-    sql.exec(`DELETE FROM mas_strategy_weight_caps WHERE strategy = ?`, strategy);
-    return;
-  }
-  sql.exec(
-    `INSERT OR REPLACE INTO mas_strategy_weight_caps (strategy, cap, updated_at) VALUES (?, ?, ?)`,
-    strategy,
-    cap,
-    now.toISOString()
-  );
+  store(sql).setCap(strategy, cap, now);
 }
 
 export function isStrategyGatedOff(sql: any, strategy: string): boolean {
-  ensureStrategyPolicyTables(sql);
-  const rows = Array.from(
-    sql.exec(`SELECT gated_off FROM mas_strategy_gates WHERE strategy = ?`, strategy)
-  ) as any[];
-  return rows.length > 0 && (rows[0].gated_off === 1 || rows[0].gated_off === true);
+  return store(sql).isGatedOff(strategy);
 }
 
 /** Whether a gate ROW exists at all (snapshot fidelity for rollback). */
 export function hasStrategyGateRow(sql: any, strategy: string): boolean {
-  ensureStrategyPolicyTables(sql);
-  const rows = Array.from(
-    sql.exec(`SELECT gated_off FROM mas_strategy_gates WHERE strategy = ?`, strategy)
-  ) as any[];
-  return rows.length > 0;
+  return store(sql).hasGateRow(strategy);
 }
 
 export function getStrategyGates(sql: any): Record<string, boolean> {
-  ensureStrategyPolicyTables(sql);
-  const rows = Array.from(sql.exec(`SELECT strategy, gated_off FROM mas_strategy_gates`)) as any[];
-  const out: Record<string, boolean> = {};
-  for (const r of rows) out[r.strategy] = r.gated_off === 1 || r.gated_off === true;
-  return out;
+  return store(sql).getGates();
 }
 
 /** Set the gate; null deletes the row (exact-restore semantics). */
@@ -98,15 +77,5 @@ export function setStrategyGate(
   gatedOff: boolean | null,
   now: Date = new Date()
 ): void {
-  ensureStrategyPolicyTables(sql);
-  if (gatedOff === null) {
-    sql.exec(`DELETE FROM mas_strategy_gates WHERE strategy = ?`, strategy);
-    return;
-  }
-  sql.exec(
-    `INSERT OR REPLACE INTO mas_strategy_gates (strategy, gated_off, updated_at) VALUES (?, ?, ?)`,
-    strategy,
-    gatedOff ? 1 : 0,
-    now.toISOString()
-  );
+  store(sql).setGate(strategy, gatedOff, now);
 }
