@@ -3,7 +3,9 @@
  * D-A): the per-DO composition root for the ORM core's
  * DO-resident ports. One composition per storage handle: the
  * nine DO-resident aggregates, the canonical report port, and
- * the read-only settings port (G-7). The marketplace tables
+ * the settings family — the step-3a read port plus, since
+ * step 4g (#2390) executed the G-7 ruling, the dedicated
+ * settings port that owns mas_settings. The marketplace tables
  * compose separately (createMarketplacePorts /
  * buildMarketplacePorts) because their residency is decided
  * by the AGENT_DB binding, not by the instance handle.
@@ -28,6 +30,7 @@ import {
   DoSqliteEventLogAdapter,
   DoSqliteMemoryAdapter,
   DoSqliteMessageAdapter,
+  DoSqliteSettingsAdapter,
   DoSqliteSettingsReadAdapter,
   DoSqliteTransactionLedgerAdapter,
 } from "./doSqliteOrmAdapters";
@@ -35,7 +38,10 @@ import type { EventLogPort } from "./eventLogPorts";
 import type { MemoryPort } from "./memoryPorts";
 import type { MessagePort } from "./messagePorts";
 import type { RepositoryPort, SqlStorage } from "./repositoryPorts";
-import type { SettingsReadPort } from "./settingsReadPorts";
+import type {
+  SettingsPort,
+  SettingsReadPort,
+} from "./settingsReadPorts";
 import type { TransactionLedgerPort } from "./transactionLedgerPorts";
 import type {
   AdRecord,
@@ -64,6 +70,7 @@ export interface OrmPorts {
   optionsChainCache: RepositoryPort<OptionsChainCacheRecord>;
   reports: CanonicalReportPort;
   settingsRead: SettingsReadPort;
+  settings: SettingsPort;
 }
 
 /** Compose the DO-resident ports over one instance's storage. */
@@ -84,5 +91,6 @@ export function createOrmPorts(sql: SqlStorage): OrmPorts {
     optionsChainCache: createDoOptionsChainCacheRepository(storage),
     reports: new DoSqliteCanonicalReportAdapter(storage),
     settingsRead: new DoSqliteSettingsReadAdapter(storage),
+    settings: new DoSqliteSettingsAdapter(storage),
   };
 }
