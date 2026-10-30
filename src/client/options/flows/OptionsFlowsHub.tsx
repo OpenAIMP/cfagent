@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { useUrlSyncedTabs } from "../../useUrlSyncedTabs";
 import { usePolling } from "../../usePolling";
+import { useAutoRefresh } from "../../autoRefresh";
 import { getPollingConfig } from "../../pollingConfig";
 import { Button, Table, PageShell, type TableColumn } from "../../components/ui";
 import "./optionsFlows.css";
@@ -177,7 +178,11 @@ export function OptionsFlowsHub({
   // on filter change stays in the effect above; the poller always
   // calls the latest fetchLiveFlows through the hook's ref.
   const flowsPollMs = getPollingConfig().optionsFlowsPollMs;
-  usePolling(() => fetchLiveFlows(filterConfig), { fastMs: flowsPollMs, idleMs: flowsPollMs });
+  // Issue #2481 — live-flow polling is gated by the global
+  // auto-refresh switch; the immediate fetch on filter change
+  // above is unaffected.
+  const [autoRefresh] = useAutoRefresh();
+  usePolling(() => fetchLiveFlows(filterConfig), { fastMs: flowsPollMs, idleMs: flowsPollMs, enabled: autoRefresh.enabled });
 
   // Filtered collections
   const filteredLiveItems = useMemo(() => {

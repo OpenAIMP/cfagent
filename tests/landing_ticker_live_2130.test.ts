@@ -67,6 +67,13 @@ describe("landing tape live (#2130)", () => {
       beforeParse(window: any) {
         window.WebSocket = FakeSocket;
         window.fetch = fetchMock;
+        // Issue #2481: the landing feed is gated by the global
+        // auto-refresh switch; this #2130 pin covers ON, and OFF
+        // gating is pinned in polling_landing_2419.
+        window.localStorage.setItem(
+          "cfagent_global_autorefresh_enabled",
+          "true",
+        );
       },
     });
   }

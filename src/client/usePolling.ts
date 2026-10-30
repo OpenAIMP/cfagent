@@ -10,16 +10,27 @@ import { startPolling, type PollSchedule } from "./polling";
  */
 export function usePolling(
   run: () => void | Promise<void>,
-  schedule: Omit<PollSchedule, "isBusy"> & { isBusy?: () => boolean }
+  schedule: Omit<PollSchedule, "isBusy"> & {
+    isBusy?: () => boolean;
+    /**
+     * Issue #2481 — the global auto-refresh gate. When false, no
+     * timer is started at all (OFF = no periodic refresh); when it
+     * flips to true the effect re-subscribes and polling resumes.
+     * Defaults to true so callers that have their own gate (or no
+     * periodic refresh to gate) keep their existing behaviour.
+     */
+    enabled?: boolean;
+  }
 ): void {
   const runRef = useRef(run);
   const busyRef = useRef(schedule.isBusy);
   runRef.current = run;
   busyRef.current = schedule.isBusy;
 
-  const { fastMs, idleMs } = schedule;
+  const { fastMs, idleMs, enabled = true } = schedule;
 
   useEffect(() => {
+    if (!enabled) return;
     return startPolling(
       () => runRef.current(),
       {
@@ -28,5 +39,5 @@ export function usePolling(
         isBusy: busyRef.current ? () => busyRef.current?.() ?? false : undefined,
       }
     );
-  }, [fastMs, idleMs]);
+  }, [fastMs, idleMs, enabled]);
 }

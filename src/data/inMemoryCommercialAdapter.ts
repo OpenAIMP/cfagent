@@ -11,12 +11,14 @@ import {
   assertIncludedRuns,
   assertNonNegativeCredits,
   assertStoreTier,
+  DEFAULT_TENANT_AUTO_REFRESH,
   round2,
   type CommercialAccountRecord,
   type CommercialStore,
   type CreditClaimRecord,
   type CreditRedemptionRecord,
   type PaidSubmissionRecord,
+  type TenantAutoRefresh,
   type TenantSettingsRecord,
 } from "./commercialPorts";
 
@@ -97,7 +99,40 @@ export class InMemoryCommercialAdapter implements CommercialStore {
   }
 
   async setTenantAdsEnabled(tenantId: string, adsEnabled: boolean): Promise<TenantSettingsRecord> {
-    const record: TenantSettingsRecord = { tenantId, adsEnabled, updatedAtMs: Date.now() };
+    const existing = this.tenantSettings.get(tenantId);
+    const record: TenantSettingsRecord = {
+      tenantId,
+      adsEnabled,
+      updatedAtMs: Date.now(),
+      autoRefreshEnabled: existing?.autoRefreshEnabled ?? DEFAULT_TENANT_AUTO_REFRESH.enabled,
+      autoRefreshIntervalS: existing?.autoRefreshIntervalS ?? DEFAULT_TENANT_AUTO_REFRESH.intervalS,
+    };
+    this.tenantSettings.set(tenantId, record);
+    return record;
+  }
+
+  // Issue #2481: per-tenant auto-refresh switch; the ads flag on
+  // the shared row is preserved, mirroring setTenantAdsEnabled.
+  async getTenantAutoRefresh(tenantId: string): Promise<TenantAutoRefresh> {
+    const existing = this.tenantSettings.get(tenantId);
+    return {
+      enabled: existing?.autoRefreshEnabled ?? DEFAULT_TENANT_AUTO_REFRESH.enabled,
+      intervalS: existing?.autoRefreshIntervalS ?? DEFAULT_TENANT_AUTO_REFRESH.intervalS,
+    };
+  }
+
+  async setTenantAutoRefresh(
+    tenantId: string,
+    autoRefresh: TenantAutoRefresh,
+  ): Promise<TenantSettingsRecord> {
+    const existing = this.tenantSettings.get(tenantId);
+    const record: TenantSettingsRecord = {
+      tenantId,
+      adsEnabled: existing?.adsEnabled ?? true,
+      updatedAtMs: Date.now(),
+      autoRefreshEnabled: autoRefresh.enabled,
+      autoRefreshIntervalS: autoRefresh.intervalS,
+    };
     this.tenantSettings.set(tenantId, record);
     return record;
   }

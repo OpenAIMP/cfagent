@@ -277,7 +277,8 @@ describe("golden harness: runner + store (#2439)", () => {
     expect(MIGRATION_0024_AGENT_MESH_EVAL_RESULTS.sql).toContain("agent_mesh_eval_results");
     expect(ALL_MIGRATIONS).toContain(MIGRATION_0024_AGENT_MESH_EVAL_RESULTS);
     // S19 (#2460) appended migration 0025 (agent_mesh_proposals) after 0024.
-    expect(Math.max(...ALL_MIGRATIONS.map((m) => m.version))).toBe(25);
+    // #2481 appended migration 0026 (tenant auto-refresh) after 0025.
+    expect(Math.max(...ALL_MIGRATIONS.map((m) => m.version))).toBe(26);
     expect(getTableName(agentMeshEvalResults)).toBe("agent_mesh_eval_results");
   });
 });

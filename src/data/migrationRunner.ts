@@ -1221,6 +1221,28 @@ CREATE INDEX IF NOT EXISTS agent_mesh_proposals_state_idx ON agent_mesh_proposal
 `,
 };
 
+/**
+ * Migration 0026 — per-tenant auto-refresh switch (#2481).
+ *
+ * Owner decision 2026-10-30: the auto-refresh switch is a
+ * per-tenant setting whose source of truth is the tenant store,
+ * edited via the dynamic panel. The columns ride the existing
+ * agent_tenant_settings row (#2022) so the switch shares the
+ * tenant row with the ads flag instead of inventing a second
+ * tenant-settings table. Absent row = OFF (see the port
+ * defaults); a fresh column default of 0 / 15 matches that.
+ * Marker-gated like the other ALTER migrations (0010, 0013),
+ * so a re-apply is skipped, never re-ALTERed.
+ */
+export const MIGRATION_0026_TENANT_AUTO_REFRESH: DataMigration = {
+  version: 26,
+  name: "0026_tenant_auto_refresh",
+  sql: `
+ALTER TABLE agent_tenant_settings ADD COLUMN auto_refresh_enabled INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE agent_tenant_settings ADD COLUMN auto_refresh_interval_s INTEGER NOT NULL DEFAULT 15;
+`,
+};
+
 export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0001_AGENT_GOVERNANCE,
   MIGRATION_0002_AGENT_CHAINS_SCHEDULES,
@@ -1247,6 +1269,7 @@ export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0023_AGENT_MESH_TRACE_HOPS,
   MIGRATION_0024_AGENT_MESH_EVAL_RESULTS,
   MIGRATION_0025_AGENT_MESH_PROPOSALS,
+  MIGRATION_0026_TENANT_AUTO_REFRESH,
 ];
 
 function splitStatements(sqlText: string): string[] {
