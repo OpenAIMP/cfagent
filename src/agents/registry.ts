@@ -241,7 +241,7 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     sourceFile: "src/agents/sandbox-agent.ts",
     role: "Sandbox command agent (#2253): delegates execution to ETradeSandboxService.",
     notes:
-      "Landed after the mesh survey base (migration v13). No container backend is configured, so runs honestly return executed:false. The A2A surface recorded as a follow-up landed in S15 (#2421): card + resolution + src/agents/sandboxA2aDispatch.ts (sandbox.status, sandbox.run_command) on the shared A2A edge gate — per-agent credential replacement is S16's, and this surface is in its inventory. Chat/MCP still reach the sandbox capability by constructing the service directly, not through this class (the #2253 wiring follow-up; see the census).",
+      "Landed after the mesh survey base (migration v13). No container backend is configured, so runs honestly return executed:false. The A2A surface recorded as a follow-up landed in S15 (#2421): card + resolution + src/agents/sandboxA2aDispatch.ts (sandbox.status, sandbox.run_command) on the A2A edge gate; S16 (#2426) gave the surface its own mesh credential (A2A_TOKEN_SANDBOX — see the identity records), with the shared token as its transitional fallback. Chat/MCP still reach the sandbox capability by constructing the service directly, not through this class (the #2253 wiring follow-up; see the census).",
   },
   {
     className: "SessionStore",
@@ -284,6 +284,205 @@ export const MESH_SURFACES: MeshSurfaceEntry[] = [
   { name: "browser", ownerClass: "BrowserAgent", card: true, dispatch: true },
   { name: "slack", ownerClass: "SlackAgent", card: true, dispatch: true },
   { name: "sandbox", ownerClass: "SandboxAgent", card: true, dispatch: true },
+];
+
+// ---------------------------------------------------------------------------
+// Identity records (S16, #2426, programme G14) — one per fleet
+// class: the DID or identity derivation the class acts under, how
+// its acting identity is established, the per-agent mesh
+// credentials for its A2A surfaces, and the attribution shape its
+// records carry. Drift-pinned against MESH_SURFACES,
+// A2A_RESOLUTIONS, and the credential module
+// (src/a2a/meshCredentials.ts) by
+// tests/mesh_identity_s16_2426.test.ts.
+// ---------------------------------------------------------------------------
+
+export interface MeshIdentityRecord {
+  className: string;
+  /** The AGENT_DIDS identity the class acts under, or null when no
+   *  DID is registered for the class (its identitySource then
+   *  states the derivation it uses instead). */
+  did: string | null;
+  /** How the class's acting identity is established — and how it
+   *  fails closed when no identity can be named. */
+  identitySource: string;
+  /** A2A dispatch surfaces this class owns (its MESH_SURFACES entries). */
+  a2aSurfaces: string[];
+  /** Per-agent mesh credential env vars for those surfaces. */
+  meshCredentials: string[];
+  /** Per-agent posture, transitional fallback, or no A2A reach. */
+  credentialPosture: string;
+  /** The attribution shape the records this class writes carry. */
+  attribution: string;
+  notes?: string;
+}
+
+const PER_AGENT_CREDENTIAL_POSTURE =
+  "Per-agent mesh credential (env names in meshCredentials), verified timing-safely at the A2A edge (src/a2a/meshCredentials.ts). While a surface's per-agent secret is unset, the shared A2A_API_TOKEN authenticates it TRANSITIONALLY — removal condition: every surface carries its own secret, then the fallback is deleted (S16, #2426).";
+const NO_A2A_CREDENTIAL_POSTURE =
+  "No A2A surface — no mesh credential; this class is not reachable through the A2A door.";
+
+export const MESH_IDENTITIES: MeshIdentityRecord[] = [
+  {
+    className: "OrchestratorAgent",
+    did: "did:agent:openaimp:orchestrator",
+    identitySource:
+      "Per-login instances: server.ts resolves SEARCH_AGENT.idFromName(userLogin); unattended work acts under getServiceUserLogin, fail-closed when unconfigured. Its five A2A surfaces act under the role DIDs did:agent:openaimp:{orchestrator, search, tasks, memory, nlq} (AGENT_DIDS).",
+    a2aSurfaces: ["orchestrator", "search", "tasks", "memory", "nlq"],
+    meshCredentials: [
+      "A2A_TOKEN_ORCHESTRATOR",
+      "A2A_TOKEN_SEARCH",
+      "A2A_TOKEN_TASKS",
+      "A2A_TOKEN_MEMORY",
+      "A2A_TOKEN_NLQ",
+    ],
+    credentialPosture: PER_AGENT_CREDENTIAL_POSTURE,
+    attribution:
+      "mas_* payment rows carry proposerDid (this agent) + authorizerDid (the user DID); A2A-originated payments records additionally carry the edge-authenticated caller in the audit record (S16). Chat-turn rows partition by sessionKey — the opaque DO id, an address doing partition duty, not an identity.",
+  },
+  {
+    className: "ResearchAgent",
+    did: "did:agent:openaimp:research",
+    identitySource:
+      "Acting identity arrives per request (ResearchRunRequest.userLogin) and fails closed when missing or blank (S3, #2327); A2A dispatches to the service identity's instance research:<service-login> and refuses to start one without a configured service identity.",
+    a2aSurfaces: ["research"],
+    meshCredentials: ["A2A_TOKEN_RESEARCH"],
+    credentialPosture: PER_AGENT_CREDENTIAL_POSTURE,
+    attribution:
+      "Run records carry their owner login (report.userLogin); evaluations resolve identity from the caller or the run record's recorded owner and decline when neither exists — never a default.",
+  },
+  {
+    className: "TradingAgent",
+    did: "did:agent:openaimp:trading",
+    identitySource:
+      "Name-derived acting identity: instanceUserLogin() inverts tradingAgentName(login); approval decisions require an authorizer DID derived server-side from the acting login (S9), and anonymous authorizers are refused.",
+    a2aSurfaces: ["trading"],
+    meshCredentials: ["A2A_TOKEN_TRADING"],
+    credentialPosture: PER_AGENT_CREDENTIAL_POSTURE,
+    attribution:
+      "Order drafts, approvals, and settlements record userLogin + authorizerDid; the settle path refuses a missing authorizer DID.",
+  },
+  {
+    className: "PaymentsAgent",
+    did: "did:agent:openaimp:payments",
+    identitySource:
+      "Callers must name themselves: budgetCheck and processPaidRequest require an explicit agentId and fail closed without one (S3, #2327); A2A callers are additionally authenticated by the surface's mesh credential at the edge (S16).",
+    a2aSurfaces: ["payments"],
+    meshCredentials: ["A2A_TOKEN_PAYMENTS"],
+    credentialPosture: PER_AGENT_CREDENTIAL_POSTURE,
+    attribution:
+      "Two-part: ledger rows are attributed payments-agent:<agentId> with the payer as authorizerDid, and A2A-originated records carry the edge-authenticated caller in the payments_agent.recorded audit payload (S16).",
+  },
+  {
+    className: "ScreenerAgent",
+    did: null,
+    identitySource:
+      "Recorded-owner identity: userLogin() returns the owner recorded at first run, else the login in a screener:-prefixed instance name, else the service identity for instance \"default\" only — otherwise it throws. No AGENT_DIDS entry is registered for this class.",
+    a2aSurfaces: ["screener"],
+    meshCredentials: ["A2A_TOKEN_SCREENER"],
+    credentialPosture: PER_AGENT_CREDENTIAL_POSTURE,
+    attribution:
+      "Runs record their owner login; goal-gather captures partition by the owner's login as tenantId (S16 — the shared \"default\" tenant literal is retired).",
+  },
+  {
+    className: "ScheduledAgent",
+    did: null,
+    identitySource:
+      "Singleton instance \"default\"; goals carry their owner login in the goal records and fired work acts as the goal owner; unattended spend names AGENTIC_SPEND_AGENT_ID explicitly (S3, #2327). No AGENT_DIDS entry is registered for this class.",
+    a2aSurfaces: ["scheduled"],
+    meshCredentials: ["A2A_TOKEN_SCHEDULED"],
+    credentialPosture: PER_AGENT_CREDENTIAL_POSTURE,
+    attribution:
+      "Audit rows name their actor: the acting login for fired work; the reconciliation row carries the operator the route threaded, or SCHEDULED_AGENT_AUDIT_ACTOR when none was supplied (S16 — the \"system\" literal is retired).",
+  },
+  {
+    className: "ReportAssetAgent",
+    did: null,
+    identitySource:
+      "Identity is carried in the request (AssetRequest.userLogin), never derived from the instance name; the name helper maps the service identity to instance \"default\" and users to assets:<login>. No AGENT_DIDS entry is registered for this class.",
+    a2aSurfaces: ["report-asset"],
+    meshCredentials: ["A2A_TOKEN_REPORT_ASSET"],
+    credentialPosture: PER_AGENT_CREDENTIAL_POSTURE,
+    attribution:
+      "Assets are recorded under their owner login; attribution is exactly as trustworthy as the capability-RPC caller (survey §2.7).",
+  },
+  {
+    className: "BrowserAgent",
+    did: "did:agent:openaimp:browser",
+    identitySource:
+      "Stateless and env-driven: every method delegates to ETradeBrowserService built from env only; any instance name behaves identically and the class acts as nobody — there is no acting identity to make durable.",
+    a2aSurfaces: ["browser"],
+    meshCredentials: ["A2A_TOKEN_BROWSER"],
+    credentialPosture: PER_AGENT_CREDENTIAL_POSTURE,
+    attribution:
+      "Writes no identity records of its own; delivery targets are env configuration only (no caller-supplied webhookUrl on any door).",
+  },
+  {
+    className: "SlackAgent",
+    did: "did:agent:openaimp:slack",
+    identitySource:
+      "Channel principals resolve through the shared channel handler: the #1262 connect-code link store binds Slack users to logins, and unlinked users are refused into the link flow; sessionKey() fails closed without a DO instance id (S13, #2412). Its A2A surface sits on the fixed instance \"slack\" behind the surface's mesh credential (S16).",
+    a2aSurfaces: ["slack"],
+    meshCredentials: ["A2A_TOKEN_SLACK"],
+    credentialPosture: PER_AGENT_CREDENTIAL_POSTURE,
+    attribution:
+      "Approval drafts and executions record the resolved login through the shared approval engine; A2A calls to this surface are attributed by the edge credential (a2a-credential:slack, or the transitional shared caller).",
+  },
+  {
+    className: "AiSearchAgent",
+    did: null,
+    identitySource:
+      "Fronts a shared search instance and holds no identity of its own; the runner threads the caller's login as callerLogin and serves report-type results only to their owner (the #2246 discipline). No AGENT_DIDS entry is registered for this class.",
+    a2aSurfaces: ["aisearch"],
+    meshCredentials: ["A2A_TOKEN_AISEARCH"],
+    credentialPosture: PER_AGENT_CREDENTIAL_POSTURE,
+    attribution:
+      "Results are labelled with their serving path; report-type results are owner-bound to the caller's login and withheld on a missing or mismatched login (fail-safe).",
+  },
+  {
+    className: "TickerAgent",
+    did: null,
+    identitySource:
+      "A single shared instance (\"ticker\") addressed directly by server.ts. No per-user identity by design: the tape is public, with no auth and no audit (the #2230 posture).",
+    a2aSurfaces: [],
+    meshCredentials: [],
+    credentialPosture: NO_A2A_CREDENTIAL_POSTURE,
+    attribution:
+      "No attribution: the class keeps no audit and asserts no identity.",
+  },
+  {
+    className: "SandboxAgent",
+    did: null,
+    identitySource:
+      "No acting identity: the class delegates to ETradeSandboxService constructed from env only, and adds no identity of its own.",
+    a2aSurfaces: ["sandbox"],
+    meshCredentials: ["A2A_TOKEN_SANDBOX"],
+    credentialPosture: PER_AGENT_CREDENTIAL_POSTURE,
+    attribution:
+      "Run results carry the sandbox's honest posture (executed:false while no container backend is bound); no identity is asserted.",
+  },
+  {
+    className: "SessionStore",
+    did: null,
+    identitySource:
+      "Not an agent: this class is the fleet's identity substrate — the store holding app sessions, broker tokens, and channel identity mappings that every other class's identity story ultimately rests on.",
+    a2aSurfaces: [],
+    meshCredentials: [],
+    credentialPosture: NO_A2A_CREDENTIAL_POSTURE,
+    attribution:
+      "Records are keyed by the identities it stores (sessions and tokens per login); it asserts no identity of its own.",
+  },
+  {
+    className: "OptionsScannerMCP",
+    did: null,
+    identitySource:
+      "The caller's x402 payer wallet, verified by the facilitator — the fleet's only externally credentialed surface. Registered for completeness; out of mesh scope per #2225.",
+    a2aSurfaces: [],
+    meshCredentials: [],
+    credentialPosture: NO_A2A_CREDENTIAL_POSTURE,
+    attribution:
+      "Attribution is the payment receipt: payer wallet + facilitator verification.",
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -720,7 +919,7 @@ export const MESH_DOORS: MeshDoorEntry[] = [
     id: "a2a",
     name: "A2A",
     entryPoint: "src/a2a/index.ts handleA2A (cards: src/a2a/agent-cards.ts; resolution: src/a2a/resolution.ts)",
-    gate: "A2A_API_TOKEN bearer at the edge, fail-closed (503 when unconfigured); per-agent dispatch modules under src/agents/.",
+    gate: "Per-agent bearer credential per surface (A2A_TOKEN_<SURFACE>) verified timing-safely at the edge, fail-closed (503 when no credential is configured for the surface, 401 on a wrong one, before agent resolution) — src/a2a/index.ts + src/a2a/meshCredentials.ts; the shared A2A_API_TOKEN is the TRANSITIONAL fallback for surfaces whose per-agent secret is unset (S16, #2426); per-agent dispatch modules under src/agents/.",
   },
   {
     id: "agent-as-a-tool",
@@ -778,9 +977,9 @@ export const MESH_WORKFLOWS: MeshWorkflowEntry[] = [
 // the catalog's class-addressing commands; HTTP from the route
 // records above; agent-as-a-tool from the runAgentTool call sites
 // in src/. tests/mesh_every_door_s15_2421.test.ts pins the census
-// against those sources. Consumers: S16 takes the A2A column as
-// its per-agent credential inventory; S18's golden tasks exercise
-// this exposure; S20 renders it.
+// against those sources. Consumers: S16 took the A2A column as its
+// per-agent credential inventory (the identity records above);
+// S18's golden tasks exercise this exposure; S20 renders it.
 // ---------------------------------------------------------------------------
 
 export interface MeshCapabilityDoorEntry {
@@ -802,7 +1001,7 @@ export interface MeshCapabilityDoorEntry {
 }
 
 const A2A_EDGE_GATE =
-  "A2A_API_TOKEN bearer at the edge, fail-closed (503 when unconfigured, 401 on a missing/wrong token, before agent resolution) — src/a2a/index.ts. The shared-token pattern; per-agent replacement is S16's.";
+  "Per-agent credential (A2A_TOKEN_<SURFACE>) verified timing-safely at the A2A edge, fail-closed (503 when the surface has no credential configured, 401 on a missing/wrong one, before agent resolution) — src/a2a/index.ts + src/a2a/meshCredentials.ts. TRANSITIONAL: the shared A2A_API_TOKEN authenticates surfaces whose per-agent secret is unset, and the call's attribution says so (S16, #2426; removal when every surface carries its own secret).";
 const NO_ACTING_LOGIN_CARRIER =
   "The mesh-door commands fail closed for external MCP callers: no actingLogin carrier exists on that surface (#2341), so identity-bearing doors cannot be served there — external callers use the A2A door.";
 
@@ -1371,7 +1570,7 @@ export const MESH_CAPABILITY_DOORS: MeshCapabilityDoorEntry[] = [
     operations: ["sandbox.status", "sandbox.run_command"],
     gate: A2A_EDGE_GATE,
     notes:
-      "Added by #2421 — the #2253/S1 recorded follow-up (dispatch: src/agents/sandboxA2aDispatch.ts). Credential posture for S16: this surface authenticates with the ONE shared A2A bearer token, like every A2A surface; it is in the census inventory S16 replaces with per-agent credentials. Results carry the service's degraded posture verbatim: with no container backend bound, run_command returns executed:false — never emulated, never fabricated. Input parity with the other doors: { command, timeoutMs } only; envVars/workingDir are accepted on no door and are not accepted here.",
+      "Added by #2421 — the #2253/S1 recorded follow-up (dispatch: src/agents/sandboxA2aDispatch.ts). Credential posture since S16 (#2426): this surface has its own mesh credential (A2A_TOKEN_SANDBOX), with the shared token as its transitional fallback, like every A2A surface. Results carry the service's degraded posture verbatim: with no container backend bound, run_command returns executed:false — never emulated, never fabricated. Input parity with the other doors: { command, timeoutMs } only; envVars/workingDir are accepted on no door and are not accepted here.",
   },
   {
     className: "SandboxAgent",
@@ -1486,6 +1685,7 @@ export const MESH_NON_RENAMES: MeshNonRenameEntry[] = [
 export const MESH_REGISTRY = {
   agents: MESH_AGENTS,
   surfaces: MESH_SURFACES,
+  identities: MESH_IDENTITIES,
   channels: MESH_CHANNELS,
   toolFamilies: MESH_TOOL_FAMILIES,
   doors: MESH_DOORS,
@@ -1504,6 +1704,10 @@ export function getAgentByBinding(binding: string): MeshAgentEntry | undefined {
 
 export function getSurface(name: string): MeshSurfaceEntry | undefined {
   return MESH_SURFACES.find((s) => s.name === name);
+}
+
+export function getIdentityRecord(className: string): MeshIdentityRecord | undefined {
+  return MESH_IDENTITIES.find((r) => r.className === className);
 }
 
 export function surfacesForClass(className: string): MeshSurfaceEntry[] {
