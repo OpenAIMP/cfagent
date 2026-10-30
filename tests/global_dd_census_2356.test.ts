@@ -620,3 +620,122 @@ describe("global D-D census: G-7 — mas_settings (port-owned since #2390)", () 
     ]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Step 5 (#2432, slice 5a) — the SessionStore funnel census
+// ---------------------------------------------------------------------------
+//
+// Step 5's population is invisible to the three surfaces above:
+// the client funnel (src/security/durableKv.ts) speaks an HTTP
+// protocol to the SessionStore DO, so no storage-shaped exec or
+// prepare() site exists above the DO itself (audit §1.2, R-2).
+// This section pins that population in the step-4 style:
+//
+//  - every composition site of the funnel's four entry points
+//    (createStoreKv / createStoreSender / listStoreEntries /
+//    consumeStoreKey) outside the funnel itself, as an exact
+//    [file, function, bucket] multiset — a NEW call site
+//    anywhere in src/, a removed one, or a bucket change fails
+//    (shrink-only: entries retire only in their owning step-5
+//    slice, 5b–5e, which edits this list in its own PR);
+//  - kv_store's writer set: the SessionStore DO is the table's
+//    only writer and only DDL ensurer (the by-table rule,
+//    G-7 style).
+//
+// The bucket is the call's namespaceName — a string literal, a
+// same-file string constant (DRAFT_OWNER_NAMESPACE,
+// SLACK_LINK_STORE_NAMESPACE), createStoreSender's positional
+// bucket, or "<dynamic>" for the one per-call bucket
+// (publicOAuth's sessionstore: credential-ref resolver, whose
+// bucket is part of the reference being resolved).
+
+const FUNNEL_FUNCTIONS = [
+  "createStoreKv",
+  "createStoreSender",
+  "listStoreEntries",
+  "consumeStoreKey",
+] as const;
+
+function sameFileStringConst(text: string, name: string): string | null {
+  const m = text.match(
+    new RegExp(`(?:const|let|var)\\s+${name}\\s*(?::[^=;]+)?=\\s*"([^"]+)"`),
+  );
+  return m ? m[1] : null;
+}
+
+function funnelCallSites(): Array<[string, string, string]> {
+  const out: Array<[string, string, string]> = [];
+  for (const f of SRC_FILES) {
+    if (f === "src/security/durableKv.ts") continue; // the funnel itself
+    const text = STRIPPED.get(f)!;
+    for (const fn of FUNNEL_FUNCTIONS) {
+      for (const m of text.matchAll(new RegExp(`\\b${fn}\\s*\\(`, "g"))) {
+        const window = text.slice(m.index, m.index + 500);
+        let bucket: string | null = null;
+        if (fn === "createStoreSender") {
+          const args = window.match(
+            /^createStoreSender\s*\(\s*[^,]+,\s*"([^"]+)"/,
+          );
+          bucket = args ? args[1] : null;
+        } else {
+          const literal = window.match(/namespaceName:\s*"([^"]+)"/);
+          if (literal) {
+            bucket = literal[1];
+          } else {
+            const ident = window.match(
+              /namespaceName:\s*([A-Za-z_$][A-Za-z0-9_$]*)/,
+            );
+            if (ident) bucket = sameFileStringConst(text, ident[1]);
+          }
+        }
+        out.push([f, fn, bucket ?? "<dynamic>"]);
+      }
+    }
+  }
+  return out.sort((a, b) => a.join("|").localeCompare(b.join("|")));
+}
+
+/** [file, funnel function, bucket] — the step-5 population (audit §2.3). */
+const STEP5_FUNNEL_SITES: Array<[string, string, string]> = [
+  ["src/agents/routes/adminTenantQueues.ts", "listStoreEntries", "sessions"],
+  ["src/agents/routes/adminTenantQueues.ts", "listStoreEntries", "sessions"],
+  ["src/payments/draftOwners.ts", "consumeStoreKey", "payments"],
+  ["src/payments/draftOwners.ts", "createStoreKv", "payments"],
+  ["src/security/apiKeys.ts", "createStoreKv", "api_keys"],
+  ["src/security/etradeOAuth.ts", "consumeStoreKey", "etrade"],
+  ["src/security/etradeOAuth.ts", "createStoreKv", "etrade"],
+  ["src/security/etradeOAuth.ts", "listStoreEntries", "etrade"],
+  ["src/security/iaaaAuditStore.ts", "createStoreSender", "sessions"],
+  ["src/security/iaaaAuditStore.ts", "listStoreEntries", "sessions"],
+  ["src/security/publicOAuth.ts", "createStoreKv", "<dynamic>"],
+  ["src/security/publicOAuth.ts", "createStoreKv", "public"],
+  ["src/security/session.ts", "createStoreKv", "sessions"],
+  ["src/server.ts", "listStoreEntries", "etrade"],
+  ["src/server.ts", "listStoreEntries", "sessions"],
+  ["src/server.ts", "listStoreEntries", "sessions"],
+  ["src/server.ts", "listStoreEntries", "sessions"],
+  ["src/services/agenticPayments.ts", "consumeStoreKey", "payments"],
+  ["src/services/agenticPayments.ts", "createStoreKv", "payments"],
+  ["src/trading/channels/intake.ts", "consumeStoreKey", "slack_principal_links"],
+  ["src/trading/channels/intake.ts", "createStoreKv", "slack_principal_links"],
+];
+
+describe("global D-D census: step 5 — SessionStore funnel composition sites (#2432)", () => {
+  it("the funnel's composition sites are exactly the pinned set", () => {
+    expect(funnelCallSites()).toEqual(STEP5_FUNNEL_SITES);
+  });
+});
+
+describe("global D-D census: step 5 — kv_store writer set (#2432)", () => {
+  it("the only value writer is the SessionStore DO", () => {
+    const re = /(?:INSERT\s+(?:OR\s+\w+\s+)?INTO|UPDATE|DELETE\s+FROM)\s+kv_store(?![\w])/gi;
+    const actual = SRC_FILES.filter((f) => re.test(STRIPPED.get(f)!)).sort();
+    expect(actual).toEqual(["src/security/sessionStore.ts"]);
+  });
+
+  it("the only DDL ensurer is the SessionStore DO", () => {
+    const re = /CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?\s+kv_store(?![\w])/gi;
+    const actual = SRC_FILES.filter((f) => re.test(STRIPPED.get(f)!)).sort();
+    expect(actual).toEqual(["src/security/sessionStore.ts"]);
+  });
+});
