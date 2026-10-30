@@ -314,8 +314,15 @@ describe("orchestrator class inventory (#992 standing gate)", () => {
   });
 
   it("keeps the extracted modules present with their execution markers", () => {
+    // #2388 exception (owner-authorized 2026-10-30, #2331 comment
+    // 6515869065): asyncJobs.ts serves its table through the
+    // async-job ports (createAsyncJobPorts) instead of holding the
+    // INSERT statements — the same ports pattern as the #2359 pin
+    // updates below; the statements live in
+    // src/data/doSqliteAsyncJobAdapter.ts. This is an exception
+    // change to a #992 shared-gate expectation, not slice work.
     expect(src("agents/orchestrator/asyncJobs.ts")).toContain(
-      "INSERT INTO mas_async_jobs",
+      "createAsyncJobPorts",
     );
     // #2359 (#1976 step 4d) pin update: the extracted modules
     // now serve their tables through the data layer's
