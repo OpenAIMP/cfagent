@@ -19,7 +19,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   ETradeAgenticPaymentService,
   TRADING_PAID_SERVICES,
+  payerScopeId,
 } from "../src/services/agenticPayments";
+import { createInMemoryCanonicalReportStorePorts } from "../src/data/createCanonicalReportStorePorts";
 import { describeX402PaymentPath } from "../src/services/x402PaymentPath";
 import type { X402ClaimVerifier } from "../src/services/x402Verifier";
 import { describeChallenge } from "../src/client/x402Pay";
@@ -129,12 +131,17 @@ describe("x402 end-to-end verification, Phase 1.1 (#2406)", () => {
         const def = TRADING_PAID_SERVICES[tier.key];
         const txHash = nextTxHash();
         const fulfill = vi.fn().mockResolvedValue({ served: true, service: def.id });
+        // Issue #2408: served calls are metered — the slice-1
+        // served expectation now wires the in-memory usage port
+        // and pins the meter row alongside the ledger row.
+        const meter = createInMemoryCanonicalReportStorePorts().usage;
         const res = await service.handleGatedEndpoint(
           paidRequest(service, def, txHash),
           def.resource,
           def.priceUSD,
           def.description,
           fulfill,
+          { meter, category: def.id },
         );
         expect(res.status).toBe(200);
         expect(fulfill).toHaveBeenCalledTimes(1);
@@ -157,6 +164,10 @@ describe("x402 end-to-end verification, Phase 1.1 (#2406)", () => {
         expect(rows[0].currency).toBe("USDC");
         expect(rows[0].status).toBe("completed");
         expect(rows[0].checkoutUrl).toBe(def.resource);
+        // Issue #2408: the same served call meters exactly one usage_event.
+        const metered = meter.listByUser(payerScopeId(PAYER), 10);
+        expect(metered).toHaveLength(1);
+        expect(metered[0].category).toBe(def.id);
       });
     }
 
@@ -192,13 +203,17 @@ describe("x402 end-to-end verification, Phase 1.1 (#2406)", () => {
       const def = TRADING_PAID_SERVICES.STOCK_SIGNALS;
       const txHash = nextTxHash();
       const fulfill = vi.fn().mockResolvedValue({ served: true });
-      const first = await service.handleGatedEndpoint(paidRequest(service, def, txHash), def.resource, def.priceUSD, def.description, fulfill);
+      // Issue #2408: the first serve meters; the replay meters nothing more.
+      const meter = createInMemoryCanonicalReportStorePorts().usage;
+      const opts = { meter, category: def.id };
+      const first = await service.handleGatedEndpoint(paidRequest(service, def, txHash), def.resource, def.priceUSD, def.description, fulfill, opts);
       expect(first.status).toBe(200);
-      const second = await service.handleGatedEndpoint(paidRequest(service, def, txHash), def.resource, def.priceUSD, def.description, fulfill);
+      const second = await service.handleGatedEndpoint(paidRequest(service, def, txHash), def.resource, def.priceUSD, def.description, fulfill, opts);
       expect(second.status).toBe(402);
       expect(fulfill).toHaveBeenCalledTimes(1);
       const body = (await second.json()) as any;
       expect(body.reason).toMatch(/already been used/i);
+      expect(meter.listByUser(payerScopeId(PAYER), 10)).toHaveLength(1);
     });
 
     it("failed claim verification is refused with a typed error and serves nothing", async () => {
