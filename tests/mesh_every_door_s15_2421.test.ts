@@ -580,12 +580,25 @@ describe("census chat column vs the mesh-door command registry (#2421)", () => {
     const union = Object.keys(EXPECTED_CHAT_OPS).flatMap(
       (className) => capabilityDoor(className, "chat-turn")!.operations,
     );
-    expect([...union].sort()).toEqual([...family.commands].sort());
+    // #2488: ScreenerAgent joined the door classes (run_stock_screen,
+    // in the family) — it is asserted separately below because its
+    // chat cell also records the NLQ surface's nlq.execute
+    // capability, which is not a mesh-door command.
+    expect([...union, "run_stock_screen"].sort()).toEqual([...family.commands].sort());
     expect(new Set(union).size).toBe(union.length);
     // AiSearchAgent's chat reach is a catalog command, not a mesh-door
     // command — recorded on its own census entry, outside this family.
     expect(capabilityDoor("AiSearchAgent", "chat-turn")!.operations).toEqual([
       "ai_search_agent_search",
+    ]);
+    // ScreenerAgent's chat cell (#2488): its mesh-door command plus
+    // the NLQ async capability the NLQ surfaces bind — the door
+    // command is in the family above; nlq.execute belongs to the
+    // core-mcp family and is recorded here so the cell states both
+    // reaches exactly.
+    expect(capabilityDoor("ScreenerAgent", "chat-turn")!.operations).toEqual([
+      "run_stock_screen",
+      "nlq.execute",
     ]);
   });
 

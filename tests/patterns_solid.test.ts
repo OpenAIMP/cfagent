@@ -68,8 +68,13 @@ describe("SOLID Principles, GoF Patterns & Agent Dogfooding Suite", () => {
   describe("1. Agent Self-Consumption (Dogfooding) of MCP Tools", () => {
     it("adapts all 14 MCP commands directly into the AI Agent toolset", () => {
       const facade = new McpSystemFacade(mockEnv, orm, sessionId);
+      // #2488: execute_nlq is flagged OFF in chat turns by default
+      // (CHAT_NLQ_MODE, default off). This test pins adapter COMPLETENESS —
+      // every canonical command CAN be adapted — so it enables the flag;
+      // the default-off exclusion is pinned in tests/mesh_screen_door_2488
+      // and tests/actor-orchestrator-parity.
       const agentTools = createAgentMcpTools({
-        env: mockEnv,
+        env: { ...mockEnv, CHAT_NLQ_MODE: "on" } as Env,
         orm,
         sessionId,
         facade,
