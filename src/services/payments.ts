@@ -133,7 +133,9 @@ export class PaymentGatewayService {
 
     const authorizerDid = `did:user:github:${params.userLogin}`;
 
-    // 1. Generate Verifiable Agent DID Attestation
+    // 1. Generate the Agent DID Attestation — a keyed, verifiable
+    // proof when DID_ATTESTATION_KEY is set; otherwise an unkeyed
+    // content label (the proofType says which — issue #2426).
     const didAttestation = await createDidAttestation({
       draftId: params.draftId,
       action: "charge",
@@ -143,7 +145,7 @@ export class PaymentGatewayService {
       gateway,
       proposerDid: AGENT_DIDS.PAYMENTS,
       authorizerDid,
-    });
+    }, this.env.DID_ATTESTATION_KEY);
 
     // 2. Resolve Strategy via Factory (GoF Strategy + Factory Pattern)
     const strategy = PaymentStrategyFactory.getStrategy(gateway);
@@ -219,7 +221,7 @@ export class PaymentGatewayService {
       gateway,
       proposerDid: AGENT_DIDS.PAYMENTS,
       authorizerDid,
-    });
+    }, this.env.DID_ATTESTATION_KEY);
 
     if (gateway === "stripe") {
       const stripeStrategy = PaymentStrategyFactory.getStrategy("stripe") as StripePaymentStrategy;
@@ -248,7 +250,9 @@ export class PaymentGatewayService {
     const gateway = normalizeGateway(params.gateway) as SupportedGateway;
     const authorizerDid = `did:user:github:${params.userLogin}`;
 
-    // 1. Generate Verifiable Agent DID Attestation
+    // 1. Generate the Agent DID Attestation — keyed and verifiable
+    // when DID_ATTESTATION_KEY is set; otherwise an unkeyed content
+    // label (the proofType says which — issue #2426).
     const didAttestation = await createDidAttestation({
       draftId: params.transactionId,
       action: "refund",
@@ -258,7 +262,7 @@ export class PaymentGatewayService {
       gateway,
       proposerDid: AGENT_DIDS.PAYMENTS,
       authorizerDid,
-    });
+    }, this.env.DID_ATTESTATION_KEY);
 
     // 2. Resolve Strategy via Factory (GoF Strategy + Factory Pattern)
     const strategy = PaymentStrategyFactory.getStrategy(gateway);

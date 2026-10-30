@@ -545,8 +545,31 @@ export interface Env {
   RESEARCH_AGENT?: DurableObjectNamespace;
   REPORT_ASSET_AGENT?: DurableObjectNamespace;
   TRADING_AGENT?: DurableObjectNamespace;
-  /** Bearer token required on A2A dispatch POSTs (#291 A5). Unset = dispatch disabled (fail closed). */
+  /** Bearer token required on A2A dispatch POSTs (#291 A5). Unset = dispatch disabled (fail closed). Since S16 (#2426) this is the TRANSITIONAL shared fallback: it authenticates only surfaces whose per-agent credential (below) is unset, and is removed once every surface carries its own. */
   A2A_API_TOKEN?: string;
+  // Per-agent A2A mesh credentials (S16, #2426): one optional Worker
+  // secret per A2A surface, verified at the edge by
+  // src/a2a/meshCredentials.ts. A surface whose secret is set accepts
+  // ONLY that credential; a surface without one falls back to the
+  // shared A2A_API_TOKEN transitionally. Owner-set in production;
+  // never a value in code or config files.
+  A2A_TOKEN_ORCHESTRATOR?: string;
+  A2A_TOKEN_SEARCH?: string;
+  A2A_TOKEN_TASKS?: string;
+  A2A_TOKEN_MEMORY?: string;
+  A2A_TOKEN_NLQ?: string;
+  A2A_TOKEN_PAYMENTS?: string;
+  A2A_TOKEN_TRADING?: string;
+  A2A_TOKEN_AISEARCH?: string;
+  A2A_TOKEN_SCREENER?: string;
+  A2A_TOKEN_SCHEDULED?: string;
+  A2A_TOKEN_RESEARCH?: string;
+  A2A_TOKEN_REPORT_ASSET?: string;
+  A2A_TOKEN_BROWSER?: string;
+  A2A_TOKEN_SLACK?: string;
+  A2A_TOKEN_SANDBOX?: string;
+  /** HMAC key for keyed DID attestation (S16, #2426): a Worker secret the owner sets. When set, attestation call sites that thread it produce real HMAC-SHA256 proofs that verifyDidAttestation can verify; unset (or unthreaded), proofs are honestly labelled unkeyed content labels. Never a value in code or config files. */
+  DID_ATTESTATION_KEY?: string;
   /** Dedicated Bearer token for POST /api/qa/investigate when no app session exists (#1754). Unset = the service-token path denies (fail closed); the session path is unaffected. Deliberately distinct from A2A_API_TOKEN. */
   QA_INVESTIGATE_TOKEN?: string;
   /** Trade approval workflow binding (#291 T3b). */

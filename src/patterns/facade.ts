@@ -78,6 +78,6 @@ export class McpSystemFacade implements IMcpSystemFacade {
       gateway: params.gateway,
       proposerDid: params.proposerDid || AGENT_DIDS.PAYMENTS,
       authorizerDid,
-    });
+    }, this.env.DID_ATTESTATION_KEY);
   }
 }

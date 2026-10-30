@@ -151,7 +151,7 @@ const MATRIX: MatrixRow[] = [
     cells: {
       identity: IMPL(
         "Per-login instances: server.ts resolves SEARCH_AGENT.idFromName(userLogin) (src/server.ts:364). Fixed names (default_trader, system_webhook_receiver) are addresses, never identities (src/security/serviceIdentity.ts:52-61); unattended work acts under getServiceUserLogin (serviceIdentity.ts:45), fail-closed when unconfigured. S3 (#2327) retired the research-stub default; behavioral pins in tests/mesh_identity_sweep_s3_2327.test.ts.",
-        "mas_* rows still attribute via sessionKey() (the opaque DO id string, orchestrator.ts:464+) — an address-shaped value doing attribution duty; two-part (agent + principal) attribution is S16's work.",
+        "Chat-turn mas_* rows still partition by sessionKey() (the opaque DO id string) — an address doing partition duty. S16 (#2426) landed two-part attribution on the A2A door: the edge-authenticated caller rides into handleA2A and is recorded on the payments path, and mas payment rows carry proposer/agent + authorizer/principal DIDs, so sessionKey is no longer the sole attribution on any mesh door. Reworking chat-turn row attribution itself is a session-scoping change, not an identity gap.",
       ),
       state: IMPL(
         "Instance-local durable state: ctx.storage KV plus the SQLite mas_* tables (mas_messages/mas_events/mas_memory/mas_transactions) in the instance's own storage.",
@@ -252,7 +252,7 @@ const MATRIX: MatrixRow[] = [
     className: "PaymentsAgent",
     cells: {
       identity: IMPL(
-        "Callers must name themselves: budgetCheck requires an explicit agentId and fails closed without one (payments-agent.ts, post-S3 — 'budget check requires an explicit agentId'); processPaidRequest likewise requires agentId. Recorded spend carries two-part attribution in the ledger (payments-agent:<agentId>). Behavioral pins: tests/mesh_identity_sweep_s3_2327.test.ts.",
+        "Callers must name themselves: budgetCheck requires an explicit agentId and fails closed without one (payments-agent.ts, post-S3 — 'budget check requires an explicit agentId'); processPaidRequest likewise requires agentId. Recorded spend carries two-part attribution in the ledger (payments-agent:<agentId>). S16 (#2426) authenticated the second part: A2A callers are verified by the payments surface's per-agent mesh credential at the edge, and the edge-authenticated caller is recorded beside the agentId in the payments_agent.recorded audit payload — asserted + authenticated, not asserted alone. Behavioral pins: tests/mesh_identity_sweep_s3_2327.test.ts and tests/mesh_identity_s16_2426.test.ts.",
       ),
       state: IMPL(
         "Derived-state posture: live state is computed per call from the orchestrator-owned payments ledger (mas_transactions via src/payments/ledger.ts). Its own ctx.storage holds only the retired legacy blob (payments/budgetGuard keys), read solely by migrateLegacyLedger.",
@@ -284,7 +284,7 @@ const MATRIX: MatrixRow[] = [
     cells: {
       identity: IMPL(
         "Recorded-owner identity: userLogin() returns the owner recorded at first run (OWNER_STORAGE_KEY, screener-agent.ts:407-436), else the login in a screener:-prefixed instance name, else the service identity for instance 'default' only — otherwise it throws ('ScreenerAgent has no owner identity recorded for this instance'). Name resolution also fails closed (src/agents/screenerAgentName.ts:28-38).",
-        "Two goal-screen report paths still stamp a literal tenantId: 'default' (screener-agent.ts:1314, :1336 — count pinned below). That is a tenant-attribution default, not an acting-identity default; S16 retires it.",
+        "S16 (#2426) retired the tenantId literal this cell recorded: both goal-gather paths (the gather run context and the enrichment) thread the run owner's login as tenantId — the owner is guaranteed present, since userLogin() throws without one (count pinned below: zero 'default' literals remain, both sites thread userLogin). Transition note: goal-gather captures written before S16 sit under the retired 'default' partition and are not visible to reads keyed by the owner's login; captures are run-scoped reproducible provider snapshots, not records of account.",
       ),
       state: IMPL(
         "Instance-local ctx.storage plus SQLite: the task ledger, run history, latest results, and provider config tables.",
@@ -313,7 +313,7 @@ const MATRIX: MatrixRow[] = [
     cells: {
       identity: IMPL(
         "Singleton instance 'default'; goals carry their owner login in the goal records and fired work acts as the goal owner. Post-S3 its budget checks name the spend bucket explicitly (AGENTIC_SPEND_AGENT_ID, scheduled-agent.ts:329 and the synthesized-schedule path).",
-        "Synthesized-schedule audit rows still carry the literal actor 'system' (scheduled-agent.ts:937 — pinned below); S16 retires it.",
+        "S16 (#2426) retired the 'system' audit actor this cell recorded: the reconciliation audit row in reconcileChainScheduleProjection carries the operator login the admin-gated route threads in, or SCHEDULED_AGENT_AUDIT_ACTOR ('scheduled-agent') when no actor is supplied — the agent's own named identity for its maintenance act (count pinned below: zero 'system' literals remain).",
       ),
       state: IMPL(
         "All instance-local ctx.storage: the goals key (seeded with DEFAULT_SCHEDULES on first read, :224-225), tick history, and synthesized schedules.",
@@ -395,9 +395,8 @@ const MATRIX: MatrixRow[] = [
   {
     className: "SlackAgent",
     cells: {
-      identity: GAP(
-        "S16 (G14 identity records + mesh credentials)",
-        "S13 (#2412) retired the synthetic fallback this cell cited: sessionKey() throws when ctx.id is absent instead of returning the retired master literal, and getSlackService no longer re-asserts it (absence pinned below; behavioral pin in tests/mesh_channels_s13_2412.test.ts). The cell stays a GAP for the G14 remainder: the class holds no registry identity record and no per-agent mesh credential — Slack ingress still authenticates with the app-level signing secret and bot token.",
+      identity: IMPL(
+        "S13 (#2412) retired the synthetic fallback this cell cited: sessionKey() throws when ctx.id is absent instead of returning the retired master literal, and getSlackService no longer re-asserts it (absence pinned below; behavioral pin in tests/mesh_channels_s13_2412.test.ts). S16 (#2426) closed the G14 remainder: the class holds a registry identity record (MESH_IDENTITIES in src/agents/registry.ts — DID did:agent:openaimp:slack, identity source, attribution shape) and its A2A surface carries a per-agent mesh credential (A2A_TOKEN_SLACK, verified timing-safely at the edge; the shared token is its transitional fallback). Channel ingress keeps its own gate — the app-level Slack signing secret — which is the channel's credential, recorded as such in the registry's channel and identity records. Pins: tests/mesh_identity_s16_2426.test.ts.",
       ),
       state: IMPL(
         "SQLite via getOrm() over this.ctx.storage.sql — schema ensured by the store's designated initializer classes, not this class (the #2345 R-7 composition pin: this file deliberately carries no initializeSchema); the S13 suite (#2412) exercises the boot/ORM paths over a fresh store through the converged ingress. The class is instantiated in production via its A2A door and the G1 chat door (see routing).",
@@ -747,21 +746,23 @@ describe("identity pins — round 1 (#2339)", () => {
     expect(src).toContain("async handleA2A(");
   });
 
-  it("ScreenerAgent fails closed on owner identity; the two tenantId defaults recorded as its residual are still exactly two", () => {
+  it("ScreenerAgent fails closed on owner identity; the tenantId residual is retired (S16): zero 'default' literals, the owner login threaded at both gather sites", () => {
     const src = agentSource("ScreenerAgent");
     expect(src).toContain(
       "ScreenerAgent has no owner identity recorded for this instance",
     );
-    expect(src.split('tenantId: "default"').length - 1).toBe(2);
+    expect(src.split('tenantId: "default"').length - 1).toBe(0);
+    expect(src.split("tenantId: userLogin").length - 1).toBe(2);
     expect(read("src/agents/screenerAgentName.ts")).toContain(
       "resolveScreenerAgentName",
     );
   });
 
-  it("ScheduledAgent names its budget bucket explicitly; the 'system' audit actor recorded as its residual is still present", () => {
+  it("ScheduledAgent names its budget bucket explicitly; the 'system' audit actor residual is retired (S16)", () => {
     const src = agentSource("ScheduledAgent");
     expect(src).toContain("AGENTIC_SPEND_AGENT_ID");
-    expect(src.split('actor: "system"').length - 1).toBe(1);
+    expect(src.split('actor: "system"').length - 1).toBe(0);
+    expect(src).toContain("SCHEDULED_AGENT_AUDIT_ACTOR");
   });
 
   it("SlackAgent's synthetic master fallback is retired (S13, #2412) — the literal is absent from the class and sessionKey fails closed", () => {

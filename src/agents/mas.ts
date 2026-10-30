@@ -180,7 +180,7 @@ export function createMAS({ env, sessionId, requestId, sql, audit }: MASOptions)
         gateway,
         proposerDid: AGENT_DIDS.PAYMENTS,
         authorizerDid: userDid,
-      });
+      }, env.DID_ATTESTATION_KEY);
 
       let inserted = false;
       try {

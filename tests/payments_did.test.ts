@@ -24,7 +24,7 @@ describe("Agent Decentralized Identifiers (DIDs) & Payments", () => {
     expect(userDid).toBe("did:user:github:developer123");
   });
 
-  it("generates deterministic cryptographic proof attestation", async () => {
+  it("generates an honestly labelled unkeyed content-label attestation when no key is threaded", async () => {
     const attestation = await createDidAttestation({
       proposerDid: AGENT_DIDS.PAYMENTS,
       action: "charge",
@@ -36,7 +36,11 @@ describe("Agent Decentralized Identifiers (DIDs) & Payments", () => {
     });
 
     expect(attestation.proposerDid).toBe(AGENT_DIDS.PAYMENTS);
-    expect(attestation.proofType).toBe("HmacSha256Verification2026");
+    // Issue #2426: without an HMAC key the value is an unkeyed
+    // SHA-256 content label, and proofType says so — the keyed
+    // "HmacSha256Verification2026" type is reserved for proofs
+    // created with a key (verified in tests/mesh_identity_s16_2426).
+    expect(attestation.proofType).toBe("UnkeyedContentLabel2026");
     expect(attestation.signature).toBeDefined();
     expect(attestation.signature.length).toBe(64);
   });

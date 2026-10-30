@@ -76,6 +76,15 @@ export interface LedgerPaymentInput {
   idempotencyKey: string;
   payer?: string;
   proofSignature?: string;
+  /**
+   * Two-part attribution, part 2 (issue #2426): the edge-
+   * authenticated A2A caller identity, when the payment arrived
+   * over the A2A door. The ledger row's own attribution stays the
+   * agentId (session_id / customer, unchanged — the budget
+   * derivation keys on it); the caller part is recorded in the
+   * ledger owner's audit record for the write.
+   */
+  caller?: string;
   /** Original timestamp to preserve (legacy migration); defaults to now. */
   createdAt?: string;
 }
