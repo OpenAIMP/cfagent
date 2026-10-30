@@ -644,7 +644,7 @@ describe("#2303 structural pins", () => {
     expect(new Set(versions).size).toBe(versions.length);
     expect(versions.filter((v) => v === 19)).toHaveLength(1);
     expect(versions.filter((v) => v === 13)).toHaveLength(1);
-    expect(versions).not.toContain(14);
+    expect(versions).toContain(14); // claimed by #2296 (billing, #2202)
     expect(MIGRATION_0019_DATA_PROVIDER_PLATFORM.version).toBe(19);
   });
 
