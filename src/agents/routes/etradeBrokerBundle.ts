@@ -8,10 +8,23 @@
  * so the construction ledgers are unaffected.
  */
 import type { EtradeBrokerRouteContext } from "./etradeBroker";
+import { computePortfolioRisk } from "../../services/portfolioRisk";
+import { assessPortfolioConcentration } from "../../services/portfolioConcentration";
+import { resolveSpyPutContract } from "../../services/hedgeProposals";
 import {
+  buildRecommendationBundle,
   persistBundleReport,
+  type BundleCandidateInput,
+  type BundleRouteCandidateBody,
   type RecommendationBundle,
 } from "../../services/recommendationBundle";
+import { buildScenario, type ScenarioConstraints, type ScenarioShockGrid } from "../../services/goalScenarioEngine";
+import type { GoalKind } from "../../services/goalScenarioStore";
+import type { FalsificationInput } from "../../services/researchFalsification";
+import type { StrategyCandidate } from "../../trading";
+import { sharedCorrelationService } from "../../services/correlationService";
+import type { ETradeService } from "../../services/etrade";
+import type { RepairAnalysis } from "../../services/repairProposals";
 import type {
   ScreeningChannel,
   ScreeningChannelResult,
@@ -21,6 +34,70 @@ export interface BundleCompletionBody {
   persist?: boolean;
   persistReport?: boolean;
   deliver?: { channels?: ScreeningChannel[]; emailTo?: string };
+}
+
+export interface BundleRouteRequestBody extends BundleCompletionBody {
+  candidate?: StrategyCandidate;
+  candidates?: BundleRouteCandidateBody[];
+  beta?: number | null;
+  falsification?: FalsificationInput;
+  goalKind?: GoalKind;
+  shocks?: ScenarioShockGrid;
+  constraints?: ScenarioConstraints;
+  requestedContracts?: number;
+  riskScore?: number;
+  pickStatus?: "recommended" | "research_only" | "no_trade";
+  pickConfidence?: "HIGH" | "MEDIUM" | "LOW";
+}
+
+export async function executeBundleRoute(
+  ctx: EtradeBrokerRouteContext,
+  etrade: ETradeService,
+  body: BundleRouteRequestBody,
+  candidates: BundleCandidateInput[],
+  repairAnalysis: RepairAnalysis | null,
+  userLogin: string,
+): Promise<Response> {
+  const primary = candidates[0];
+  const report = await computePortfolioRisk(etrade);
+  const concentration = await assessPortfolioConcentration(
+    report,
+    (a, b) => sharedCorrelationService.estimate(a, b),
+    primary.candidate.symbol,
+  ).catch(() => null);
+  const measured = (concentration?.candidateAssessment?.correlations ?? [])
+    .filter((c) => c.source === "measured" && c.value !== null)
+    .map((c) => c.value as number);
+  const spyPut = await resolveSpyPutContract(etrade).catch(() => null);
+  const scenario = buildScenario({
+    goalKind: body.goalKind ?? "directional",
+    portfolioRef: { kind: "real" },
+    shocks: body.shocks,
+    constraints: body.constraints,
+  });
+  const bundle = buildRecommendationBundle({
+    candidates: candidates.map((c, i) => ({
+      ...c,
+      // The measured-correlation evidence belongs to the primary
+      // candidate's concentration assessment; other candidates
+      // carry no measured correlation rather than borrowing it.
+      maxMeasuredCorrelation: i === 0 && measured.length ? Math.max(...measured) : null,
+    })),
+    report,
+    scenario,
+    falsification: body.falsification,
+    pickStatus: body.pickStatus,
+    pickConfidence: body.pickConfidence,
+    concentration,
+    spyPut,
+    repairAnalysis,
+  });
+  return completeBundleRoute(ctx, {
+    bundle,
+    primarySymbol: primary.candidate.symbol,
+    body,
+    userLogin,
+  });
 }
 
 /**

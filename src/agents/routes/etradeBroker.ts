@@ -53,15 +53,11 @@ import {
   sizeCandidateAgainstPortfolio,
   type SizingCandidate,
 } from "../../services/positionSizing";
-import { generateHedgeProposals, resolveSpyPutContract } from "../../services/hedgeProposals";
-import { buildRecommendationBundle, normalizeBundleCandidates, type BundleRouteCandidateBody } from "../../services/recommendationBundle";
-import { completeBundleRoute } from "./etradeBrokerBundle";
+import { generateHedgeProposals } from "../../services/hedgeProposals";
+import { normalizeBundleCandidates } from "../../services/recommendationBundle";
+import { executeBundleRoute, type BundleRouteRequestBody } from "./etradeBrokerBundle";
 import { orderPayloadHash, parseStrategyOrder } from "./orderPayloadHash";
 import type { ScreeningChannel, ScreeningChannelResult } from "../../services/screeningDelivery";
-import { buildScenario, type ScenarioConstraints, type ScenarioShockGrid } from "../../services/goalScenarioEngine";
-import type { GoalKind } from "../../services/goalScenarioStore";
-import type { FalsificationInput } from "../../services/researchFalsification";
-import type { StrategyCandidate } from "../../trading";
 import { sharedCorrelationService } from "../../services/correlationService";
 import { ETradeService } from "../../services/etrade";
 import { etradeIdentityFromLogin } from "../../security/etradeOAuth";
@@ -638,74 +634,20 @@ export async function handleEtradeBrokerRoutes(
   // persistReport + deliver + response) lives in etradeBrokerBundle.
   if (path.endsWith("/etrade/portfolio-risk/bundle") && request.method === "POST") {
     try {
-      const body = (await request.json().catch(() => ({}))) as {
-        candidate?: StrategyCandidate;
-        candidates?: BundleRouteCandidateBody[];
-        beta?: number | null;
-        falsification?: FalsificationInput;
-        goalKind?: GoalKind;
-        shocks?: ScenarioShockGrid;
-        constraints?: ScenarioConstraints;
-        requestedContracts?: number;
-        riskScore?: number;
-        pickStatus?: "recommended" | "research_only" | "no_trade";
-        pickConfidence?: "HIGH" | "MEDIUM" | "LOW";
-        persist?: boolean;
-        persistReport?: boolean;
-        deliver?: { channels?: ScreeningChannel[]; emailTo?: string };
-      };
+      const body = (await request.json().catch(() => ({}))) as BundleRouteRequestBody;
       const normalized = normalizeBundleCandidates(body);
       if (!normalized.ok) {
         return Response.json({ error: normalized.error }, { status: 400 });
       }
-      const primary = normalized.candidates[0];
       const userLogin = request.headers.get("x-user-login");
       if (!userLogin) return unauthenticatedResponse();
       const etrade = new ETradeService(ctx.getOrm(), ctx.env, userLogin, requestedEnv);
-      const report = await computePortfolioRisk(etrade);
-      const concentration = await assessPortfolioConcentration(
-        report,
-        (a, b) => sharedCorrelationService.estimate(a, b),
-        primary.candidate.symbol,
-      ).catch(() => null);
-      const measured = (concentration?.candidateAssessment?.correlations ?? [])
-        .filter((c) => c.source === "measured" && c.value !== null)
-        .map((c) => c.value as number);
       const { generateRepairProposals } = await import("../../services/repairProposals");
       const repairAnalysis = await generateRepairProposals(etrade).catch(() => null);
-      const spyPut = await resolveSpyPutContract(etrade).catch(() => null);
-      const scenario = buildScenario({
-        goalKind: body.goalKind ?? "directional",
-        portfolioRef: { kind: "real" },
-        shocks: body.shocks,
-        constraints: body.constraints,
-      });
-      const bundle = buildRecommendationBundle({
-        candidates: normalized.candidates.map((c, i) => ({
-          ...c,
-          // The measured-correlation evidence belongs to the primary
-          // candidate's concentration assessment; other candidates
-          // carry no measured correlation rather than borrowing it.
-          maxMeasuredCorrelation: i === 0 && measured.length ? Math.max(...measured) : null,
-        })),
-        report,
-        scenario,
-        falsification: body.falsification,
-        pickStatus: body.pickStatus,
-        pickConfidence: body.pickConfidence,
-        concentration,
-        spyPut,
-        repairAnalysis,
-      });
 
       // C5 (#1361): completion lives in etradeBrokerBundle (the #995
       // split pattern) so this file stays under the #359 50 KB target.
-      return completeBundleRoute(ctx, {
-        bundle,
-        primarySymbol: primary.candidate.symbol,
-        body,
-        userLogin,
-      });
+      return executeBundleRoute(ctx, etrade, body, normalized.candidates, repairAnalysis, userLogin);
     } catch (err) {
       return Response.json({ error: err instanceof Error ? err.message : "Failed to build recommendation bundle" }, { status: 500 });
     }
