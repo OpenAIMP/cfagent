@@ -26,6 +26,7 @@ vi.mock("agents/x402", () => {
 });
 
 import worker from "../src/server";
+import { makeFakeSessionStore } from "./fake-session-store";
 
 function fakeEnv(withServiceIdentity = true) {
   const agentFetchCalls: string[] = [];
@@ -35,12 +36,27 @@ function fakeEnv(withServiceIdentity = true) {
       return new Response("ok");
     },
   };
+  const { namespace, seed } = makeFakeSessionStore();
+  // #2331 slice 2: the */30 tick and its dispatches run only while the
+  // service user holds a live platform-tier member binding.
+  if (withServiceIdentity) {
+    seed("sessions", "iaaa-membership:m-svc-1", {
+      membershipId: "m-svc-1",
+      internalUserId: "service:svc-background",
+      tenantId: "primary",
+      roleBindings: [{ role: "member", scope: "platform", grantedBy: "test" }],
+      createdBy: "test",
+      createdAtMs: Date.now() - 1000,
+    });
+    seed("sessions", "iaaa-membership:user:service:svc-background", ["m-svc-1"]);
+  }
   const env = {
     SEARCH_AGENT: { idFromName: () => "shared-instance", get: () => fakeAgent },
     SCHEDULED_AGENT: {
       idFromName: () => "default",
       get: () => ({ onCron: async () => undefined }),
     },
+    SESSION_STORE: namespace,
     // #1185: the identity-bearing dispatches require the configured
     // service identity; without it they are skipped (fail closed).
     ...(withServiceIdentity ? { SERVICE_USER_LOGIN: "svc-background" } : {}),
@@ -76,9 +92,9 @@ describe("worker scheduled() social dispatch (Phase 5b slice 1)", () => {
     const ctx = { waitUntil: (p: Promise<unknown>) => void waited.push(p) };
     await worker.scheduled({ cron: "*/30 * * * *" }, env as never, ctx as never);
     await Promise.all(waited);
-    // Fail closed: the ScheduledAgent onCron still runs (it asserts no
-    // identity from this handler), but no dispatch carries a fabricated
-    // identity — and nothing throws.
+    // Fail closed: with no configured service identity, the tick and
+    // the dispatches are skipped (#2331 slice 2 gates the tick too) —
+    // no dispatch carries a fabricated identity, and nothing throws.
     expect(agentFetchCalls).toEqual([]);
   });
 
