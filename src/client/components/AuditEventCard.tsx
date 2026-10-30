@@ -9,7 +9,7 @@
  * event-* class names so its styling is untouched.
  */
 import React from "react";
-import { Card, Badge } from "./ui";
+import { Card, Badge } from "../components/ui";
 import type { AuditLogEvent } from "../chat/types";
 
 export function AuditEventCard({ event: e }: { event: AuditLogEvent }) {
