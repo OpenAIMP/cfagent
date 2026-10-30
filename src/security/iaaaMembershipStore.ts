@@ -187,6 +187,13 @@ export function listMembershipsFromEntries(
 }
 
 /** Durable MembershipStore backed by a KvLike store (production: SessionStore DO). */
+/**
+ * #2433 (step 5b): this Kv factory remains the flag-off and
+ * adapter-internal construction. Env-level composition goes
+ * through session.ts wiredMembershipStore(env), which returns
+ * the session family's membership port when
+ * SESSION_PORTS_ENABLED is on and this factory when off.
+ */
 export function createKvMembershipStore(kv: KvLike): MembershipStore {
   return {
     async getMembershipsByUser(
