@@ -14,6 +14,7 @@
  */
 
 import type { SqlStorage } from "../orm";
+import { createCanonicalReportStorePorts } from "../data/createCanonicalReportStorePorts";
 
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
@@ -258,12 +259,12 @@ export async function runCanonicalIndexBackfillPage(
   opts: { limit: number; offset: number }
 ): Promise<CanonicalIndexBackfillPage> {
   const { limit, offset } = opts;
-  const rows = Array.from(
-    sql.exec(
-      `SELECT id, title, source, summary, body, body_r2_key FROM mas_reports ORDER BY created_at ASC LIMIT ? OFFSET ?`,
-      limit,
-      offset
-    )
+  // Issue #2359 (#1976 step 4d): the page read serves through
+  // the canonical-report read port (same projection, same
+  // oldest-first page) instead of raw SQL.
+  const rows = createCanonicalReportStorePorts(sql as never).read.listIndexBackfillRows(
+    limit,
+    offset
   ) as Array<Record<string, unknown>>;
   let upserted = 0;
   let skippedRetention = 0;
