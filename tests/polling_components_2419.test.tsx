@@ -13,6 +13,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { act } from "react";
 import { readFileSync } from "node:fs";
 import { AutonomousOptionsRuns } from "../src/client/options/AutonomousOptionsRuns";
+import {
+  resetAutoRefreshCacheForTests,
+  setAutoRefresh,
+} from "../src/client/autoRefresh";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -42,6 +46,10 @@ describe("AutonomousOptionsRuns polling migration (#2419)", () => {
       }),
     );
     (window as any).__POLLING_CONFIG__ = { optionsLatestPollMs: 1000 };
+    // Issue #2481: the shared options-latest poller is gated by
+    // the global auto-refresh switch; this #2419 pin covers ON.
+    resetAutoRefreshCacheForTests();
+    setAutoRefresh(true);
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -53,6 +61,7 @@ describe("AutonomousOptionsRuns polling migration (#2419)", () => {
     });
     vi.unstubAllGlobals();
     delete (window as any).__POLLING_CONFIG__;
+    resetAutoRefreshCacheForTests();
     document.body.innerHTML = "";
     vi.useRealTimers();
   });
