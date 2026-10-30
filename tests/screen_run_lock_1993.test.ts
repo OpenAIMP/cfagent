@@ -101,8 +101,18 @@ describe("wiring (#1993)", () => {
   const tasksSrc = readFileSync("src/services/scheduledTasks.ts", "utf8");
 
   it("runScreen acquires the SQLite lock and always releases it", () => {
-    expect(agentSrc).toContain("acquireScreenRunLock(this.lockSql()");
-    expect(agentSrc).toContain("releaseScreenRunLock(this.lockSql()");
+    // §7 adaptation (#2361, #1976 step 4e): the lock moved behind
+    // the ScreenRunLockPort (src/data/screenRunLockPorts.ts) and
+    // runScreen now acquires/releases through the composed port
+    // instead of the legacy module functions over lockSql(). The
+    // invariant this pin exists for — runScreen acquires the
+    // instance-local SQLite lock synchronously and always releases
+    // it — is unchanged; only the wiring expression moved. The
+    // port's statements are pinned by the fake-based suites in
+    // this file (which reach the adapter through the legacy
+    // delegate) and by the step-4e conformance suite.
+    expect(agentSrc).toContain("this.screenRunLock().acquire(");
+    expect(agentSrc).toContain("this.screenRunLock().release(");
     expect(agentSrc).toContain("Screen already running for");
     // The async-KV lock is gone: no screen_lock: key remains anywhere.
     expect(agentSrc).not.toContain("screen_lock:");
