@@ -256,9 +256,9 @@ describe("4d family census: writer sets", () => {
       "src/data/ormSchema.ts",
     ]);
     // mas_transactions: orchestrator.ts seed-purge bypass
-    // CLOSED; the payments route bypass remains for #2360.
+    // CLOSED by 4d; the payments route bypass was closed by
+    // #2360 (step 4d-2) — the writer set is layer-only.
     expect(writerSet("mas_transactions")).toEqual([
-      "src/agents/routes/payments.ts",
       "src/data/doSqliteOrmAdapters.ts",
       "src/data/ormSchema.ts",
     ]);
