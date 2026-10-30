@@ -146,6 +146,22 @@ export function mapPolicyVerdictToRow(v: PolicyVerdictRecord): PolicyVerdictRow 
 }
 
 /**
+ * Provenance of an order reference (#2389). References minted locally
+ * by the old fabricated execution paths are identifiable by prefix —
+ * a row carrying one was never placed with a broker and must render
+ * as simulated, never live. Any other non-empty reference came from a
+ * broker placement response. No reference means the provenance is
+ * unknown, and the row renders with no badge rather than a claim.
+ */
+const FABRICATED_ORDER_REF_PREFIXES = ["et_ref_", "et_sim_", "alp_ref_", "alp_exec_"];
+
+export function orderRefProvenance(ref: unknown): "live" | "simulated" | undefined {
+  const value = typeof ref === "string" ? ref.trim() : "";
+  if (!value) return undefined;
+  return FABRICATED_ORDER_REF_PREFIXES.some((prefix) => value.startsWith(prefix)) ? "simulated" : "live";
+}
+
+/**
  * Maps a backend SQLite WAL audit event (mas_events) to an autonomous action row.
  */
 export function mapAuditLogToAutonomousAction(e: AuditLogRawEvent): AutonomousActionItem {
@@ -265,7 +281,9 @@ export function mapAuditLogToAutonomousAction(e: AuditLogRawEvent): AutonomousAc
       did,
       signature,
     },
-    source: "live",
+    // #2389: provenance derives from the execution reference the
+    // event actually recorded — never a hardcoded "live".
+    source: orderRefProvenance(payload.executionId || payload.brokerOrderRef || payload.orderRef),
   };
 }
 
@@ -303,9 +321,15 @@ export function mapTradeRecordToAutonomousAction(t: TradeRecord): AutonomousActi
     status,
     didAttestation: {
       did: t.proposerDid || AGENT_DIDS.TRADING,
-      signature: t.proofSignature || `sig_ed25519_${t.id.slice(0, 10)}`,
+      // No fabricated fallback (same principle as the ledger mapper
+      // above): an unsigned trade record reads as unsigned. This used
+      // to synthesize a sig_ed25519_ signature from the record id.
+      signature: t.proofSignature || "",
     },
-    source: "live",
+    // #2389: provenance derives from the record's broker reference —
+    // a locally-minted reference renders simulated, a broker-issued
+    // reference renders live, and no reference renders no claim.
+    source: orderRefProvenance(t.orderRef),
   };
 }
 
@@ -701,7 +725,9 @@ export function AutopilotControlCenter({
           did: String(data?.attestation?.proposerDid || AGENT_DIDS.TRADING),
           signature: String(data?.attestation?.signature || ""),
         },
-        source: "live",
+        // #2389: this surface only ever requests dry-run evaluations —
+        // label the row for what the verdict says it was.
+        source: verdict.dryRun ? "simulated" : "live",
       };
 
       setActions((prev) => [newAction, ...prev.filter((p) => p.id !== newAction.id).slice(0, 49)]);
