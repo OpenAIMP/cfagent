@@ -1,0 +1,3 @@
+### Fixed
+
+- Wired session freshness gate (#2444, DO request meter): a cached wired session fetched within `IAAA_WIRED_FRESHNESS_MS` (default 30s, `0` disables) is served after local expiry validation only, without a fresh store read per authenticated request — previously `validateAndTouchWiredSession` called `freshRead` on every request. SECURITY TRADE-OFF, stated in the PR body: revocation/step-up propagation is delayed up to the window (CISO domain, #945 open item); merge sign-off on the window value belongs to the owner/CISO. Pinned by `tests/iaaa_wired_freshness_gate_2444.test.ts` (14 tests).
