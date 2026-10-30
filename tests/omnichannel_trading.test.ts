@@ -4,6 +4,7 @@ import { MockSqlStorage } from "./mock-sql";
 import { DynamicMarketScreener } from "../src/trading/screener";
 import { MOCK_TEST_UNIVERSE } from "./fixtures/mockUniverse";
 import { ETradeEmailTradingService } from "../src/trading/email/agent";
+import { ETradeRestClient } from "../src/trading/etrade/client";
 import { issueApprovalLink } from "../src/trading/channels/signedLinks";
 import {
   ETradeSlackTradingService,
@@ -11,6 +12,36 @@ import {
   timingSafeEqual,
 } from "../src/trading/slack/agent";
 import type { Env, InboundEmailPayload } from "../src/types";
+
+/**
+ * §7 adaptation (#2389): channel approvals now settle through the
+ * broker client's placeOrder — the platform no longer settles
+ * locally. Tests whose subject is the channel machinery (signed
+ * links, Slack interactions) stub that placement seam with a
+ * broker-confirmed result; the channel flows themselves stay real.
+ */
+function stubBrokerPlacement() {
+  return vi.spyOn(ETradeRestClient.prototype, "placeOrder").mockImplementation(async (params: any) => ({
+    success: true,
+    orderId: params.orderId,
+    executionId: "et_order_omni",
+    brokerOrderRef: "et_order_omni",
+    authorizerDid: params.userLogin,
+    status: "executed",
+    symbol: params.symbol,
+    action: params.action,
+    quantity: params.quantity,
+    executionPrice: params.limitPrice ?? 100,
+    totalSettled: (params.limitPrice ?? 100) * params.quantity,
+    didAttestation: {
+      proposerDid: "did:agent:openaimp:trading",
+      authorizerDid: params.userLogin,
+      signature: ["sig", "0xbrokeromni"].join("_"),
+    },
+    message: "E*TRADE Execution Confirmed: Broker Order ID et_order_omni",
+    timestamp: new Date().toISOString(),
+  }) as any);
+}
 
 describe("Cloudflare Email & Slack Trading Agents (Omnichannel E*TRADE)", () => {
   let sql: MockSqlStorage;
@@ -177,6 +208,8 @@ describe("Cloudflare Email & Slack Trading Agents (Omnichannel E*TRADE)", () => 
     });
 
     it("executes order upon receiving a signed approval link; a bare 'APPROVE <orderId>' is refused (Phase 5)", async () => {
+      const placeSpy = stubBrokerPlacement();
+      try {
       // The signed-link flow verifies the token against the principal
       // map, so the test env maps the sender at trade tier and carries
       // a link secret (the #149 pattern).
@@ -245,6 +278,9 @@ describe("Cloudflare Email & Slack Trading Agents (Omnichannel E*TRADE)", () => 
       // Verify status in ledger transitioned to 'executed'
       const updatedTrade = orm.trades.findById(draftOrderId);
       expect(updatedTrade?.status).toBe("executed");
+      } finally {
+        placeSpy.mockRestore();
+      }
     });
 
     it("cancels draft order upon receiving human rejection email 'CANCEL <orderId>'", async () => {
@@ -534,6 +570,8 @@ describe("Cloudflare Email & Slack Trading Agents (Omnichannel E*TRADE)", () => 
     });
 
     it("handles interactive button click 'etrade_approve_order' to execute order", async () => {
+      const placeSpy = stubBrokerPlacement();
+      try {
       const slackService = new ETradeSlackTradingService(mockEnv, orm, sessionId);
 
       // Create draft order
@@ -581,6 +619,9 @@ describe("Cloudflare Email & Slack Trading Agents (Omnichannel E*TRADE)", () => 
       // Check ORM status updated to executed
       const tradeInOrm = orm.trades.findById(draftOrderId);
       expect(tradeInOrm?.status).toBe("executed");
+      } finally {
+        placeSpy.mockRestore();
+      }
     });
 
     it("handles interactive button click 'etrade_cancel_order' to cancel draft order", async () => {
