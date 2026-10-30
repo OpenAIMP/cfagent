@@ -27,7 +27,7 @@ import {
   type QuoteScopedModes,
 } from "../../config/quoteModes";
 import { getCuratedStockBySymbol } from "../../config/curatedStockUniverse";
-import { getETradeAuthStatus } from "../../security/etradeOAuth";
+import { getETradeAuthStatus, etradeIdentityFromLogin } from "../../security/etradeOAuth";
 import { AGENT_DIDS, createDidAttestationSync, getUserDid } from "../../agents/did";
 
 /**
@@ -112,6 +112,20 @@ export class ETradeTradingPlatform implements ITradingPlatform {
     return this.client.getLastError();
   }
 
+  /**
+   * Issue #2386: the session identity for this platform's login,
+   * resolved from its alias record. The platform already trusts
+   * userLogin for every token read it makes, so resolving that
+   * login's alias record is the same principal, not a trust
+   * expansion. No record (or a store blip) yields an empty
+   * identity: the read falls back to login keys, as before.
+   * Resolved fresh per call — a rename updates the alias record,
+   * and a cached identity could outlive it.
+   */
+  private resolveTokenIdentity() {
+    return etradeIdentityFromLogin(this.env, this.userLogin);
+  }
+
   public getEnvConfig() {
     return resolveEnvironmentConfig(this.env, this.overrideEnv);
   }
@@ -129,7 +143,7 @@ export class ETradeTradingPlatform implements ITradingPlatform {
       : "simulated_engine";
 
     const protocol = isMcp ? "mcp_json_rpc" : hasApiKey ? "etrade_oauth_rest" : "sandbox_simulated";
-    const authStatus = await getETradeAuthStatus(this.env, this.userLogin, this.overrideEnv).catch(() => ({
+    const authStatus = await getETradeAuthStatus(this.env, this.userLogin, this.overrideEnv, await this.resolveTokenIdentity()).catch(() => ({
       authenticated: false,
       storedAt: undefined,
       renewable: false,
@@ -421,9 +435,11 @@ export class ETradeTradingPlatform implements ITradingPlatform {
     const brokerOrderType = optionLegs.length ? etradeOrderKind(optionLegs) : "EQ";
 
     // Check if authentic E*TRADE REST credentials exist and user is authenticated
+    // Issue #2386: same identity-aware seam as the broker flag, so the
+    // preview gate and the panel label cannot disagree for one session.
     const envConfig = this.getEnvConfig();
     const hasKeys = Boolean(envConfig.etrade.apiKey && envConfig.etrade.apiSecret);
-    const authStatus = await getETradeAuthStatus(this.env, this.userLogin, this.overrideEnv).catch(() => ({ authenticated: false }));
+    const authStatus = await getETradeAuthStatus(this.env, this.userLogin, this.overrideEnv, await this.resolveTokenIdentity()).catch(() => ({ authenticated: false }));
 
     // Never create a local/simulated options draft from modeled client prices.
     // A strategy order must be previewed by the connected broker using its

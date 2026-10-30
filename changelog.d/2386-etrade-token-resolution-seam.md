@@ -1,0 +1,2 @@
+### Fixed
+- E*TRADE panel Disconnect no-op and Renew failure while still showing connected (#2386): status, renew, revoke, diagnostics, and the broker-status flag now resolve through one identity-aware token seam (login + internal-id + alias keys, fail-closed), the disconnect dialog flips only on a confirmed revoke, and renew reports its real reason (missing tokens, expired token, missing credentials, upstream rejection) via existing catalog codes.
