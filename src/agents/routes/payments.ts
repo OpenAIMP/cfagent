@@ -87,7 +87,7 @@ import {
   isNativeSubscriptionDraft,
   nativeWebhookRecordInput,
 } from "../../services/nativeWebhook";
-import type { AgentName, Env } from "../../types";
+import type { AgentName, Env, TransactionRecord } from "../../types";
 import { DatabaseORM, type SqlStorage } from "../../orm";
 import { executeMCPTool } from "../../mcp/index";
 import { runRestTool } from "./restToolBridge";
@@ -270,6 +270,14 @@ export async function handlePaymentsRoutes(
   ctx: PaymentsRouteContext
 ): Promise<Response | null> {
   const sql = ctx.ensureTables();
+  // #2360 (#1976 step 4d-2, audit R-2): the immediate flows'
+  // mas_transactions statements run through the step-3a
+  // transaction-ledger port — resolved through the same
+  // accessor the delegated handlers below use (the agent's
+  // ORM when the context carries one, a fresh DatabaseORM
+  // over the same storage otherwise).
+  const ledger = () =>
+    (ctx.getOrm?.() ?? new DatabaseORM(sql)).transactions;
   // Multi-Gateway Payments & DID Management API
   // ==========================================
 
@@ -480,25 +488,30 @@ export async function handlePaymentsRoutes(
 
         const now = new Date().toISOString();
         const initialStatus = checkoutResult.checkoutUrl ? "pending_checkout" : "completed";
-        sql.exec(
-          "INSERT INTO mas_transactions (id, session_id, action, amount, currency, customer, gateway, gateway_ref, status, checkout_url, proposer_did, authorizer_did, proof_signature, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-          draftId,
+        // #2360: the ledger port's create() — the same plain
+        // INSERT (insert-or-throw, D-E.1) with the same 16
+        // fields in the same order. The cast exists because
+        // "pending_checkout" is a stored status the
+        // TransactionRecord union predates (it names only the
+        // HITL vocabulary); the stored value is unchanged.
+        ledger().create({
+          id: draftId,
           sessionId,
           action,
           amount,
           currency,
           customer,
           gateway,
-          checkoutResult.gatewayRef || "",
-          initialStatus,
-          checkoutResult.checkoutUrl,
-          AGENT_DIDS.PAYMENTS,
-          userDid,
-          checkoutResult.didAttestation.signature,
-          description,
-          now,
-          now
-        );
+          gatewayRef: checkoutResult.gatewayRef || "",
+          status: initialStatus,
+          checkoutUrl: checkoutResult.checkoutUrl,
+          proposerDid: AGENT_DIDS.PAYMENTS,
+          authorizerDid: userDid,
+          proofSignature: checkoutResult.didAttestation.signature,
+          note: description,
+          createdAt: now,
+          updatedAt: now,
+        } as TransactionRecord);
 
         ctx.audit("payment.created", "payments", {
           draftId,
@@ -664,13 +677,13 @@ export async function handlePaymentsRoutes(
         const now = new Date().toISOString();
 
         if (decision === "approved") {
-          // Retrieve draft from mas_transactions
-          const rows = Array.from(sql.exec("SELECT * FROM mas_transactions WHERE id = ?", draftId)) as any[];
-          const tx = rows[0];
+          // Retrieve draft from mas_transactions (via the
+          // ledger port's findById — the same row, camelCase).
+          const tx = ledger().findById(draftId);
           const paymentService = new PaymentGatewayService(ctx.env);
 
-          let checkoutUrl = tx?.checkout_url || "";
-          let gatewayRef = tx?.gateway_ref || "";
+          let checkoutUrl = tx?.checkoutUrl || "";
+          let gatewayRef = tx?.gatewayRef || "";
 
           if (tx && (tx.action === "charge" || tx.action === "invoice") && !checkoutUrl) {
             const res = await paymentService.createCheckout({
@@ -689,22 +702,25 @@ export async function handlePaymentsRoutes(
               transactionId: draftId,
               amount: Number(tx.amount),
               gateway: tx.gateway as SupportedGateway,
-              gatewayRef: tx.gateway_ref,
+              gatewayRef: tx.gatewayRef,
               userLogin: sessionId,
               reason: note,
             });
             gatewayRef = res.refundId;
           }
 
-          sql.exec(
-            "UPDATE mas_transactions SET status = 'completed', gateway_ref = ?, checkout_url = ?, authorizer_did = ?, note = ?, updated_at = ? WHERE id = ?",
+          // #2360: the port's named completion — the same
+          // field set and WHERE shape as the raw UPDATE it
+          // replaces, no status guard (a missing draft still
+          // lands here and matches 0 rows: the recovered
+          // silent-success behaviour, pinned as found).
+          ledger().completeWithGateway(draftId, {
             gatewayRef,
             checkoutUrl,
-            userDid,
-            note || "Confirmed by human authorizer",
-            now,
-            draftId
-          );
+            authorizerDid: userDid,
+            note: note || "Confirmed by human authorizer",
+            updatedAt: now,
+          });
 
           ctx.audit("payment.confirmed", "payments", {
             draftId,
@@ -723,13 +739,11 @@ export async function handlePaymentsRoutes(
             authorizerDid: userDid,
           });
         } else {
-          sql.exec(
-            "UPDATE mas_transactions SET status = 'rejected', authorizer_did = ?, note = ?, updated_at = ? WHERE id = ?",
-            userDid,
-            note || "Rejected by reviewer",
-            now,
-            draftId
-          );
+          ledger().rejectWithNote(draftId, {
+            authorizerDid: userDid,
+            note: note || "Rejected by reviewer",
+            updatedAt: now,
+          });
 
           ctx.audit("payment.rejected", "payments", { draftId, authorizerDid: userDid });
           return Response.json({ success: true, status: "rejected", draftId });
@@ -811,12 +825,9 @@ export async function handlePaymentsRoutes(
 
       if (result.success) {
         const now = new Date().toISOString();
-        sql.exec(
-          "UPDATE mas_transactions SET status = 'completed', updated_at = ? WHERE id = ? OR gateway_ref = ?",
-          now,
-          orderId,
-          orderId
-        );
+        // #2360: the port's id-OR-gateway_ref completion —
+        // the same statement, the reference bound twice.
+        ledger().completeByIdOrGatewayRef(orderId, now);
         ctx.audit("payment.captured", "payments", { orderId, gateway, captureId: result.captureId });
       }
 
@@ -906,15 +917,11 @@ export async function handlePaymentsRoutes(
           );
         };
         const settleHere = (): Response => {
-          const rows = Array.from(
-            sql.exec("SELECT id FROM mas_transactions WHERE id = ?", draftId)
-          ) as any[];
-          if (rows.length === 0) return auditUnmatched("owner_row_missing", 404);
-          sql.exec(
-            "UPDATE mas_transactions SET status = 'completed', updated_at = ? WHERE id = ?",
-            now,
-            draftId
-          );
+          // #2360: existence probe + settle completion via
+          // the ledger port (findById / completeById — the
+          // same row, the same unguarded UPDATE).
+          if (!ledger().findById(draftId)) return auditUnmatched("owner_row_missing", 404);
+          ledger().completeById(draftId, now);
           ctx.audit("payment.settled_webhook", "payments", { draftId, provider, raw: body?.type || body?.event_type });
           return Response.json({ received: true, settled: true, draftId });
         };
@@ -1014,10 +1021,8 @@ export async function handlePaymentsRoutes(
           return settleHere();
         }
 
-        const localRows = Array.from(
-          sql.exec("SELECT id FROM mas_transactions WHERE id = ?", draftId)
-        ) as any[];
-        if (localRows.length > 0) return settleHere();
+        const localRow = ledger().findById(draftId);
+        if (localRow) return settleHere();
 
         const owner = await resolveDraftOwner(ctx.env, draftId);
         if (!owner) return auditUnmatched("unknown_draft", 404);
