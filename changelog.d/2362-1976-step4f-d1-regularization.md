@@ -1,0 +1,3 @@
+### Changed
+- #1976 step 4f (#2362): D1 regularization — the five self-created D1 tables (`quote_source_setting`, `resource_sql_ops`, `resource_daily_rollups`, `resource_alert_state`, `resource_comparison_reports`) are now versioned under migration 0022 in the migration runner with Drizzle schema mappings, and their modules serve through data-layer ports (`QuoteSourcePort`, `ResourceRollupStorePort`, the `ResourceUsagePort` D1 adapter homed in `src/data/`); the retention and framework-queue index helpers moved into layer schema modules. The quote-source fail-open and the rollup store's throw-on-error direction are now declared, pinned port contracts; no behaviour or residency change.
+#CDO-mha7
