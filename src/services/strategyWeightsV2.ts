@@ -45,6 +45,7 @@
 
 import { applyAdaptation, isAdaptationHalted } from "./adaptationAudit";
 import { DoSqliteStrategyWeightsStore } from "../data/doSqliteStrategyWeightsAdapter";
+import { createSettingsPort } from "../data/createSettingsPorts";
 import { weightsV2Key } from "../data/strategyWeightsPorts";
 import type {
   StrategyWeightsSqlExecutor,
@@ -469,6 +470,15 @@ export function proposeWeightAdjustmentsV2(
 
 export function ensureWeightsV2Tables(sql: any): void {
   weightsStore(sql).ensureTables();
+  // The apply paths below read the adaptation kill switch from
+  // mas_settings immediately after ensuring. That table's DDL
+  // used to ride along inside the weights store's ensure; since
+  // step 4g (#2390, G-7 ruling) its single owner is the
+  // dedicated settings port's adapter, so this family's ensure
+  // invokes the port's ensureSchema() — the ensure contract
+  // ("every table this family's operations touch exists") is
+  // unchanged, only the DDL's owner moved.
+  createSettingsPort(sql).ensureSchema();
 }
 
 export function currentWeightsVersion(sql: any): number {
