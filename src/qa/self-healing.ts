@@ -1,5 +1,22 @@
 /**
- * PR #7 — Self-healing QA loop.
+ * DEPRECATED — superseded by scripts/qa-smoke.mjs (issue filing,
+ * `fileSelfHealIssues`) and src/qa/investigate.ts (the supervised
+ * diagnosis served by POST /api/qa/investigate). Disposition
+ * recorded by issue #2439 (Agent Mesh S18), on this evidence:
+ * this module landed alone in PR #7 and was never wired — it has
+ * no production caller; its supervise half calls
+ * `orchestrator.createJob(...)`, a method that does not exist on
+ * OrchestratorAgent (today's createJob, src/orchestrate.ts, is
+ * descriptor-only and executes nothing); and its dedup signature
+ * (`operation :: errorClass`) never matched qa-smoke's own
+ * check-name dedup, so the two filers would have double-filed.
+ * The live loop is: qa-smoke files the issue, the investigate
+ * route produces the diagnosis, a human reviews and merges the
+ * fix. Kept in place per the repo's deprecate-don't-delete rule;
+ * tests/mesh_golden_tasks_s18_2439.test.ts pins the no-caller
+ * state, so wiring a caller must update this disposition first.
+ *
+ * Original header (PR #7 — Self-healing QA loop):
  *
  * Reuses the qa-smoke pattern: on QA failure,
  * handleQAFailure() creates a GitHub issue (deduplicated by
