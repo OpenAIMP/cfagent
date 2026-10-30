@@ -71,6 +71,11 @@ afterEach(() => {
 });
 
 describe("S3 autoRenewETradeTokens identity pass-through", () => {
+  beforeEach(() => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("oauth_problem=token_rejected", { status: 401 }),
+    );
+  });
   it("internal-id token + alias record → read hits (renewal attempted, not 'no tokens')", async () => {
     const { fake, env } = envWithStore();
     seedAlias(fake, LOGIN, INTERNAL_ID, ALIAS_LOGIN);
