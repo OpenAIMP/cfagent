@@ -541,7 +541,7 @@ export function RawContractsScreener({
       {pending && (
         <div className="options-error" role="status" style={{ borderColor: "var(--color-accent)" }}>
           <p>
-            <strong>Payment Optional (x402 Protocol).</strong> Pay ${pending.challenge.amount.toFixed(2)} {describeChallenge(pending.challenge).label} or run for free.
+            <strong>Payment Optional (x402 Protocol).</strong> Pay ${pending.challenge.amount.toFixed(2)} {describeChallenge(pending.challenge).label} ({describeChallenge(pending.challenge).paymentPath.shortLabel}) or run for free.
           </p>
           <div style={{ display: "flex", gap: "var(--space-2)", marginTop: "0.5rem" }}>
             <Button disabled={loading} onClick={() => void payAndRun()}>

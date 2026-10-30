@@ -63,6 +63,7 @@ function loadMppxRoot(): Promise<MppxRoot> {
 import { DatabaseORM } from "../orm";
 import { AGENT_DIDS } from "../agents/did";
 import { verifyOnChainClaim, type X402ClaimVerifier } from "./x402Verifier";
+import { describeX402PaymentPath } from "./x402PaymentPath";
 import { consumeStoreKey, createStoreKv, type DoNamespaceLike } from "../security/durableKv";
 
 // Fallback replay guard used only when no SessionStore namespace is bound.
@@ -326,6 +327,14 @@ export class ETradeAgenticPaymentService {
       error: "Payment Required",
       statusCode: 402,
       message: `Access to ${challenge.resource} requires an agentic payment of $${challenge.amount.toFixed(2)} ${challenge.currency}.`,
+      // #2406 (Phase 1.1): per-path real-vs-simulated labeling — the
+      // inbound x402 path is an on-chain transfer path, testnet when the
+      // network is a testnet (base-sepolia default: testnet funds, no
+      // real money). This is a path label, not a verification claim:
+      // the payment itself is verified per request by verifyPayment.
+      // The simulated local-ledger path is never labeled this way —
+      // see describeX402PaymentPath and the #122 simulated rejection.
+      paymentPath: describeX402PaymentPath(challenge.network),
       protocols: {
         x402: {
           header: "PAYMENT-SIGNATURE",

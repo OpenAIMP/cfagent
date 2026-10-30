@@ -6,6 +6,7 @@ import {
   SCREENING_SCHEDULE_CALLBACKS,
 } from "../../trading";
 import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../../services/agenticPayments";
+import { describeX402PaymentPath } from "../../services/x402PaymentPath";
 import { ETradeBrowserService } from "../../services/browserAgent";
 import { ETradeService } from "../../services/etrade";
 import { createComparisonRunner } from "../../services/comparisonNlqRunner";
@@ -270,8 +271,15 @@ function nlqPaidActionRefusal(
   plan: NLQPlan,
   serviceLabel: string,
   tier: { priceUSD: number; resource: string },
-  executedAt: string
+  executedAt: string,
+  // #2406 (Phase 1.1): the refusal states the payment path next to the
+  // price. Default is the gate's default network (base-sepolia,
+  // testnet funds, no real money); call sites pass env?.X402_NETWORK
+  // when env is in scope. The NLQ path itself collects nothing — it
+  // refuses and points at the signed-in app's verified x402 path.
+  network?: string,
 ): NLQQueryResult {
+  const pathLabel = describeX402PaymentPath(network || "base-sepolia").label;
   return {
     plan,
     domain: "agentic_payments",
@@ -281,6 +289,7 @@ function nlqPaidActionRefusal(
     summary:
       `${serviceLabel} ($${tier.priceUSD.toFixed(2)} USDC) requires a verified x402 payment, ` +
       `and no payment can be collected from this request — nothing was executed and nothing was recorded. ` +
+      `Payment path: ${pathLabel} ` +
       `To use it, open ${tier.resource} in the signed-in app: you pay $${tier.priceUSD.toFixed(2)} USDC from your wallet there, ` +
       `the payment is verified, and only then does the service run.`,
     rows: [],
@@ -368,8 +377,8 @@ function executeNLQQueryCore(
       // through to the conversation-history default below and answered
       // a paid request with chat records.
       return action === "paid_scan"
-        ? nlqPaidActionRefusal(plan, "Paid Options Screener", TRADING_PAID_SERVICES.OPTIONS_SCREENER, executedAt)
-        : nlqPaidActionRefusal(plan, "Paid Market Research", TRADING_PAID_SERVICES.MARKET_RESEARCH, executedAt);
+        ? nlqPaidActionRefusal(plan, "Paid Options Screener", TRADING_PAID_SERVICES.OPTIONS_SCREENER, executedAt, env?.X402_NETWORK)
+        : nlqPaidActionRefusal(plan, "Paid Market Research", TRADING_PAID_SERVICES.MARKET_RESEARCH, executedAt, env?.X402_NETWORK);
     }
 
     if (action === "wallet_status") {
@@ -2165,7 +2174,7 @@ async function executeNLQQueryAsyncCore(
       // x402 payment the tier requires (see nlqPaidActionRefusal). The
       // scan no longer runs unpaid and no simulated receipt is minted
       // or recorded.
-      return nlqPaidActionRefusal(plan, "Paid Options Screener", TRADING_PAID_SERVICES.OPTIONS_SCREENER, executedAt);
+      return nlqPaidActionRefusal(plan, "Paid Options Screener", TRADING_PAID_SERVICES.OPTIONS_SCREENER, executedAt, env?.X402_NETWORK);
     }
 
     if (action === "paid_research") {
@@ -2189,7 +2198,7 @@ async function executeNLQQueryAsyncCore(
       // collected on this path (see nlqPaidActionRefusal). The report
       // no longer generates unpaid and no simulated receipt is minted
       // or recorded.
-      return nlqPaidActionRefusal(plan, "Paid Market Research", TRADING_PAID_SERVICES.MARKET_RESEARCH, executedAt);
+      return nlqPaidActionRefusal(plan, "Paid Market Research", TRADING_PAID_SERVICES.MARKET_RESEARCH, executedAt, env?.X402_NETWORK);
     }
   }
 
