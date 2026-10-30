@@ -152,6 +152,31 @@ describe("tenant settings (#2022)", () => {
   });
 });
 
+describe("tenant auto-refresh setting (#2481)", () => {
+  it("defaults to OFF / 15s; set persists and preserves the ads flag", async () => {
+    const { memory, d1 } = await makeStores();
+    for (const store of [memory, d1]) {
+      expect(await store.getTenantAutoRefresh("t1")).toEqual({ enabled: false, intervalS: 15 });
+      await store.setTenantAdsEnabled("t1", false);
+      await store.setTenantAutoRefresh("t1", { enabled: true, intervalS: 60 });
+      expect(await store.getTenantAutoRefresh("t1")).toEqual({ enabled: true, intervalS: 60 });
+      expect(await store.getTenantAdsEnabled("t1")).toBe(false);
+      await store.setTenantAdsEnabled("t1", true);
+      expect(await store.getTenantAutoRefresh("t1")).toEqual({ enabled: true, intervalS: 60 });
+      expect(await store.getTenantAdsEnabled("t1")).toBe(true);
+    }
+  });
+
+  it("migration 0026 adds the auto-refresh columns to the tenant settings table", async () => {
+    const { MIGRATION_0026_TENANT_AUTO_REFRESH } = await import(
+      "../src/data/migrationRunner"
+    );
+    expect(MIGRATION_0026_TENANT_AUTO_REFRESH.version).toBe(26);
+    expect(MIGRATION_0026_TENANT_AUTO_REFRESH.sql).toContain("auto_refresh_enabled");
+    expect(MIGRATION_0026_TENANT_AUTO_REFRESH.sql).toContain("auto_refresh_interval_s");
+  });
+});
+
 describe("failure-credit claims and redemption (#2019)", () => {
   async function seed(store: CommercialStore) {
     // Two claims; the older one must win FIFO. createdAtMs differs
