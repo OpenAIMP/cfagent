@@ -46,7 +46,38 @@ import { DatabaseORM } from "../src/orm";
 import { resetRateLimits } from "../src/security/rateLimiter";
 import { MockSqlStorage } from "./mock-sql";
 import { AGENT_DIDS } from "../src/agents/did";
+import { ETradeRestClient } from "../src/trading/etrade/client";
 import type { Env, TransactionSnapData } from "../src/types";
+
+/**
+ * §7 adaptation (#2389): Slack approvals now settle through the
+ * broker client's placeOrder — the platform no longer settles
+ * locally. Tests whose subject is the Slack channel stub that
+ * placement seam with a broker-confirmed result (restored by the
+ * file's afterEach restoreAllMocks); the channel flows stay real.
+ */
+function stubBrokerPlacement() {
+  return vi.spyOn(ETradeRestClient.prototype, "placeOrder").mockImplementation(async (params: any) => ({
+    success: true,
+    orderId: params.orderId,
+    executionId: "et_order_slack",
+    brokerOrderRef: "et_order_slack",
+    authorizerDid: params.userLogin,
+    status: "executed",
+    symbol: params.symbol,
+    action: params.action,
+    quantity: params.quantity,
+    executionPrice: params.limitPrice ?? 100,
+    totalSettled: (params.limitPrice ?? 100) * params.quantity,
+    didAttestation: {
+      proposerDid: "did:agent:openaimp:trading",
+      authorizerDid: params.userLogin,
+      signature: ["sig", "0xbrokerslack"].join("_"),
+    },
+    message: "E*TRADE Execution Confirmed: Broker Order ID et_order_slack",
+    timestamp: new Date().toISOString(),
+  }) as any);
+}
 
 describe("Cloudflare Browser Agent & Independent Slack Agent", () => {
   let sql: MockSqlStorage;
@@ -386,6 +417,7 @@ describe("Cloudflare Browser Agent & Independent Slack Agent", () => {
     });
 
     it("interactively approves trade and automatically dispatches transaction snap via BrowserAgent", async () => {
+      stubBrokerPlacement();
       // Seed trade in ORM
       orm.trades.create({
         id: "ord_approve_999",
@@ -561,6 +593,7 @@ describe("Cloudflare Browser Agent & Independent Slack Agent", () => {
     });
 
     it("handles conversational order approval in Slack, executes on E*TRADE, and posts visual snap", async () => {
+      stubBrokerPlacement();
       // Seed a previewed draft in ORM
       orm.trades.create({
         id: "ord_conv_approve_777",

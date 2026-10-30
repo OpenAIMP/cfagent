@@ -1350,38 +1350,21 @@ export class ETradeRestClient {
       }
     }
 
-    // 3. Fallback when keys are missing: if live mode, reject genuinely.
-    if (envConfig.isLive) {
-      return {
-        success: false,
-        orderId: params.orderId,
-        executionId: "",
-        brokerOrderRef: "",
-        authorizerDid: userDid,
-        status: "failed",
-        symbol: params.symbol,
-        action: params.action,
-        quantity: params.quantity,
-        executionPrice: 0,
-        totalSettled: 0,
-        didAttestation: {
-          proposerDid: AGENT_DIDS.TRADING,
-          authorizerDid: userDid,
-          signature: "",
-        },
-        message: `E*TRADE Broker Error: ET_API_KEY and ET_API_SECRET must be configured for live order execution [${envConfig.name} environment]. Simulation disabled in PROD.`,
-        timestamp: now,
-      };
-    }
-
-    const execId = `et_sim_${crypto.randomUUID().slice(0, 10)}`;
+    // 3. Fallback when keys are missing: reject genuinely in EVERY
+    // environment (#2389). This branch used to return a success-shaped
+    // "simulated execution" — an invented et_sim_ reference and a
+    // random signature — whenever the environment was not live; those
+    // results were persisted and rendered in the autopilot feed as
+    // real executions. No broker path produced an execution above, so
+    // the only honest outcome is a failure carrying no reference and
+    // no signature, exactly as the live branch always did.
     return {
-      success: true,
+      success: false,
       orderId: params.orderId,
-      executionId: execId,
-      brokerOrderRef: execId,
+      executionId: "",
+      brokerOrderRef: "",
       authorizerDid: userDid,
-      status: "executed",
+      status: "failed",
       symbol: params.symbol,
       action: params.action,
       quantity: params.quantity,
@@ -1390,9 +1373,9 @@ export class ETradeRestClient {
       didAttestation: {
         proposerDid: AGENT_DIDS.TRADING,
         authorizerDid: userDid,
-        signature: `sig_0x${crypto.randomUUID().slice(0, 16)}`,
+        signature: "",
       },
-      message: `E*TRADE Order Simulation Executed [${envConfig.label}]: ${params.orderId}`,
+      message: `E*TRADE Broker Error: ET_API_KEY and ET_API_SECRET must be configured for order execution [${envConfig.name} environment]. No order was placed.`,
       timestamp: now,
     };
   }

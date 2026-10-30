@@ -93,6 +93,7 @@ import {
   GetTradeApprovalStatusCommand,
 } from "../src/mcp/meshDoorCommands";
 import { McpToolFactory } from "../src/mcp/commands";
+import { ETradeRestClient } from "../src/trading/etrade/client";
 import { MCP_TOOL_SCOPES } from "../src/permissions/mcpPermissionPorts";
 import type { McpToolContext } from "../src/patterns/interfaces";
 import type { Env } from "../src/types";
@@ -468,6 +469,32 @@ describe("mesh G4: chat trade via approval door + TradingTradeWorkflow (#2375)",
 
 describe("mesh G4 enabling fix: the approval door settles from the agent's own store (#2375)", () => {
   it("executeApprovedOrder settles a draft held in the agent's store through the real E*TRADE platform", async () => {
+    // §7 adaptation (#2389): the platform now settles through the
+    // broker client's placeOrder instead of settling locally, so the
+    // broker seam is stubbed with a broker-confirmed result. The
+    // subject under test — the approval door settling a draft from
+    // the agent's own store through the real platform — is unchanged.
+    const placeSpy = vi.spyOn(ETradeRestClient.prototype, "placeOrder").mockImplementation(async (params: any) => ({
+      success: true,
+      orderId: params.orderId,
+      executionId: "et_order_g4",
+      brokerOrderRef: "et_order_g4",
+      authorizerDid: params.userLogin,
+      status: "executed",
+      symbol: params.symbol,
+      action: params.action,
+      quantity: params.quantity,
+      executionPrice: 130,
+      totalSettled: 1300,
+      didAttestation: {
+        proposerDid: "did:agent:openaimp:trading",
+        authorizerDid: params.userLogin,
+        signature: ["sig", "0xbrokerg4"].join("_"),
+      },
+      message: "E*TRADE Execution Confirmed: Broker Order ID et_order_g4",
+      timestamp: new Date().toISOString(),
+    }) as any);
+    try {
     const sql = new MockSqlStorage();
     const seedOrm = new DatabaseORM(sql);
     seedOrm.initializeSchema("trading:alice");
@@ -504,5 +531,8 @@ describe("mesh G4 enabling fix: the approval door settles from the agent's own s
     expect(result.status).toBe("executed");
     expect(seedOrm.trades.findById("ord-real-1")?.status).toBe("executed");
     expect(seedOrm.trades.findById("ord-real-1")?.authorizerDid).toBe("did:user:github:alice");
+    } finally {
+      placeSpy.mockRestore();
+    }
   });
 });

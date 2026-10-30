@@ -343,9 +343,11 @@ describe("#1393 criterion 2 (invariant 5): edited proposal under an old approval
     const platform = new ETradeTradingPlatform(baseEnv(), orm, BOSS_LOGIN);
     // Edit the draft after approval, then settle under the old terms.
     orm.trades.update("ord_1393_2_real", { quantity: 100, totalValue: 13000 });
-    expect(() =>
+    // #2389: executeOrder is async now (approval places through the
+    // broker client), so the terms refusal surfaces as a rejection.
+    await expect(
       platform.executeOrder("ord_1393_2_real", BOSS_DID, "approved", { ...termsA }),
-    ).toThrow(/terms changed/i);
+    ).rejects.toThrow(/terms changed/i);
     expect(orm.trades.findById("ord_1393_2_real")?.status).toBe("previewed");
   });
 });
@@ -410,7 +412,31 @@ describe("#1393 criterion 3 (control): unedited approved proposal settles exactl
     const orm = new DatabaseORM(new MockSqlStorage());
     orm.initializeSchema(SESSION);
     seedOrmTrade(orm, "ord_1393_3_email");
-    const env = baseEnv();
+    // §7 adaptation (#2389): settling an approval now places through
+    // the real broker client — it no longer settles locally. This
+    // control's subject is the signed-link settle-once machinery, so
+    // the broker is wired honestly: sandbox credentials in env and
+    // the broker's place-order endpoint stubbed to answer with a real
+    // placement response carrying a broker-issued order id (the same
+    // stubbing pattern as the client's own placement tests).
+    const env = baseEnv({
+      ETRADE_CONSUMER_KEY: ["mock", "ckey"].join("_"),
+      ETRADE_CONSUMER_SECRET: ["mock", "csecret"].join("_"),
+      ETRADE_OAUTH_TOKEN: ["mock", "token"].join("_"),
+      ETRADE_OAUTH_TOKEN_SECRET: ["mock", "tsecret"].join("_"),
+      ETRADE_ACCOUNT_ID_KEY: "acct_1393_email",
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input: any) => {
+      const url = String(input);
+      if (url.includes("/orders/place")) {
+        return new Response(
+          JSON.stringify({ PlaceOrderResponse: { OrderIds: [{ orderId: 77123 }] } }),
+          { status: 200 }
+        );
+      }
+      return new Response("Not Found", { status: 404 });
+    });
+    try {
     const issued = await issueApprovalLink(env, {
       orderId: "ord_1393_3_email",
       login: BOSS_LOGIN,
@@ -429,6 +455,7 @@ describe("#1393 criterion 3 (control): unedited approved proposal settles exactl
     expect(result.orderStatus).toBe("executed");
     const executed = orm.trades.findById("ord_1393_3_email");
     expect(executed?.status).toBe("executed");
+    expect(executed?.orderRef).toBe("et_order_77123");
     expect(executed?.quantity).toBe(10);
     expect(executed?.symbol).toBe("NVDA");
     const repeat = await service.processInboundEmail({
@@ -439,5 +466,8 @@ describe("#1393 criterion 3 (control): unedited approved proposal settles exactl
     });
     expect(repeat.success).toBe(false);
     expect(orm.trades.findById("ord_1393_3_email")?.status).toBe("executed");
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 });
