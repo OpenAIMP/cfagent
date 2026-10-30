@@ -6,6 +6,7 @@ import {
   setSessionCookie,
 } from "./session";
 import { getServiceUserLogin, isLoginShaped, SHARED_ORCHESTRATOR_INSTANCE } from "./security/serviceIdentity";
+import { isPlatformServiceProvisioned } from "./security/serviceDispatch";
 import { getSessionCached, invalidateSessionCache } from "./security/sessionCache";
 import { resolveIdleTimeoutMs } from "./security/sessionPolicy";
 import { deleteSession, getSession, sessionStore, updateSession } from "./security/session";
@@ -3890,13 +3891,35 @@ export default {
     // logged — failing closed instead of fabricating an identity. The
     // 03:00 UTC token-renewal pass asserts no identity (it enumerates
     // every stored token) and runs either way.
+    // #2331 slice 2: configuration alone is not enough — the tick and
+    // the identity-bearing dispatches below run only while the service
+    // user holds a live platform-tier member binding. Worker-level
+    // denials are logged here (no funnel is available in the Worker
+    // entry); in-agent denials are funnel-audited. LOUD CONSEQUENCE:
+    // after this deploys, scheduled goals pause until a platform admin
+    // provisions the platform tier via POST
+    // /api/admin/service-user/provision (nothing is provisioned today).
+    // That is the fail-closed intent, not a surprise outage.
     const userLogin = getServiceUserLogin(env);
+    const serviceProvisioned = userLogin
+      ? await isPlatformServiceProvisioned(
+          createKvMembershipStore(sessionStore(env)),
+          userLogin,
+          Date.now(),
+        )
+      : false;
     const id = env.SEARCH_AGENT.idFromName(SHARED_ORCHESTRATOR_INSTANCE);
     const agent = env.SEARCH_AGENT.get(id);
 
     // PR #4 — ScheduledAgent tick: evaluate due goals, budget-check,
     // create Orchestrator jobs (issue #166).
     if (event?.cron === "*/30 * * * *") {
+      if (!userLogin || !serviceProvisioned) {
+        console.error(
+          "[scheduled] Service user is not provisioned for the platform tier — skipping the ScheduledAgent tick and the research/reflection/adaptation dispatches rather than running unattended work without a verified identity (#2331 slice 2). Provision the platform tier via POST /api/admin/service-user/provision to resume scheduled goals."
+        );
+        return;
+      }
       const schedId = env.SCHEDULED_AGENT.idFromName("default");
       const schedAgent = env.SCHEDULED_AGENT.get(schedId) as unknown as {
         onCron(): Promise<unknown>;
@@ -3904,12 +3927,6 @@ export default {
       const tickPromise = schedAgent.onCron();
       if (ctx?.waitUntil) ctx.waitUntil(tickPromise);
       else await tickPromise;
-      if (!userLogin) {
-        console.error(
-          "[scheduled] SERVICE_USER_LOGIN is not configured — skipping the research/reflection/adaptation dispatches rather than fabricating an identity (#1185)."
-        );
-        return;
-      }
       // Issue #354 — the daily options-research run (after market close)
       // rides this tick: the dedicated 0 21 * * 1-5 trigger cannot exist
       // (Workers Free ceiling of 5 cron triggers/account, error 10072; it
@@ -3981,9 +3998,9 @@ export default {
       // wrangler.jsonc). Enforces the retention window and records one
       // mas_events row per run.
     } else if (event?.cron === "0 4 * * *") {
-      if (!userLogin) {
+      if (!userLogin || !serviceProvisioned) {
         console.error(
-          "[scheduled] SERVICE_USER_LOGIN is not configured — skipping the retention dispatch rather than fabricating an identity (#1185)."
+          "[scheduled] SERVICE_USER_LOGIN is not configured or the service user is not provisioned for the platform tier — skipping the retention dispatch rather than running unattended work without a verified identity (#2331 slice 2)."
         );
         return;
       }
@@ -4044,9 +4061,15 @@ export default {
     // owner when it carries one, else the explicit service identity. With
     // neither, the message is retried (the existing catch path) rather
     // than dispatched under a fabricated identity.
+    // #2331 slice 2: a service dispatch additionally requires a live
+    // platform-tier member binding, and the shared-orchestrator address
+    // is never an identity. Denied messages are logged and acked
+    // (dropped, not retried: a re-dispatch would deny again, and
+    // options analysis is time-sensitive).
     const serviceUserLogin = getServiceUserLogin(env);
     const id = env.SEARCH_AGENT.idFromName(SHARED_ORCHESTRATOR_INSTANCE);
     const agent = env.SEARCH_AGENT.get(id);
+    let serviceProvisioned: boolean | null = null;
 
     if (batch?.messages && Array.isArray(batch.messages)) {
       for (const msg of batch.messages) {
@@ -4062,15 +4085,36 @@ export default {
                 "options_analysis queue message has no payload owner and SERVICE_USER_LOGIN is not configured — refusing to dispatch under a fabricated identity (#1185)."
               );
             }
-            const queuePromise = agent.fetch(
-              new Request("https://agent.internal/schedules/trigger-options-analysis", {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "x-user-login": userLogin },
-                body: JSON.stringify(body.payload || {}),
-              })
-            );
-            if (ctx?.waitUntil) ctx.waitUntil(queuePromise);
-            else await queuePromise;
+            let denied: string | null = null;
+            if (userLogin === SHARED_ORCHESTRATOR_INSTANCE) {
+              denied = "the payload names the shared-orchestrator address as its owner";
+            } else if (userLogin === serviceUserLogin) {
+              if (serviceProvisioned === null) {
+                serviceProvisioned = await isPlatformServiceProvisioned(
+                  createKvMembershipStore(sessionStore(env)),
+                  serviceUserLogin,
+                  Date.now(),
+                );
+              }
+              if (!serviceProvisioned) {
+                denied = "the service user is not provisioned for the platform tier";
+              }
+            }
+            if (denied) {
+              console.warn(
+                `[Queue Handler] Dropping options_analysis queue message: ${denied} — dispatching it would run unattended work without a verified identity (#2331 slice 2).`
+              );
+            } else {
+              const queuePromise = agent.fetch(
+                new Request("https://agent.internal/schedules/trigger-options-analysis", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json", "x-user-login": userLogin },
+                  body: JSON.stringify(body.payload || {}),
+                })
+              );
+              if (ctx?.waitUntil) ctx.waitUntil(queuePromise);
+              else await queuePromise;
+            }
           }
           if (typeof msg.ack === "function") msg.ack();
         } catch (queueErr) {

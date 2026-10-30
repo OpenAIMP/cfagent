@@ -35,6 +35,12 @@ import { recordScreeningActivity } from "../../services/screeningActivity";
 import { recordJobOutcome } from "../../services/jobOutcomes";
 import type { NLQSchedulingPort, NLQStockScreenPort } from "../nlq";
 import { codedMessage } from "../../outcomes/outcomeAspects";
+import {
+  enforceServiceDispatch,
+  resolveAsyncJobIdentity,
+} from "../../security/serviceDispatch";
+import { getServiceUserLogin } from "../../security/serviceIdentity";
+import type { MembershipStore } from "../../security/authorization";
 import { executeMCPTool } from "../../mcp";
 import { executeNaturalLanguageQuery } from "../nlq";
 import {
@@ -86,6 +92,11 @@ export interface AsyncJobsContext {
   routeRequest: (request: Request) => Promise<Response>;
   nlqSchedulingPort: () => NLQSchedulingPort;
   nlqStockScreenPort: () => NLQStockScreenPort;
+  /** #2331 slice 2: the membership store the dispatch guard checks
+   *  service identities against. The orchestrator builder supplies the
+   *  KV store; a context without one denies every service dispatch
+   *  (fail closed — an unverifiable service identity never runs). */
+  serviceMembershipStore?: MembershipStore;
   /** Issue #1123: artifact lookups for followup.report jobs — the
    *  ScreenerAgent's stored PDFs, by kind and run key. */
   followupReportPort: () => {
@@ -651,6 +662,55 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
     const payload = JSON.parse(job.payload_json) as Record<string, unknown>;
     let result: unknown;
     let responseStatus: number | undefined;
+
+    // #2331 slice 2: dispatch enforcement, fail closed. The guard runs
+    // before any capability leg, so a denied job never reaches a tool,
+    // a route, or a start notification. A denial throws into the catch
+    // below, which marks the job failed and audits async_job.failed;
+    // the dispatch_denied audit here records the decision itself.
+    // Broker enforcement for async jobs is identity-only at this seam:
+    // per-capability broker flags are not derivable from the job row,
+    // so broker-attached service work is denied at the callback seams
+    // (where needsBroker is known) and service-tier jobs never carry a
+    // token (none exists), so broker legs fail closed downstream.
+    const serviceLogin = getServiceUserLogin(ctx.env);
+    const identity = resolveAsyncJobIdentity(
+      payload,
+      (payload.headers ?? null) as Record<string, string> | null,
+      ctx.sessionKey(),
+      serviceLogin,
+    );
+    if ("denied" in identity) {
+      ctx.audit("async_job.dispatch_denied", "orchestrator", {
+        jobId,
+        capability: job.capability,
+        reason: identity.reason,
+      });
+      throw new Error(`Async job dispatch denied: ${identity.reason}`);
+    }
+    if (identity.kind === "service") {
+      const store = ctx.serviceMembershipStore;
+      const decision = store
+        ? await enforceServiceDispatch(store, {
+            serviceLogin: serviceLogin ?? identity.login,
+            tier: "platform",
+            nowMs: Date.now(),
+          })
+        : {
+            denied: true as const,
+            reason: "SERVICE_NOT_PROVISIONED" as const,
+            detail: "no membership store on the execution context",
+          };
+      if ("denied" in decision) {
+        ctx.audit("async_job.dispatch_denied", "orchestrator", {
+          jobId,
+          capability: job.capability,
+          reason: decision.reason,
+          ...(decision.detail ? { detail: decision.detail } : {}),
+        });
+        throw new Error(`Async job dispatch denied: ${decision.reason}`);
+      }
+    }
 
     // Issue #1123 S4: a screener main job announces its start on Slack
     // + email as tracked notification sub-jobs. Planned exactly once —
