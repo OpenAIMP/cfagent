@@ -64,12 +64,26 @@ export function mapTabToTradingSubTab(targetTab: string): TradingSubTab {
   }
 }
 
+/** #2371: read-time aspect resolution attached by GET /api/audit and
+ * GET /api/audit/:id, resolved from the #2381 outcome catalog. Null
+ * when no cataloged code is found in the payload — the read never
+ * invents aspects. The stored payload is returned unchanged alongside
+ * this field. */
+export interface ResolvedAuditAspects {
+  code: string;
+  businessMessage: string;
+  category: string;
+  retryable: boolean;
+  variant: string;
+}
+
 export interface AuditLogEvent {
   id: string;
   type: string;
   agent: string;
   payload: Record<string, unknown>;
   created_at: string;
+  resolvedAspects?: ResolvedAuditAspects | null;
 }
 
 export interface MemoryItem {
