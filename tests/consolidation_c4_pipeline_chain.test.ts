@@ -196,7 +196,7 @@ describe("C4 pipeline stage split (#1329)", () => {
     );
     expect(out.pdfStatus).toBe("failed");
     expect(out.pdfKey).toBe("");
-    expect(out.pdfError ?? "").toMatch(/^\[REPORT_/);
+    expect(out.pdfError ?? "").toMatch(/^\[FAILURE_REPORT_PDF_GENERATION\]/);
   });
 
   it("runReportPipeline output is unchanged (the fused generate entry)", async () => {
