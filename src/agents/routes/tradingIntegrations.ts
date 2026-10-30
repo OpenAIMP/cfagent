@@ -39,6 +39,7 @@ import {
   type ChannelNlqDeps,
   type ChannelPrincipal,
 } from "../../trading";
+import { OrmReplayStore } from "../../security/webhookReplay";
 import { createOptionsDiscoveryPorts } from "../../data/createOptionsDiscoveryPorts";
 import { createDiscoveryService } from "../../services/discoveryService";
 import { buildDataProviderPorts } from "../../data/buildDataProviderPorts";
@@ -179,6 +180,31 @@ export async function handleTradingIntegrationsRoutes(
   if (path.endsWith("/trading/slack/event") && request.method === "POST") {
     try {
       const body = (await request.json().catch(() => ({}))) as any;
+      // Issue #2412 (Agent Mesh S13, G10): Slack event-delivery dedup.
+      // Slack retries event deliveries that are not acked promptly;
+      // before this claim, a retried event_callback was fully
+      // reprocessed (duplicate NLQ runs, duplicate replies, repeated
+      // approval attempts). The claim reuses the #143 replay store
+      // (OrmReplayStore over the host instance's ORM — the same
+      // nonce-claim mechanism the trading/NLQ webhooks use), keyed by
+      // the delivery's event_id, and runs BEFORE principal resolution
+      // or any service construction: a duplicate is acked with no
+      // agent work. Deliveries without an event_id (url_verification,
+      // synthetic simulator posts) are not claimed and flow as before.
+      if (body.type === "event_callback" && typeof body.event_id === "string" && body.event_id) {
+        const isReplay = await new OrmReplayStore(ctx.getOrm()).claim(
+          `slack_event:${body.event_id}`,
+          "slack",
+          24 * 60 * 60 * 1000
+        );
+        if (isReplay) {
+          ctx.audit("trading.slack_event_duplicate", "trading", {
+            eventId: body.event_id,
+            teamId: typeof body.team_id === "string" ? body.team_id : undefined,
+          });
+          return Response.json({ handled: false, actionType: "duplicate", eventId: body.event_id });
+        }
+      }
       // Issue #1262 Phase 1: identity is the RESOLVED channel principal
       // (connect-code link store: team_id + user_id → login). The
       // session-authenticated test simulator is the only forwarder that
