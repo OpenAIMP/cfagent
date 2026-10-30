@@ -30,6 +30,9 @@
  *    surface can render them without leaking credentials or megabytes;
  *  - trigger is "unknown" (rendered "Not recorded") when no store
  *    records one — the classification never guesses from a label.
+ *  - a standalone http.request GET/HEAD row is a read trace, not a
+ *    run, and is filtered out (#2456); POST submissions and
+ *    chain-member request stages stay.
  */
 
 export type WorkflowRunTrigger = "manual" | "scheduled" | "autonomous" | "webhook" | "agent" | "unknown";
@@ -601,6 +604,29 @@ export function runGroupKey(job: WorkflowRunJobRow): string {
   return str(job.chain_id) ?? str(job.parent_job_id) ?? job.job_id;
 }
 
+/**
+ * #2456: a standalone http.request GET/HEAD row with no chain, no
+ * parent, no stage, and no stageChain is a read trace (a queued
+ * page-load read), not a run, and must not appear in the runs list.
+ * The method matters: POST http.request singletons are real
+ * submissions (a scheduled screen, a goal-triggered job — pinned by
+ * the existing workflow_runs tests), and they still queue today, so
+ * they stay. Each carve-out preserves one way a request row belongs
+ * to a real run: a chain id or parent id makes it a chain member, a
+ * stage makes it a recorded stage, and a stageChain payload makes it
+ * a chain main in formation. A row with no readable method is kept:
+ * unclassifiable rows are never hidden. The row stays in the store
+ * and in audit; only this read model hides it. Nothing is deleted.
+ */
+function isStandaloneRequestTrace(job: WorkflowRunJobRow): boolean {
+  if (job.capability !== "http.request") return false;
+  if (str(job.chain_id) || str(job.parent_job_id) || str(job.stage)) return false;
+  const payload = parseObject(job.payload_json);
+  if (payload && "stageChain" in payload) return false;
+  const method = typeof payload?.method === "string" ? payload.method.toUpperCase() : "";
+  return method === "GET" || method === "HEAD";
+}
+
 function mainJobOf(jobs: WorkflowRunJobRow[]): WorkflowRunJobRow {
   const main = jobs.find((j) => j.job_kind === "main");
   if (main) return main;
@@ -874,8 +900,9 @@ export function runFromOutcome(
 /** Group, attach outcomes, and merge — newest first, capped at limit. */
 export function buildWorkflowRuns(input: BuildWorkflowRunsInput): WorkflowRun[] {
   const limit = Math.max(1, Math.min(Math.floor(input.limit ?? 40) || 40, 100));
+  const jobs = input.jobs.filter((job) => !isStandaloneRequestTrace(job));
   const groups = new Map<string, RunGroup>();
-  for (const job of input.jobs) {
+  for (const job of jobs) {
     const key = runGroupKey(job);
     const group = groups.get(key);
     if (group) group.jobs.push(job);
