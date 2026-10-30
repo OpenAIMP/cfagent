@@ -604,7 +604,7 @@ export class DraftPaymentCommand implements IMcpToolCommand<{
       gateway,
       proposerDid: AGENT_DIDS.PAYMENTS,
       authorizerDid: userDid,
-    });
+    }, context.env?.DID_ATTESTATION_KEY);
 
     const now = new Date().toISOString();
     const tx = context.orm.transactions.create({
