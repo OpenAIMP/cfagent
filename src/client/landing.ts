@@ -1790,19 +1790,39 @@ ${hcTokens}
           .then(function(data) { applyQuotes(data && data.quotes); })
           .catch(function() { /* keep the static baseline */ });
       }
+      // Issue #2481 — the landing-page quotes feed is a periodic
+      // live-data refresh, so it runs only while the global
+      // auto-refresh switch is ON. OFF leaves the server-rendered
+      // static baseline in place and opens no socket and no poll.
+      // The switch is the same global key the app toggle writes;
+      // with no stored value the default is OFF (as in the app).
+      function autoRefreshEnabled() {
+        try {
+          if (localStorage.getItem("cfagent_global_autorefresh_enabled") === "true") return true;
+          return localStorage.getItem("cfagent_options_autorefresh_enabled") === "true";
+        } catch (e) { return false; }
+      }
+      function stopLive() {
+        stopPolling();
+        if (wsTimer) { clearTimeout(wsTimer); wsTimer = null; }
+        if (ws) { try { ws.close(); } catch (e) {} ws = null; }
+      }
       function startPolling() {
         if (pollTimer) return;
+        if (!autoRefreshEnabled()) return;
         if (document.visibilityState === "hidden") return;
         fetchRest();
         pollTimer = setInterval(fetchRest, REST_POLL_MS);
       }
       function scheduleReconnect() {
+        if (!autoRefreshEnabled()) return;
         if (wsTimer) return;
         if (document.visibilityState === "hidden") return;
         wsTimer = setTimeout(function() { wsTimer = null; connect(); }, wsBackoff);
         wsBackoff = Math.min(wsBackoff * 2, wsBackoffCap);
       }
       function connect() {
+        if (!autoRefreshEnabled()) return;
         if (typeof WebSocket === 'undefined') { startPolling(); return; }
         var proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         try {
@@ -1833,6 +1853,13 @@ ${hcTokens}
           startPolling();
           scheduleReconnect();
         }
+      });
+      // Toggling the switch in the app (another tab) starts or
+      // stops this page's feed without a reload.
+      window.addEventListener('storage', function(e) {
+        if (e.key && e.key.indexOf('autorefresh_enabled') === -1) return;
+        if (autoRefreshEnabled()) { connect(); }
+        else { stopLive(); }
       });
       connect();
     })();
