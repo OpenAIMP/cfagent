@@ -24,6 +24,7 @@
  */
 
 import { unauthenticatedResponse } from "./routeIdentity";
+import { createOrchestratorTablePorts } from "../../data/createOrchestratorTablePorts";
 import type { AgentName } from "../../types";
 import type { SqlStorage } from "../../orm";
 import {
@@ -89,12 +90,11 @@ export async function handleAutopilotRoutes(
       const state = ctx.getAutopilotState();
       let recentVerdicts: Array<Record<string, unknown>> = [];
       try {
-        const sql = ctx.ensureTables();
-        recentVerdicts = Array.from(
-          sql.exec(
-            "SELECT id, symbol, action, quantity, notional, mode, dry_run, passed, execution_allowed, requires_approval, binding_rule, detail, signature, proposer_did, authorizer_did, created_at FROM mas_policy_verdicts ORDER BY created_at DESC LIMIT 25"
-          )
-        ) as Array<Record<string, unknown>>;
+        // Issue #2359 (#1976 step 4d): the read serves through
+        // the policy-verdict port (same projection, same
+        // newest-first order) instead of raw SQL.
+        recentVerdicts = createOrchestratorTablePorts(ctx.ensureTables() as never)
+          .verdicts.listRecent(25) as unknown as Array<Record<string, unknown>>;
       } catch {
         recentVerdicts = [];
       }
