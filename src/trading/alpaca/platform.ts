@@ -185,24 +185,67 @@ export class AlpacaTradingPlatform implements ITradingPlatform {
 
   async executeOrder(orderId: string, authorizerDid: string, decision: "approved" | "rejected"): Promise<ETradeOrderExecutionResult> {
     const now = new Date().toISOString();
+    // #2389: this adapter has no order-placement client (market data
+    // only), so it can never execute. The previous implementation
+    // returned a hardcoded "executed" NVDA result on approval —
+    // fabricated terms, fabricated references, fabricated signature.
+    // Approval now returns an honest not-executed failure; rejection
+    // still rejects the stored draft. Nothing here mints a reference
+    // or claims a fill the broker never made.
+    const record = this.orm?.trades?.findById(orderId);
+    const symbol = record?.symbol ?? "";
+    const action = record?.action ?? "BUY";
+    const quantity = record?.quantity ?? 0;
+    const proofSignature = record?.proofSignature ?? "";
+
+    if (decision === "rejected") {
+      if (record && this.orm?.trades) {
+        this.orm.trades.update(orderId, {
+          status: "rejected",
+          authorizerDid,
+          updatedAt: now,
+        });
+      }
+      return {
+        success: false,
+        orderId,
+        executionId: "",
+        brokerOrderRef: "",
+        authorizerDid,
+        status: "rejected",
+        symbol,
+        action,
+        quantity,
+        executionPrice: 0,
+        totalSettled: 0,
+        didAttestation: {
+          proposerDid: AGENT_DIDS.TRADING,
+          authorizerDid,
+          signature: proofSignature,
+        },
+        message: `Alpaca order ${orderId} rejected by human authorizer (${authorizerDid}).`,
+        timestamp: now,
+      };
+    }
+
     return {
-      success: decision === "approved",
+      success: false,
       orderId,
-      executionId: `alp_exec_${crypto.randomUUID().slice(0, 8)}`,
-      brokerOrderRef: `alp_ref_${crypto.randomUUID().slice(0, 8)}`,
+      executionId: "",
+      brokerOrderRef: "",
       authorizerDid,
-      status: decision === "approved" ? "executed" : "rejected",
-      symbol: "NVDA",
-      action: "BUY",
-      quantity: 1,
-      executionPrice: 138.25,
-      totalSettled: 138.25,
+      status: "failed",
+      symbol,
+      action,
+      quantity,
+      executionPrice: 0,
+      totalSettled: 0,
       didAttestation: {
         proposerDid: AGENT_DIDS.TRADING,
         authorizerDid,
-        signature: `sig_0x${crypto.randomUUID().slice(0, 16)}`,
+        signature: proofSignature,
       },
-      message: `Alpaca order ${orderId} ${decision === "approved" ? "executed successfully" : "rejected"}.`,
+      message: `Alpaca execution is not wired on this adapter: no Alpaca order-placement client is connected, so order ${orderId} was NOT executed. No funds were moved.`,
       timestamp: now,
     };
   }

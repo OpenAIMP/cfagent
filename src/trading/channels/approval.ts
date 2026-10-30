@@ -138,7 +138,11 @@ export async function approvePreviewedOrder(args: {
 
   let execRes: any;
   try {
-    execRes = args.executor.executeOrder(targetTrade.id, args.authorizerDid, "approved");
+    // #2389: the platform executor's executeOrder is async now that
+    // approval places through the real broker client — awaiting it
+    // here also means a rejected promise lands in the same fallback
+    // as a synchronous throw, instead of being misread as a result.
+    execRes = await args.executor.executeOrder(targetTrade.id, args.authorizerDid, "approved");
   } catch {
     execRes = await args.executor.placeOrderRemote({
       orderId: targetTrade.id,

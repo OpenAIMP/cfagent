@@ -21,6 +21,7 @@ import { STOP_WORDS_REGEX } from "./orderParams";
 import { NLQPlan, isNlqTableAllowed } from "./schema";
 import { NLQExecutionDeps, NLQQueryResult, NLQSchedulingPort, type NLQSocialBriefPort, type NLQStockScreenPort, type NLQStockScreenRunResult } from "./types";
 import { SOCIAL_BRIEF_MAX_CHARS, resolveBriefDate } from "../social/briefStore";
+import { getUserDid } from "../did";
 function auditNlqExecution(
   orm: DatabaseORM,
   sessionId: string,
@@ -840,49 +841,29 @@ function executeNLQQueryCore(
         };
       }
 
+      // #2389: order placement is asynchronous (the platform places
+      // through the broker client), so this synchronous executor
+      // cannot execute an approval — and it must never claim one.
+      // It used to call the old synchronous platform executeOrder and
+      // report "APPROVED & EXECUTED" unconditionally, with a fallback
+      // broker reference ("et_fill_confirmed") when the result carried
+      // none. Approvals route through the async executor
+      // (executeNLQQueryAsyncCore); this path refuses honestly and
+      // leaves the draft untouched in its previewed state.
       const effectiveAuthorizer = userDid || `did:user:slack:approver`;
-      const execRes = etrade.executeOrder(existingTrade.id, effectiveAuthorizer, "approved");
-
-      // Auto-dispatch visual snap receipt to Slack
-      if (execRes.status === "executed" || (execRes as any).success) {
-        if (env?.SLACK_WEBHOOK_URL || env?.SLACK_BOT_TOKEN) {
-          try {
-            const browserService = new ETradeBrowserService(env);
-            browserService.sendTransactionSnapToSlack({
-              transactionId: existingTrade.id,
-              symbol: existingTrade.symbol,
-              action: existingTrade.action,
-              quantity: existingTrade.quantity,
-              price: existingTrade.price,
-              orderType: existingTrade.orderType,
-              status: "EXECUTED",
-              totalValue: existingTrade.totalValue,
-              environment: (env?.ETRADE_ENVIRONMENT || "sandbox").toLowerCase(),
-              timestamp: executedAt,
-              // This dispatch runs inside the authorize_order action — the
-              // user's explicit approval of a previewed draft (issue #120).
-              humanApproved: true,
-            }).catch(console.warn);
-          } catch {
-            // Non-blocking snap dispatch
-          }
-        }
-      }
-
       return {
         plan,
         domain: "trading",
         targetTable: "mas_trades",
         count: 1,
-        summary: `✅ E*TRADE order ${existingTrade.id} (${existingTrade.action} ${existingTrade.quantity} ${existingTrade.symbol}) APPROVED & EXECUTED. Broker Ref: ${execRes.executionId || "et_fill_confirmed"}. Stamped by ${effectiveAuthorizer}.`,
+        summary: `E*TRADE order ${existingTrade.id} (${existingTrade.action} ${existingTrade.quantity} ${existingTrade.symbol}) was NOT executed: order approval requires the asynchronous execution path, which places the order with the broker. The draft remains previewed; no funds were moved. (Requested by ${effectiveAuthorizer}.)`,
         rows: [
           {
             orderId: existingTrade.id,
             symbol: existingTrade.symbol,
             action: existingTrade.action,
             quantity: existingTrade.quantity,
-            status: "EXECUTED",
-            executionId: execRes.executionId,
+            status: existingTrade.status.toUpperCase(),
             authorizerDid: effectiveAuthorizer,
             totalValue: `$${Number(existingTrade.totalValue || 0).toFixed(2)}`,
             executedAt,
@@ -1650,6 +1631,112 @@ async function executeNLQQueryAsyncCore(
             source: q.source,
             quoteStatus: q.quoteStatus || "UNKNOWN",
             quoteTimestamp: q.timestamp || executedAt,
+          },
+        ],
+        executedAt,
+      };
+    }
+
+    if (action === "execute_order" || action === "approve_order") {
+      // #2389: approvals execute HERE, on the async path, through the
+      // platform's broker-backed executeOrder. The synchronous core
+      // used to serve this action by claiming "APPROVED & EXECUTED"
+      // unconditionally; it now refuses, and this branch is the only
+      // NLQ approval path. An EXECUTED report is produced only from a
+      // broker-confirmed result carrying a real broker reference.
+      const orderId = (plan.tradingData?.symbol || "").trim();
+      const existingTrade = orm.trades?.findById(orderId.toLowerCase()) || orm.trades?.findById(orderId);
+
+      if (!existingTrade) {
+        return {
+          plan,
+          domain: "trading",
+          targetTable: "mas_trades",
+          count: 0,
+          summary: `Order draft '${orderId}' was not found. Orders must be previewed and drafted before authorization.`,
+          rows: [],
+          executedAt,
+        };
+      }
+
+      if (existingTrade.status !== "previewed") {
+        return {
+          plan,
+          domain: "trading",
+          targetTable: "mas_trades",
+          count: 1,
+          summary: `Order '${orderId}' cannot be executed. Current status is '${existingTrade.status.toUpperCase()}'. Only 'previewed' drafts may be authorized.`,
+          rows: [{ ...existingTrade }],
+          executedAt,
+        };
+      }
+
+      const effectiveAuthorizer = effectiveUserDid || userDid || getUserDid(login);
+      const execRes = await etrade.executeOrder(existingTrade.id, effectiveAuthorizer, "approved");
+
+      if (execRes.success && execRes.status === "executed") {
+        // Auto-dispatch visual snap receipt to Slack — only for a
+        // broker-confirmed execution (issue #120 snap, #2389 honesty).
+        if (env?.SLACK_WEBHOOK_URL || env?.SLACK_BOT_TOKEN) {
+          try {
+            const browserService = new ETradeBrowserService(env);
+            browserService.sendTransactionSnapToSlack({
+              transactionId: existingTrade.id,
+              symbol: existingTrade.symbol,
+              action: existingTrade.action,
+              quantity: existingTrade.quantity,
+              price: existingTrade.price,
+              orderType: existingTrade.orderType,
+              status: "EXECUTED",
+              totalValue: existingTrade.totalValue,
+              environment: (env?.ETRADE_ENVIRONMENT || "sandbox").toLowerCase(),
+              timestamp: executedAt,
+              humanApproved: true,
+            }).catch(console.warn);
+          } catch {
+            // Non-blocking snap dispatch
+          }
+        }
+
+        return {
+          plan,
+          domain: "trading",
+          targetTable: "mas_trades",
+          count: 1,
+          summary: `✅ E*TRADE order ${existingTrade.id} (${existingTrade.action} ${existingTrade.quantity} ${existingTrade.symbol}) APPROVED & EXECUTED. Broker Ref: ${execRes.brokerOrderRef || execRes.executionId}. Stamped by ${effectiveAuthorizer}.`,
+          rows: [
+            {
+              orderId: existingTrade.id,
+              symbol: existingTrade.symbol,
+              action: existingTrade.action,
+              quantity: existingTrade.quantity,
+              status: "EXECUTED",
+              executionId: execRes.executionId,
+              authorizerDid: effectiveAuthorizer,
+              totalValue: `$${Number(existingTrade.totalValue || 0).toFixed(2)}`,
+              executedAt,
+            },
+          ],
+          executedAt,
+        };
+      }
+
+      return {
+        plan,
+        domain: "trading",
+        targetTable: "mas_trades",
+        count: 1,
+        summary: `E*TRADE order ${existingTrade.id} (${existingTrade.action} ${existingTrade.quantity} ${existingTrade.symbol}) was NOT executed. ${execRes.message} The draft remains '${existingTrade.status.toUpperCase()}'; no funds were moved.`,
+        rows: [
+          {
+            orderId: existingTrade.id,
+            symbol: existingTrade.symbol,
+            action: existingTrade.action,
+            quantity: existingTrade.quantity,
+            status: existingTrade.status.toUpperCase(),
+            authorizerDid: effectiveAuthorizer,
+            totalValue: `$${Number(existingTrade.totalValue || 0).toFixed(2)}`,
+            executedAt,
           },
         ],
         executedAt,
