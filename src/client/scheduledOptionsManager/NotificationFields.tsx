@@ -50,13 +50,25 @@ export function NotificationFields(props: NotificationFieldsProps) {
                         Interactive cards with PDF report attached and action shortcuts
                       </span>
                       {pushToSlack && (
-                        <TextInput
-                          type="text"
-                          style={{ marginTop: "0.3rem", padding: "var(--space-1-5) var(--space-2-5)", fontSize: "var(--font-size-caption)" }}
-                          value={slackChannel}
-                          onChange={(e) => setSlackChannel(e.target.value)}
-                          placeholder="Slack Channel (e.g. #trading-desk)"
-                        />
+                        <>
+                          <TextInput
+                            type="text"
+                            style={{ marginTop: "0.3rem", padding: "var(--space-1-5) var(--space-2-5)", fontSize: "var(--font-size-caption)" }}
+                            value={slackChannel}
+                            onChange={(e) => setSlackChannel(e.target.value)}
+                            placeholder="Slack Channel (e.g. #trading-desk)"
+                          />
+                          {/* Issue #2438: an empty stored channel renders
+                              as an explicit Not set, never as a default
+                              presented as stored (Details shows
+                              "Configured (no channel recorded)" for
+                              the same record). */}
+                          {slackChannel.trim() === "" && (
+                            <span className="hint" style={{ fontSize: "var(--font-size-caption)", color: "var(--color-text-muted)" }}>
+                              Not set — no channel recorded for this schedule.
+                            </span>
+                          )}
+                        </>
                       )}
                     </label>
 

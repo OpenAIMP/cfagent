@@ -323,6 +323,12 @@ export function ScheduledOptionsManager({
     setDerivedProfileId("");
     setNoViewDraft(blankNoViewConstraintsDraft());
     setNoViewDivergent(false);
+    // Issue #2438: create applies the CREATE defaults — never the
+    // leftovers of a previous edit session.
+    setPushToSlack(true);
+    setSlackChannel("#options-alerts");
+    setEmailTo("");
+    setWebhookUrl("");
     setModalOpen(true);
   };
 
@@ -365,6 +371,16 @@ export function ScheduledOptionsManager({
           saved.length > 0 ? saved.map(discoveryDraftFromRequest) : [blankDiscoveryRequestDraft()]
         );
       }
+      // Issue #2438 (conflicting-state rule): hydrate delivery from the
+      // stored payload, never from form leftovers. The discovery schema
+      // persists slackChannel/emailTo/webhookUrl but NOT pushToSlack, so
+      // the checkbox derives from stored channel presence — the same
+      // condition the save path uses to keep the channel — which keeps
+      // the edit round-trip exact without inventing a stored flag.
+      setSlackChannel(typeof payload.slackChannel === "string" ? payload.slackChannel : "");
+      setPushToSlack(typeof payload.slackChannel === "string" && payload.slackChannel.trim() !== "");
+      setEmailTo(typeof payload.emailTo === "string" ? payload.emailTo : "");
+      setWebhookUrl(typeof payload.webhookUrl === "string" ? payload.webhookUrl : "");
     } else {
       setJobType(item.callback === "autonomousMarketScreen" ? "marketScreen" : "optionsAnalysis");
       const syms = payload.symbols;
@@ -379,10 +395,15 @@ export function ScheduledOptionsManager({
       setPresetId(typeof payload.presetId === "string" ? payload.presetId : "");
       setThesis(payload.thesis || "bullish");
       setRiskProfile(payload.riskProfile || "balanced");
-      setPushToSlack(payload.pushToSlack !== false);
-      if (payload.slackChannel) setSlackChannel(payload.slackChannel);
-      if (payload.emailTo) setEmailTo(payload.emailTo);
-      if (payload.webhookUrl) setWebhookUrl(payload.webhookUrl);
+      // Issue #2438 (conflicting-state rule): edit shows the stored
+      // value or the empty/off state — never the create defaults.
+      // Previously an absent pushToSlack read as true (!== false) and
+      // an absent channel kept the previous/default value, while
+      // Details showed "Not configured" for the same record.
+      setPushToSlack(payload.pushToSlack === true);
+      setSlackChannel(typeof payload.slackChannel === "string" ? payload.slackChannel : "");
+      setEmailTo(typeof payload.emailTo === "string" ? payload.emailTo : "");
+      setWebhookUrl(typeof payload.webhookUrl === "string" ? payload.webhookUrl : "");
       if (payload.filters) {
         setMinPrice(payload.filters.minPrice != null ? String(payload.filters.minPrice) : "");
         setMaxPrice(payload.filters.maxPrice != null ? String(payload.filters.maxPrice) : "");

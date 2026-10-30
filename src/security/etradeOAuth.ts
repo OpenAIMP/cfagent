@@ -48,6 +48,31 @@ export interface ETradeAuthStatus {
   expiresAtEt?: string;
   expired?: boolean;
   renewable?: boolean;
+  /**
+   * Issue #2438 (ScreenersHub redesign): token presence per resolution
+   * scope, booleans only — never a token value, never a key string.
+   * Presence is not validity: a present-but-expired token still
+   * reports true here; `authenticated` stays the validity verdict.
+   * The dashboard renders this so a panel/guard split (a token the
+   * panel seam resolves but the identity-less guard lookup misses)
+   * is visible as scope presence instead of discovered via failed
+   * runs. Additive: existing consumers ignore it.
+   */
+  tokenScopes?: ETradeTokenScopePresence;
+}
+
+/**
+ * Issue #2438: one boolean per token-resolution scope, in the same
+ * key vocabulary as tokenCandidateKeys — login-scoped (the
+ * environment-scoped login key), unscoped (the legacy login key),
+ * internal-id (the environment-scoped internal-id key), alias-login
+ * (the alias key, scoped or unscoped). No values, no key strings.
+ */
+export interface ETradeTokenScopePresence {
+  loginScoped: boolean;
+  unscoped: boolean;
+  internalId: boolean;
+  aliasLogin: boolean;
 }
 
 // Token storage key constants (SessionStore DO keys; the KV_ identifier
@@ -904,6 +929,54 @@ export async function getValidTokens(
 }
 
 /**
+ * Issue #2438: presence-only probe of the token-resolution scopes.
+ * Reads each candidate access-token key and reports whether a value
+ * is stored — the value itself is discarded, never returned, never
+ * logged. A corrupt value still counts as present (presence, not
+ * validity); validity stays with getValidTokens / authenticated.
+ * Fail-closed on store errors: an unreadable scope reports false,
+ * never assumed present.
+ */
+export async function getETradeTokenScopePresence(
+  env: Env,
+  userLogin: string,
+  overrideEnv?: string,
+  identity?: ETradeTokenIdentity
+): Promise<ETradeTokenScopePresence> {
+  const none: ETradeTokenScopePresence = {
+    loginScoped: false,
+    unscoped: false,
+    internalId: false,
+    aliasLogin: false,
+  };
+  if (!userLogin) return none;
+  const envConfig = resolveEnvironmentConfig(env, overrideEnv);
+  const envName = envConfig.name;
+  const aliasLogin = await resolveAliasLogin(env, identity?.internalUserId);
+  const kv = getKv(env);
+  const present = async (key: string): Promise<boolean> => {
+    try {
+      return (await kv.get(key)) !== null;
+    } catch {
+      return false;
+    }
+  };
+  const [loginScoped, unscoped, internalId, aliasScoped, aliasUnscoped] = await Promise.all([
+    present(KV_ACCESS_TOKEN_KEY(userLogin, envName)),
+    present(KV_ACCESS_TOKEN_KEY(userLogin)),
+    identity?.internalUserId ? present(KV_ACCESS_TOKEN_KEY(identity.internalUserId, envName)) : Promise.resolve(false),
+    aliasLogin ? present(KV_ACCESS_TOKEN_KEY(aliasLogin, envName)) : Promise.resolve(false),
+    aliasLogin ? present(KV_ACCESS_TOKEN_KEY(aliasLogin)) : Promise.resolve(false),
+  ]);
+  return {
+    loginScoped,
+    unscoped,
+    internalId,
+    aliasLogin: aliasScoped || aliasUnscoped,
+  };
+}
+
+/**
  * Returns full authentication status for E*TRADE for a given user
  */
 export async function getETradeAuthStatus(
@@ -914,12 +987,16 @@ export async function getETradeAuthStatus(
 ): Promise<ETradeAuthStatus> {
   const envConfig = resolveEnvironmentConfig(env, overrideEnv);
   const valid = await getValidTokens(env, userLogin, overrideEnv, identity);
+  // Issue #2438: scope presence rides the status response (additive)
+  // so the dashboard needs no new route to show it.
+  const tokenScopes = await getETradeTokenScopePresence(env, userLogin, overrideEnv, identity);
 
   if (!valid) {
     return {
       authenticated: false,
       userLogin,
       environment: envConfig.name,
+      tokenScopes,
     };
   }
 
@@ -930,6 +1007,7 @@ export async function getETradeAuthStatus(
     storedAt: valid.storedAt,
     expired: false,
     renewable: true,
+    tokenScopes,
   };
 }
 
