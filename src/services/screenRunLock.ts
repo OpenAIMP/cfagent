@@ -18,9 +18,25 @@
  * which bypasses `runScreen`, gates on this lock via the
  * `isScreenRunning` probe instead of acquiring it (a chain outlives
  * any submission-scoped lease).
+ *
+ * DEPRECATED (#2361, #1976 step 4e): the lock now lives behind the
+ * ScreenRunLockPort in src/data/screenRunLockPorts.ts (DO adapter:
+ * src/data/doSqliteScreenRunLockAdapter.ts; composition:
+ * src/data/createScreenRunLockPorts.ts), and ScreenerAgent consumes
+ * the port directly. These functions remain as a deprecated delegate
+ * for their existing callers/tests: each one composes the port over
+ * the caller's executor and forwards, so the statements — and every
+ * behaviour pinned against them — are the adapter's own.
  */
 
-export const SCREEN_RUN_LOCK_STALE_MS = 5 * 60 * 1000;
+import { DoSqliteScreenRunLock } from "../data/doSqliteScreenRunLockAdapter";
+import {
+  SCREEN_RUN_LOCK_STALE_MS as PORT_SCREEN_RUN_LOCK_STALE_MS,
+  type ScreenRunLockPort,
+} from "../data/screenRunLockPorts";
+import type { SqlStorage } from "../data/repositoryPorts";
+
+export const SCREEN_RUN_LOCK_STALE_MS = PORT_SCREEN_RUN_LOCK_STALE_MS;
 
 /** Synchronous SQL executor: DO `storage.sql.exec` shape, adapted. */
 export type ScreenRunLockSql = (
@@ -38,19 +54,18 @@ export interface ScreenRunLockAcquisition {
   tookOverStale: boolean;
 }
 
+/** Compose the port over a legacy callback executor. */
+function portOver(exec: ScreenRunLockSql): ScreenRunLockPort {
+  const storage: SqlStorage = {
+    exec: (query: string, ...params: unknown[]) => exec(query, params),
+  };
+  return new DoSqliteScreenRunLock(storage);
+}
+
 export function ensureScreenRunLockTable(
   exec: ScreenRunLockSql,
 ): void {
-  exec(
-    `CREATE TABLE IF NOT EXISTS screen_run_locks (
-      user_login TEXT NOT NULL,
-      universe TEXT NOT NULL,
-      token TEXT NOT NULL,
-      started_at INTEGER NOT NULL,
-      PRIMARY KEY (user_login, universe)
-    )`,
-    [],
-  );
+  portOver(exec).ensureSchema();
 }
 
 /**
@@ -64,47 +79,7 @@ export function acquireScreenRunLock(
   universe: string,
   now: number = Date.now(),
 ): ScreenRunLockAcquisition {
-  ensureScreenRunLockTable(exec);
-  const token = crypto.randomUUID();
-  exec(
-    `INSERT INTO screen_run_locks (user_login, universe, token, started_at)
-     VALUES (?, ?, ?, ?)
-     ON CONFLICT(user_login, universe) DO NOTHING`,
-    [userLogin, universe, token, now],
-  );
-  let rows = exec(
-    `SELECT token, started_at FROM screen_run_locks
-     WHERE user_login = ? AND universe = ?`,
-    [userLogin, universe],
-  );
-  if (rows[0]?.token === token) {
-    return { acquired: true, token, startedAt: now, tookOverStale: false };
-  }
-  const startedAt = Number(rows[0]?.started_at);
-  if (Number.isFinite(startedAt) && now - startedAt > SCREEN_RUN_LOCK_STALE_MS) {
-    // Compare-and-swap on the observed started_at: a competing
-    // takeover winner changes the row first, and this update then
-    // affects zero rows, so only one contender ever wins.
-    exec(
-      `UPDATE screen_run_locks SET token = ?, started_at = ?
-       WHERE user_login = ? AND universe = ? AND started_at = ?`,
-      [token, now, userLogin, universe, startedAt],
-    );
-    rows = exec(
-      `SELECT token FROM screen_run_locks
-       WHERE user_login = ? AND universe = ?`,
-      [userLogin, universe],
-    );
-    if (rows[0]?.token === token) {
-      return { acquired: true, token, startedAt: now, tookOverStale: true };
-    }
-  }
-  return {
-    acquired: false,
-    token: null,
-    startedAt: Number.isFinite(startedAt) ? startedAt : null,
-    tookOverStale: false,
-  };
+  return portOver(exec).acquire(userLogin, universe, now);
 }
 
 /** Release only when the token matches: never frees another run's lock. */
@@ -114,12 +89,7 @@ export function releaseScreenRunLock(
   universe: string,
   token: string | null,
 ): void {
-  if (!token) return;
-  exec(
-    `DELETE FROM screen_run_locks
-     WHERE user_login = ? AND universe = ? AND token = ?`,
-    [userLogin, universe, token],
-  );
+  portOver(exec).release(userLogin, universe, token);
 }
 
 /** Probe for the sharded submission gate: stale rows do not count. */
@@ -129,16 +99,5 @@ export function isScreenRunning(
   universe: string,
   now: number = Date.now(),
 ): { running: boolean; startedAt: number | null } {
-  ensureScreenRunLockTable(exec);
-  const rows = exec(
-    `SELECT started_at FROM screen_run_locks
-     WHERE user_login = ? AND universe = ?`,
-    [userLogin, universe],
-  );
-  if (!rows[0]) return { running: false, startedAt: null };
-  const startedAt = Number(rows[0].started_at);
-  if (Number.isFinite(startedAt) && now - startedAt <= SCREEN_RUN_LOCK_STALE_MS) {
-    return { running: true, startedAt };
-  }
-  return { running: false, startedAt };
+  return portOver(exec).isRunning(userLogin, universe, now);
 }
