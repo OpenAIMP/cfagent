@@ -1,8 +1,9 @@
 import { generatedThemeTokens } from "./designTokens";
 import { BRAND } from "./branding";
 import { TAPE_SYMBOLS } from "./quotes/symbolSets";
+import { resolvePollingConfig, type PollingConfig } from "./pollingConfig";
 
-export function renderLandingPage(appName?: string): string {
+export function renderLandingPage(appName?: string, polling?: Partial<PollingConfig>): string {
   const name = appName || BRAND.name;
   const darkTokens = Object.entries(generatedThemeTokens.dark)
     .map(([k, v]) => `  ${k}: ${v};`)
@@ -46,6 +47,12 @@ export function renderLandingPage(appName?: string): string {
   // which jumped every 45s).
   const tapeItemsHtml = TAPE_SYMBOLS.map(tapeItem).join("\n      ");
   const tapeMapLiteral = `{\n${TAPE_SYMBOLS.map((t) => `        ${JSON.stringify(tapeLabel(t))}: ${JSON.stringify(t.symbol)}`).join(",\n")}\n      }`;
+  // Issue #2419: the tape's polling treatment resolves through the
+  // externalized polling config (same interpolation idiom as the tape
+  // map above). The widget script below reads POLLING_CFG directly;
+  // the literal is always emitted, so no fallback literal lives in
+  // the script itself.
+  const pollingConfigLiteral = JSON.stringify(resolvePollingConfig(polling));
 
   return `<!DOCTYPE html>
 <html lang="en" data-theme="dark">
@@ -1762,7 +1769,21 @@ ${hcTokens}
         });
       }
       function applyQuotes(list) { (list || []).forEach(applyQuote); }
+      // Issue #2419: WS-first with a reconnecting socket and a
+      // gentler, hidden-paused REST fallback. A dropped socket used
+      // to strand the tab on 12s polling forever; now it reconnects
+      // with exponential backoff, polling stops the moment the socket
+      // is live again, and nothing polls while the tab is hidden.
+      var POLLING_CFG = ${pollingConfigLiteral};
       var pollTimer = null;
+      var REST_POLL_MS = POLLING_CFG.quotesRestFallbackMs;
+      var wsBackoff = POLLING_CFG.quotesWsReconnectBaseMs;
+      var wsBackoffCap = POLLING_CFG.quotesWsReconnectCapMs;
+      var wsTimer = null;
+      var ws = null;
+      function stopPolling() {
+        if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      }
       function fetchRest() {
         fetch('/api/market/quotes?symbols=' + encodeURIComponent(SYMBOLS.join(',')))
           .then(function(r) { return r.ok ? r.json() : Promise.reject(new Error('quotes fetch failed')); })
@@ -1771,17 +1792,28 @@ ${hcTokens}
       }
       function startPolling() {
         if (pollTimer) return;
+        if (document.visibilityState === "hidden") return;
         fetchRest();
-        pollTimer = setInterval(fetchRest, 12000);
+        pollTimer = setInterval(fetchRest, REST_POLL_MS);
+      }
+      function scheduleReconnect() {
+        if (wsTimer) return;
+        if (document.visibilityState === "hidden") return;
+        wsTimer = setTimeout(function() { wsTimer = null; connect(); }, wsBackoff);
+        wsBackoff = Math.min(wsBackoff * 2, wsBackoffCap);
       }
       function connect() {
         if (typeof WebSocket === 'undefined') { startPolling(); return; }
         var proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        var ws;
         try {
           ws = new WebSocket(proto + '//' + window.location.host + '/api/market/quotes/ws');
-        } catch (e) { startPolling(); return; }
-        ws.onopen = function() { ws.send(JSON.stringify({ type: 'subscribe', symbols: SYMBOLS })); };
+        } catch (e) { startPolling(); scheduleReconnect(); return; }
+        ws.onopen = function() {
+          wsBackoff = POLLING_CFG.quotesWsReconnectBaseMs;
+          if (wsTimer) { clearTimeout(wsTimer); wsTimer = null; }
+          stopPolling();
+          ws.send(JSON.stringify({ type: 'subscribe', symbols: SYMBOLS }));
+        };
         ws.onmessage = function(evt) {
           try {
             var data = JSON.parse(evt.data);
@@ -1790,9 +1822,18 @@ ${hcTokens}
             else if (data.type === 'ticks' && Array.isArray(data.ticks)) applyQuotes(data.ticks);
           } catch (e) { /* ignore a malformed message */ }
         };
-        ws.onclose = function() { startPolling(); };
+        ws.onclose = function() { startPolling(); scheduleReconnect(); };
         ws.onerror = function() { try { ws.close(); } catch (e) {} };
       }
+      document.addEventListener('visibilitychange', function() {
+        if (document.visibilityState === "hidden") {
+          stopPolling();
+          if (wsTimer) { clearTimeout(wsTimer); wsTimer = null; }
+        } else if (!ws || ws.readyState > 1) {
+          startPolling();
+          scheduleReconnect();
+        }
+      });
       connect();
     })();
   </script>

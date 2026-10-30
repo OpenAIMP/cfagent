@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch as fetch } from "./apiFetch";
 import { Button, Checkbox, Select, Table, TextInput } from "./components/ui";
+import { getPollingConfig } from "./pollingConfig";
 
 /**
  * Goal Screen panel (consolidation C1, issue #1201, epic #1151 R1).
@@ -210,15 +211,28 @@ export function GoalScreenPanel({ activeEnv, userLogin }: GoalScreenPanelProps) 
 
   const trackStagedRun = async (jobId: string, statusUrl: string, startedAtMs: number = Date.now()) => {
     const gen = trackGen.current;
+    // Issue #2419: cadence + deadline resolve through the externalized
+    // polling config (defaults 2s / 10min when nothing is injected).
+    const trackPollMs = getPollingConfig().goalTrackPollMs;
+    const trackDeadlineMs = getPollingConfig().goalTrackDeadlineMs;
     // Issue #2129: persist at track start so a reload resumes
     // this run; the deadline stays absolute from the ORIGINAL
     // submit (a resumed loop does not get a fresh 10 minutes).
     persistGoalTracking({ jobId, statusUrl, startedAtMs });
-    const deadline = startedAtMs + 10 * 60 * 1000;
+    const deadline = startedAtMs + trackDeadlineMs;
     while (Date.now() < deadline) {
       if (trackGen.current !== gen) return;
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      await new Promise((resolve) => setTimeout(resolve, trackPollMs));
       if (trackGen.current !== gen) return;
+      // Issue #2419: never spend a status fetch while the tab is
+      // hidden — the loop re-sleeps and the absolute deadline still
+      // applies, so a hidden tab costs zero requests. (This loop is
+      // bounded until-terminal, so it takes the shared treatment's
+      // hidden-pause + externalized cadence rather than usePolling's
+      // indefinite shape, which has no stop handle.)
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        continue;
+      }
       let history: { jobs?: Array<{ stage?: string; status?: string; detail?: string; updatedAtMs?: number; resultJson?: string }> };
       try {
         const res = await globalThis.fetch(statusUrl, {

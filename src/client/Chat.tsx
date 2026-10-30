@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import type { ReactNode } from "react";
+import { startPolling } from "./polling";
+import { getPollingConfig } from "./pollingConfig";
 import { BRAND } from "./branding";
 import { apiFetch as fetch } from "./apiFetch";
 import { McpApiExplorer } from "./McpApiExplorer";
@@ -294,14 +296,15 @@ export function Chat({ user }: { user: User }) {
     }, 600);
   }, []);
 
-  // Global Auto-Refresh periodic timer
+  // Global Auto-Refresh periodic timer (issue #2419: shared treatment
+  // via startPolling — hidden-pause added; the toggle, the user
+  // interval, and the floor are unchanged, but the floor itself is
+  // now externalized instead of a literal 5).
   useEffect(() => {
     if (!autoRefreshEnabled) return;
-    const intervalMs = Math.max(5, autoRefreshInterval) * 1000;
-    const timer = setInterval(() => {
-      handleGlobalRefresh();
-    }, intervalMs);
-    return () => clearInterval(timer);
+    const intervalMs =
+      Math.max(getPollingConfig().chatAutoRefreshFloorS, autoRefreshInterval) * 1000;
+    return startPolling(handleGlobalRefresh, { fastMs: intervalMs, idleMs: intervalMs });
   }, [autoRefreshEnabled, autoRefreshInterval, handleGlobalRefresh]);
 
   const handleToggleSidebarCollapsed = () => {
