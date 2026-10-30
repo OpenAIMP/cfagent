@@ -55,9 +55,10 @@ import {
   MCP_RESOURCES_CATALOG,
   MCP_TOOLS_CATALOG,
 } from "./mcpEndpointsData";
+import { AdminQueueWipePanel } from "./AdminQueueWipePanel";
 import "./iaaaAdminPanel.css";
 
-type IaaaAdminTab = "overview" | "members" | "api" | "mcp" | "iaaa" | "correlations";
+type IaaaAdminTab = "overview" | "members" | "api" | "mcp" | "iaaa" | "correlations" | "queue";
 
 const IAAA_ADMIN_TABS = [
   { id: "overview", label: "Overview" },
@@ -66,6 +67,8 @@ const IAAA_ADMIN_TABS = [
   { id: "mcp", label: "MCP" },
   { id: "iaaa", label: "IAAA" },
   { id: "correlations", label: "Correlations" },
+  // #2173 queue wipe slice: appended last so existing tab indices are unchanged.
+  { id: "queue", label: "Queue" },
 ] as const;
 
 const MEMBER_ROLES = ["member", "approver", "auditor", "workspace-admin", "tenant-admin", "platform-admin"] as const;
@@ -741,6 +744,9 @@ export function IaaaAdminPanel() {
           rows={IAAA_CORRELATION_ROWS.filter((row) => row.kind === "event-endpoint")}
           rowKey={(_row, index) => `event-endpoint-${index}`}
         />
+      </TabPanel>
+      <TabPanel idBase="iaaa-admin" tabId="queue" active={tab === "queue"}>
+        <AdminQueueWipePanel />
       </TabPanel>
     </div>
   );
