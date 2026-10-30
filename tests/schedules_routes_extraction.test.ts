@@ -47,6 +47,7 @@ vi.mock("../src/security/storageRetention", () => ({
 vi.mock("../src/security/etradeOAuth", () => ({
   getStoredTokens: vi.fn(),
   isTokenExpiredEt: vi.fn(() => false),
+  etradeIdentityFromLogin: vi.fn(async () => ({})),
 }));
 
 import { ScheduledTasksService } from "../src/services/scheduledTasks";
