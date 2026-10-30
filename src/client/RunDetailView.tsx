@@ -60,6 +60,14 @@ export interface RunDetailViewProps {
   run: RunDetailRun;
   confirmations: RunDetailConfirmation[];
   confirmationsLoading: boolean;
+  /**
+   * Issue #2438: "bare" renders the artifacts + delivery sections
+   * without the outer Card, the "Run detail" heading, or the outcome
+   * section — ScreenersHub's single detail Card carries those (one
+   * heading hierarchy, one outcome Badge). Default "card" preserves
+   * the standalone rendering every existing consumer relies on.
+   */
+  chrome?: "card" | "bare";
 }
 
 function outcomeOf(run: RunDetailRun): { label: string; tone: "success" | "warning" | "danger" } {
@@ -76,27 +84,31 @@ function confirmationLabel(status: string): string {
   return status;
 }
 
-export function RunDetailView({ run, confirmations, confirmationsLoading }: RunDetailViewProps) {
+export function RunDetailView({ run, confirmations, confirmationsLoading, chrome = "card" }: RunDetailViewProps) {
   const outcome = outcomeOf(run);
   const pdfUrl = run.reportUrl || (run.pdfKey ? `/api/screener/report.pdf?key=${encodeURIComponent(run.pdfKey)}` : null);
   const xlsxUrl = run.xlsxKey ? `/api/screener/report.xlsx?key=${encodeURIComponent(run.xlsxKey)}` : null;
 
-  return (
-    <Card padding="md">
-      <h3 style={{ margin: "0 0 0.75rem" }}>Run detail</h3>
+  const body = (
+    <>
+      {chrome === "card" && (
+        <>
+          <h3 style={{ margin: "0 0 0.75rem" }}>Run detail</h3>
 
-      <section aria-label="Outcome" style={{ marginBottom: "1rem" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", flexWrap: "wrap" }}>
-          <Badge tone={outcome.tone}>{outcome.label}</Badge>
-          <span>
-            {run.matchedCount} matched of {run.totalScanned} scanned
-          </span>
-        </div>
-        <div style={{ fontSize: "var(--font-size-body)", color: "var(--color-text-muted)", marginTop: "0.25rem" }}>
-          {(run.universe || "nasdaq100").toUpperCase()} · {run.sector} · {run.trigger || "scheduled"} ·{" "}
-          {new Date(run.timestamp).toLocaleString()}
-        </div>
-      </section>
+          <section aria-label="Outcome" style={{ marginBottom: "1rem" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", flexWrap: "wrap" }}>
+              <Badge tone={outcome.tone}>{outcome.label}</Badge>
+              <span>
+                {run.matchedCount} matched of {run.totalScanned} scanned
+              </span>
+            </div>
+            <div style={{ fontSize: "var(--font-size-body)", color: "var(--color-text-muted)", marginTop: "0.25rem" }}>
+              {(run.universe || "nasdaq100").toUpperCase()} · {run.sector} · {run.trigger || "scheduled"} ·{" "}
+              {new Date(run.timestamp).toLocaleString()}
+            </div>
+          </section>
+        </>
+      )}
 
       {run.partial && (
         <Notice tone="warning" variant="strip" density="compact">
@@ -190,6 +202,9 @@ export function RunDetailView({ run, confirmations, confirmationsLoading }: RunD
           </div>
         )}
       </section>
-    </Card>
+    </>
   );
+
+  if (chrome === "bare") return body;
+  return <Card padding="md">{body}</Card>;
 }

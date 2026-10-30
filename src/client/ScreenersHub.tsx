@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePolling } from "./usePolling";
 import { useAutoRefresh } from "./autoRefresh";
 import { useUrlSyncedTabs } from "./useUrlSyncedTabs";
-import { Skeleton, EmptyState, Button, Select, Table, TextInput } from "./components/ui";
+import { Skeleton, Button, Select, TextInput, Badge, Card, Notice } from "./components/ui";
 import { apiFetch as fetch } from "./apiFetch";
 import {
   getScreeningProviders,
@@ -22,6 +22,7 @@ import { CapabilityNavBar, CopilotTriggerButton, type CapabilityTabItem } from "
 import { ScreenerResultsView, type ScreenerResultData } from "./ScreenerResultsView";
 import { RunDetailView, type RunDetailConfirmation } from "./RunDetailView";
 import { MorningDigest } from "./MorningDigest";
+import { ProviderConnectivityDashboard } from "./ProviderConnectivityDashboard";
 import { ScannerPanel } from "./ScannerPanel";
 import { GoalScreenPanel } from "./GoalScreenPanel";
 import { ErrorBoundary } from "./ErrorBoundary";
@@ -91,7 +92,6 @@ interface ScreenersHubProps {
   onTabChange?: (tab: ScreenersHubTab) => void;
 }
 
-type ScreenRow = Record<string, unknown>;
 
 // Issue #212: a persisted autonomous screener run.
 // Issue #253: allStocks carries the full scanned set (not just standouts).
@@ -178,12 +178,6 @@ function numberFilter(value: string): number | undefined {
   return value.trim() === "" ? undefined : Number(value);
 }
 
-function displayValue(value: unknown): string {
-  if (value === null || value === undefined || value === "") return "—";
-  if (typeof value === "object") return JSON.stringify(value);
-  return String(value);
-}
-
 export function ScreenersHub({
   activeEnv,
   userLogin,
@@ -236,7 +230,6 @@ export function ScreenersHub({
   // minScore, and exchange as a plain string — hence Record, not
   // StockScreenerFilter. The panel reads only its seven managed keys.)
   const [lastSentStockFilters, setLastSentStockFilters] = useState<Record<string, unknown> | null>(null);
-  const [rows, setRows] = useState<ScreenRow[]>([]);
   // Issue #261: manual run result for the unified ScreenerResultsView.
   const [universe, setUniverse] = useState("TECH");
   const [sector, setSector] = useState("ALL");
@@ -246,14 +239,6 @@ export function ScreenersHub({
   const [summary, setSummary] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [discovery, setDiscovery] = useState<{
-    mode?: string;
-    candidateCount?: number;
-    listingCount?: number;
-    sourceCounts?: Record<string, number>;
-    message?: string;
-  } | null>(null);
-  const [scannedAt, setScannedAt] = useState<string>("");
   // Issue #212: latest screener runs (retained history; each run carries
   // its own trigger — manual runs are not scheduled runs).
   const [autoRuns, setAutoRuns] = useState<ScreenRun[]>([]);
@@ -329,10 +314,8 @@ export function ScreenersHub({
     if (!endpoint || loading) return;
     setLoading(true);
     setError("");
-    setRows([]);
     setManualResult(null);
     setSummary("");
-    setDiscovery(null);
     try {
       const filters = {
         universe,
@@ -433,7 +416,6 @@ export function ScreenersHub({
         );
         setManualResult(null);
         setSummary(`${shards.length} universes screened in parallel`);
-        setScannedAt(new Date().toLocaleTimeString());
         return;
       }
       setShardedResults([]);
@@ -457,10 +439,7 @@ export function ScreenersHub({
         allStocks: stockResults.map(mapRow),
         discoveryMessage: data.discoveryMessage,
       });
-      setRows(stockResults.map((row) => Object.fromEntries(Object.entries(row))));
       setSummary(data.filterSummary || `${data.totalScanned ?? 0} scanned · ${data.matchedCount ?? stockResults.length} matched`);
-      setDiscovery(data.discovery || null);
-      setScannedAt(data.scannedAt || new Date().toLocaleTimeString());
       onStocksLoaded?.(stockResults);
       void loadAuto();
     } catch (cause) {
@@ -622,7 +601,12 @@ export function ScreenersHub({
         },
       },
     );
-    return assetTabs;
+    // Issue #2438: the Planned tabs leave the primary bar until
+    // implemented. They stay valid tab ids (isValidScreenerTab) and
+    // their panels still render for deep links — only the bar items
+    // go away, so first-time users meet no dead ends.
+    const PLANNED_BAR_EXCLUDED = ["forex", "futures", "commodities", "bonds"];
+    return assetTabs.filter((tab) => !PLANNED_BAR_EXCLUDED.includes(tab.id));
   }, []);
 
   return (
@@ -635,23 +619,18 @@ export function ScreenersHub({
         rightContent={
           <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", fontSize: "var(--font-size-body-sm)", color: "var(--color-text-muted)" }}>
             <CopilotTriggerButton label="✨ Ask Copilot" />
-            {scannedAt && (
+            {/* Issue #2438: the header shows the selected run's identity
+                or nothing — never manual-run leftovers ("Last scan" /
+                "N matched" described a manual run the user may never
+                have made, above autonomous content). */}
+            {hubTab === "stocks" && selectedAutoRun && (
               <span>
-                Last scan: <strong style={{ color: "var(--color-text-primary)" }}>{scannedAt}</strong>
-              </span>
-            )}
-            {rows.length > 0 && (
-              <span
-                style={{
-                  padding: "var(--space-0-5) var(--space-2)",
-                  borderRadius: "4px",
-                  background: "var(--color-card)",
-                  border: "1px solid var(--color-border-subtle)",
-                  fontWeight: 600,
-                  color: "var(--color-accent)",
-                }}
-              >
-                {rows.length} matched
+                Viewing:{" "}
+                <strong style={{ color: "var(--color-text-primary)" }}>
+                  {(selectedAutoRun.universe || "nasdaq100").toUpperCase()} ·{" "}
+                  {new Date(selectedAutoRun.timestamp).toLocaleString()} ·{" "}
+                  {SCREEN_RUN_STATUS_LABELS[screenRunStatus(selectedAutoRun)]}
+                </strong>
               </span>
             )}
           </div>
@@ -673,8 +652,10 @@ export function ScreenersHub({
         >
           {/* Issue #1328: morning digest above the runs panel — one briefing
               of last night's runs, linking each entry to its run detail
-              (child 3) and held items to the pending-review queue (child 1). */}
-          <div style={{ marginBottom: "1rem" }}>
+              (child 3) and held items to the pending-review queue (child 1).
+              Issue #2438: the detail card's back-to-digest control scrolls
+              back here. */}
+          <div id="morning-digest" style={{ marginBottom: "1rem" }}>
             <MorningDigest
               runs={autoRuns}
               onSelectRun={(timestamp) => {
@@ -705,78 +686,6 @@ export function ScreenersHub({
               </div>
             ) : (
               <>
-                {/* Issue #830: grouped jobs + data panel.
-                    Jobs are grouped by universe in scrollable panels.
-                    Selecting a job shows its latest run data below. */}
-                <div
-                  aria-label="Scheduled jobs by universe"
-                  style={{
-                    display: "flex",
-                    gap: "var(--space-3)",
-                    overflowX: "auto",
-                    paddingBottom: "var(--space-2)",
-                    marginBottom: "0.75rem",
-                  }}
-                >
-                  {Object.entries(
-                    autoRuns.reduce((groups, run) => {
-                      const universe = run.universe || "nasdaq100";
-                      if (!groups[universe]) groups[universe] = [];
-                      groups[universe].push(run);
-                      return groups;
-                    }, {} as Record<string, typeof autoRuns>)
-                  ).map(([universe, runs]) => {
-                    const latest = runs[0];
-                    const status = screenRunStatus(latest);
-                    const isSelected = selectedAutoRun?.universe === universe ||
-                      (selectedAutoRun && runs.some(r => r.timestamp === selectedAutoRun.timestamp));
-                    return (
-                      <Button
-                        key={universe}
-                        type="button"
-                        onClick={() => setSelectedAutoTs(latest.timestamp)}
-                        aria-pressed={isSelected}
-                        style={{
-                          minWidth: "220px",
-                          flex: "0 0 auto",
-                          textAlign: "left",
-                          padding: "var(--space-3)",
-                          borderRadius: "8px",
-                          border: isSelected
-                            ? "2px solid var(--color-accent)"
-                            : "1px solid var(--color-border-subtle)",
-                          background: "var(--color-surface)",
-                          cursor: "pointer",
-                        }}
-                      >
-                        <div style={{ fontWeight: 700, fontSize: "var(--font-size-body)", marginBottom: "0.25rem", color: "var(--color-text-primary)" }}>
-                          {universe.toUpperCase()}
-                        </div>
-                        <div style={{ fontSize: "var(--font-size-body-sm)", color: "var(--color-text-muted)", marginBottom: "0.25rem" }}>
-                          {runs.length} run{runs.length !== 1 ? "s" : ""} retained (up to 20)
-                        </div>
-                        <div style={{ fontSize: "var(--font-size-body-sm)", color: "var(--color-text-muted)" }}>
-                          Last: {new Date(latest.timestamp).toLocaleTimeString()} · {latest.trigger === "manual" ? "Manual" : "Scheduled"} · {latest.totalScanned || 0} scanned · {latest.matchedCount || 0} matched
-                        </div>
-                        <div style={{
-                          display: "inline-block",
-                          marginTop: "0.35rem",
-                          padding: "var(--space-0-5) var(--space-2)",
-                          borderRadius: "12px",
-                          fontSize: "0.75rem",
-                          fontWeight: 600,
-                          ...(status === "success"
-                            ? { background: "var(--color-success-subtle)", color: "var(--color-success)", border: "1px solid var(--color-success)" }
-                            : status === "partial"
-                            ? { background: "var(--color-warning-subtle)", color: "var(--color-warning)", border: "1px solid var(--color-warning)" }
-                            : { background: "var(--color-danger-subtle)", color: "var(--color-danger)", border: "1px solid var(--color-danger)" }),
-                        }}>
-                          {status === "success" ? "✓ Complete" : status === "partial" ? "◐ Partial" : "✗ Failed"}
-                        </div>
-                      </Button>
-                    );
-                  })}
-                </div>
                 {/* Issue #2075: what the counts mean — scanned is symbols
                     evaluated, matched is passed the screen's filters,
                     standout is flagged opportunities. */}
@@ -786,9 +695,9 @@ export function ScreenersHub({
                 {/* Issue #125: per-run history — every retained run is
                     selectable (newest first), across universes. Selecting a
                     run swaps the results view + PDF + exports below to that
-                    run. The grouped universe cards above are a #830 shortcut
-                    to each universe's latest run; this list is the full
-                    history. */}
+                    run. Issue #2438: this compact list IS the history —
+                    the #830 grouped universe cards duplicated it and are
+                    gone. */}
                 <div
                   aria-label="Screener run history"
                   style={{
@@ -833,121 +742,124 @@ export function ScreenersHub({
                         {" · "}
                         {run.totalScanned ?? 0} scanned · {run.matchedCount ?? 0} matched · {oppCount} standout
                         {" "}
-                        <span className="screener-run-status" style={{ fontWeight: 700 }}>
+                        <Badge tone={status === "success" ? "success" : status === "partial" ? "warning" : "danger"} className="screener-run-status">
                           {SCREEN_RUN_STATUS_LABELS[status]}
-                        </span>
+                        </Badge>
                         {" · "}
                         <span>{isSelected ? "Viewing" : "View"}</span>
                       </Button>
                     );
                   })}
                 </div>
-                {/* Data panel for selected job */}
-                <div
-                  id="selected-run-detail"
-                  aria-label="Selected job run data"
-                  style={{
-                    border: "1px solid var(--color-border-subtle)",
-                    borderRadius: "8px",
-                    padding: "var(--space-4)",
-                    background: "var(--color-surface)",
-                    marginBottom: "0.75rem",
-                  }}
-                >
-                  <div style={{ fontWeight: 700, fontSize: "var(--font-size-body)", marginBottom: "0.5rem", color: "var(--color-text-primary)" }}>
-                    {(selectedAutoRun?.universe || "nasdaq100").toUpperCase()} · {selectedAutoRun ? new Date(selectedAutoRun.timestamp).toLocaleString() : "—"}
+                {/* Issue #2438: ONE detail card with a single heading
+                    hierarchy — outcome Badge, trigger, counts, tables,
+                    artifacts, delivery — instead of two competing
+                    cards. RunDetailView renders bare (artifacts +
+                    delivery only); this card carries the heading and
+                    the outcome row. */}
+                {selectedAutoRun && (
+                  <div
+                    id="selected-run-detail"
+                    aria-label="Selected job run data"
+                    style={{ marginBottom: "0.75rem" }}
+                  >
+                    <Card padding="md">
+                      <h3 style={{ margin: "0 0 0.5rem" }}>Run detail</h3>
+                      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", flexWrap: "wrap" }}>
+                        <Badge
+                          tone={
+                            screenRunStatus(selectedAutoRun) === "success"
+                              ? "success"
+                              : screenRunStatus(selectedAutoRun) === "partial"
+                              ? "warning"
+                              : "danger"
+                          }
+                        >
+                          {SCREEN_RUN_STATUS_LABELS[screenRunStatus(selectedAutoRun)]}
+                        </Badge>
+                        <span>
+                          {selectedAutoRun.matchedCount} matched of {selectedAutoRun.totalScanned} scanned
+                        </span>
+                        <span style={{ fontSize: "var(--font-size-body)", color: "var(--color-text-muted)" }}>
+                          {(selectedAutoRun.universe || "nasdaq100").toUpperCase()}
+                          {selectedAutoRun.sector && selectedAutoRun.sector !== "ALL" ? ` · ${selectedAutoRun.sector}` : ""}
+                          {" · "}
+                          {selectedAutoRun.trigger === "manual" ? "Manual" : "Scheduled"} ·{" "}
+                          {new Date(selectedAutoRun.timestamp).toLocaleString()}
+                        </span>
+                      </div>
+                      <div style={{ marginTop: "0.75rem" }}>
+                        <ScreenerResultsView
+                          result={{ ...selectedAutoRun, trigger: selectedAutoRun.trigger ?? "scheduled" }}
+                        />
+                      </div>
+                      <div style={{ marginTop: "0.75rem" }}>
+                        <RunDetailView
+                          run={selectedAutoRun}
+                          confirmations={runConfirmations}
+                          confirmationsLoading={runConfirmationsLoading}
+                          chrome="bare"
+                        />
+                      </div>
+                      <div style={{ marginTop: "0.75rem" }}>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => {
+                            if (typeof document !== "undefined") {
+                              document.getElementById("morning-digest")?.scrollIntoView?.({ block: "start" });
+                            }
+                          }}
+                        >
+                          Back to digest
+                        </Button>
+                      </div>
+                    </Card>
                   </div>
-                  <ScreenerResultsView
-                    result={{ ...selectedAutoRun, trigger: selectedAutoRun.trigger ?? "scheduled" }}
-                  />
-                  {selectedAutoRun && (
-                    <div style={{ marginTop: "0.75rem" }}>
-                      <RunDetailView
-                        run={selectedAutoRun}
-                        confirmations={runConfirmations}
-                        confirmationsLoading={runConfirmationsLoading}
-                      />
-                    </div>
-                  )}
-                </div>
+                )}
               </>
             )}
           </div>
+          {/* Issue #2438: the manual form is a clearly-headed secondary
+              placement below the run detail — it no longer competes with
+              the digest and history above it. Provider health lives on
+              the dashboard below; the per-screen feed callouts it
+              replaces are gone (one source of truth). */}
+          <h2 style={{ fontSize: "1.1rem", margin: "1.5rem 0 0.25rem" }}>Run a new screen</h2>
+          <p style={{ fontSize: "var(--font-size-body)", color: "var(--color-text-muted)", margin: "0 0 0.75rem" }}>
+            Provider health: see the <a href="#provider-dashboard">provider dashboard</a> below.
+          </p>
           <form className="options-request-form screeners-filter-form" onSubmit={(event) => void runScreen(event)}>
             <Select label="Data provider / API" value={providerId} onChange={(event) => setProviderId(event.target.value)}>
               {providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.label}</option>)}
             </Select>
 
-            <div className="screener-feed-callout">
-              {providerId === "etrade" ? (
-                <div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", marginBottom: "0.25rem", flexWrap: "wrap" }}>
-                    <span style={{ color: "var(--color-accent)", fontWeight: 700 }}>📡 Live Feed Source:</span>
-                    <span className="screener-feed-name" style={{ fontWeight: 600 }}>
-                      E*TRADE REST API — live quotes only (<code>api.etrade.com</code>)
-                    </span>
-                    <span style={{
-                      padding: "var(--space-0-5) var(--space-2)",
-                      borderRadius: "9999px",
-                      fontSize: "var(--font-size-caption)",
-                      fontWeight: 700,
-                      background: "var(--color-success-subtle)",
-                      color: "var(--color-success)",
-                      border: "1px solid var(--color-success)",
-                    }}>
-                      ● LIVE REST API
-                    </span>
-                  </div>
-                  <div className="screener-feed-meta" style={{ fontSize: "var(--font-size-caption)" }}>
-                    • <strong>Coverage:</strong> E*TRADE live quotes ({activeEnv}) &middot; <strong>Policy:</strong> E*TRADE-only — if unavailable, the screen fails honestly. No fallback data substituted.
-                  </div>
-                </div>
-              ) : (
-                <div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", marginBottom: "0.25rem", flexWrap: "wrap" }}>
-                    <span style={{ color: "var(--color-accent)", fontWeight: 700 }}>📡 Live Feed Source:</span>
-                    <span className="screener-feed-name" style={{ fontWeight: 600 }}>
-                      Yahoo Finance Engine (<code>query1.finance.yahoo.com</code>)
-                    </span>
-                    <span style={{
-                      padding: "var(--space-0-5) var(--space-2)",
-                      borderRadius: "9999px",
-                      fontSize: "var(--font-size-caption)",
-                      fontWeight: 700,
-                      background: "var(--color-accent-subtle)",
-                      color: "var(--color-accent)",
-                      border: "1px solid var(--color-border-focus)",
-                    }}>
-                      ● LIVE YAHOO ENGINE
-                    </span>
-                  </div>
-                  <div className="screener-feed-meta" style={{ fontSize: "var(--font-size-caption)" }}>
-                    • <strong>Coverage:</strong> Free &amp; Open Source fundamental ratios, trailing/forward P/E, PEG, and analyst price targets (no broker credentials required).
-                  </div>
-                </div>
-              )}
-            </div>
-            {providerSupportsFilter(activeProvider, assetClass, "search") && (
-              <TextInput label="Ticker or company search"
-                value={symbolSearch}
-                onChange={(event) => setSymbolSearch(event.target.value)}
-                placeholder="Optional; e.g. NVDA, AAPL"
-              />
-            )}
-            {providerSupportsFilter(activeProvider, assetClass, "exchange") && (
-              <Select label="Exchange" value={exchange} onChange={(event) => setExchange(event.target.value)}>
-                <option value="ALL">All U.S. listings</option>
-                <option value="NASDAQ">Nasdaq</option>
-                <option value="NYSE">NYSE</option>
-                <option value="AMEX">AMEX</option>
-              </Select>
-            )}
-            {providerSupportsFilter(activeProvider, assetClass, "price-range") && (
-              <>
-                <TextInput label="Min price" type="number" min="0" step="0.01" value={minPrice} onChange={(event) => setMinPrice(event.target.value)} />
-                <TextInput label="Max price" type="number" min="0" step="0.01" value={maxPrice} onChange={(event) => setMaxPrice(event.target.value)} />
-              </>
-            )}
+            {/* Issue #2438: fields never reshape by provider — every
+                field renders; one the active provider does not support
+                is disabled with the reason, never mounted/unmounted.
+                runScreen still only SENDS supported filters, so the
+                request shape is unchanged. */}
+            <TextInput label="Ticker or company search"
+              value={symbolSearch}
+              onChange={(event) => setSymbolSearch(event.target.value)}
+              placeholder="Optional; e.g. NVDA, AAPL"
+              disabled={!providerSupportsFilter(activeProvider, assetClass, "search")}
+              hint={providerSupportsFilter(activeProvider, assetClass, "search") ? undefined : `Not supported by ${activeProvider?.label ?? "this provider"}`}
+            />
+            <Select label="Exchange" value={exchange} onChange={(event) => setExchange(event.target.value)}
+              disabled={!providerSupportsFilter(activeProvider, assetClass, "exchange")}
+              hint={providerSupportsFilter(activeProvider, assetClass, "exchange") ? undefined : `Not supported by ${activeProvider?.label ?? "this provider"}`}>
+              <option value="ALL">All U.S. listings</option>
+              <option value="NASDAQ">Nasdaq</option>
+              <option value="NYSE">NYSE</option>
+              <option value="AMEX">AMEX</option>
+            </Select>
+            <TextInput label="Min price" type="number" min="0" step="0.01" value={minPrice} onChange={(event) => setMinPrice(event.target.value)}
+              disabled={!providerSupportsFilter(activeProvider, assetClass, "price-range")}
+              hint={providerSupportsFilter(activeProvider, assetClass, "price-range") ? undefined : `Not supported by ${activeProvider?.label ?? "this provider"}`} />
+            <TextInput label="Max price" type="number" min="0" step="0.01" value={maxPrice} onChange={(event) => setMaxPrice(event.target.value)}
+              disabled={!providerSupportsFilter(activeProvider, assetClass, "price-range")}
+              hint={providerSupportsFilter(activeProvider, assetClass, "price-range") ? undefined : `Not supported by ${activeProvider?.label ?? "this provider"}`} />
             <Select label="Universe" value={universe} onChange={(event) => setUniverse(event.target.value)} title="Index/ETF universe to screen">
               <option value="TECH">Technology (discovery)</option>
               <option value="NASDAQ100">Nasdaq-100</option>
@@ -977,16 +889,16 @@ export function ScreenersHub({
               onChange={(event) => setMinScore(event.target.value)}
               placeholder="Optional; e.g. 50"
             />
-            {providerSupportsFilter(activeProvider, assetClass, "trend") && (
-              <Select label="Daily trend" value={trend} onChange={(event) => setTrend(event.target.value)}>
-                <option value="all">All</option>
-                <option value="gainers">Gainers</option>
-                <option value="losers">Losers</option>
-              </Select>
-            )}
-            {providerSupportsFilter(activeProvider, assetClass, "limit") && (
-              <TextInput label="Max results" type="number" min="1" value={stockLimit} onChange={(event) => setStockLimit(event.target.value)} />
-            )}
+            <Select label="Daily trend" value={trend} onChange={(event) => setTrend(event.target.value)}
+              disabled={!providerSupportsFilter(activeProvider, assetClass, "trend")}
+              hint={providerSupportsFilter(activeProvider, assetClass, "trend") ? undefined : `Not supported by ${activeProvider?.label ?? "this provider"}`}>
+              <option value="all">All</option>
+              <option value="gainers">Gainers</option>
+              <option value="losers">Losers</option>
+            </Select>
+            <TextInput label="Max results" type="number" min="1" value={stockLimit} onChange={(event) => setStockLimit(event.target.value)}
+              disabled={!providerSupportsFilter(activeProvider, assetClass, "limit")}
+              hint={providerSupportsFilter(activeProvider, assetClass, "limit") ? undefined : `Not supported by ${activeProvider?.label ?? "this provider"}`} />
             <div className="screener-criteria-presets-deck">
               <ScreenerPresetManager
                 assetClass="stocks"
@@ -1005,7 +917,13 @@ export function ScreenersHub({
             </div>
           </form>
 
-          {error && <div className="options-error" role="alert">{error}</div>}
+          {/* Issue #2438: errors render via the Notice primitive, never
+              a raw .options-error div. */}
+          {error && (
+            <Notice tone="danger" density="compact" onDismiss={() => setError("")}>
+              {error}
+            </Notice>
+          )}
           {/* Issue #261: manual results use the same ScreenerResultsView as autonomous. */}
           {manualResult && <ScreenerResultsView result={manualResult} />}
           {shardedResults.length > 0 && shardedResults.map((r) => (
@@ -1015,123 +933,14 @@ export function ScreenersHub({
             </div>
           ))}
           {!manualResult && summary && <div className="screener-results-header"><span>{summary}</span><span>{activeProvider?.label} · {activeEnv}</span></div>}
-          {!manualResult && (rows.length > 0 || summary) && (
-            rows.length === 0 ? <EmptyState title="No results matched those filters." /> : (
-              <div className="options-table-scroll">
-                <div style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "var(--space-2-5)",
-                  padding: "var(--space-3) var(--space-4)",
-                  background: "var(--color-surface-sunken)",
-                  border: "1px solid var(--color-border-subtle)",
-                  borderRadius: "8px",
-                  marginBottom: "1rem",
-                  fontSize: "var(--font-size-body-sm)",
-                }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "var(--space-2)" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2-5)" }}>
-                      <span style={{ color: "var(--color-accent)", fontWeight: 700, fontSize: "var(--font-size-body)" }}>📡 Feed Source &amp; Data Provenance</span>
-                      <span style={{
-                        padding: "var(--space-1) var(--space-2-5)",
-                        borderRadius: "4px",
-                        fontSize: "var(--font-size-caption)",
-                        fontWeight: 700,
-                        background: String(rows[0]?.source || "").includes("Curated") ? "var(--color-warning-subtle)" : "var(--color-success-subtle)",
-                        color: String(rows[0]?.source || "").includes("Curated") ? "var(--color-warning)" : "var(--color-success)",
-                        border: `1px solid ${String(rows[0]?.source || "").includes("Curated") ? "var(--color-warning)" : "var(--color-success)"}`,
-                      }}>
-                        {String(rows[0]?.source || "").includes("Curated") ? "📂 OFFLINE STATIC SNAPSHOT" : "🌐 LIVE REST API FEED (api.nasdaq.com)"}
-                      </span>
-                    </div>
-                    <div style={{ color: "var(--color-text-muted)", fontSize: "var(--font-size-caption)" }}>
-                      Scanned at: <strong style={{ color: "var(--color-text-primary)" }}>{scannedAt || "Just now"}</strong> • Scope: <strong style={{ color: "var(--color-accent)" }}>{exchange} Listings</strong>
-                    </div>
-                  </div>
-
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "var(--space-2)", padding: "var(--space-2) var(--space-3)", background: "var(--color-card)", border: "1px solid var(--color-border-subtle)", borderRadius: "var(--radius-sm)" }}>
-                    <div>
-                      <span style={{ color: "var(--color-text-muted)", display: "block", fontSize: "var(--font-size-caption)" }}>UPSTREAM API ENDPOINT</span>
-                      <span style={{ color: "var(--color-text-primary)", fontWeight: 600, fontSize: "var(--font-size-caption)" }}>
-                        {String(rows[0]?.source || "").includes("Yahoo")
-                          ? "query1.finance.yahoo.com/v8/finance/chart"
-                          : String(rows[0]?.source || "").includes("Curated")
-                          ? "src/config/curatedStockUniverse.json (Offline Fallback)"
-                          : "https://api.nasdaq.com/api/screener/stocks"}
-                      </span>
-                    </div>
-                    <div>
-                      <span style={{ color: "var(--color-text-muted)", display: "block", fontSize: "var(--font-size-caption)" }}>EXCHANGE UNIVERSE LOADED</span>
-                      <span style={{ color: "var(--color-text-primary)", fontWeight: 600, fontSize: "var(--font-size-caption)" }}>
-                        {discovery?.sourceCounts ? (
-                          `Nasdaq: ${discovery.sourceCounts.nasdaq?.toLocaleString() || 0} • NYSE: ${discovery.sourceCounts.nyse?.toLocaleString() || 0} • AMEX: ${discovery.sourceCounts.amex?.toLocaleString() || 0}`
-                        ) : (
-                          `Live multi-exchange coverage (~8,000 listings across Nasdaq, NYSE, AMEX)`
-                        )}
-                      </span>
-                    </div>
-                    <div>
-                      <span style={{ color: "var(--color-text-muted)", display: "block", fontSize: "var(--font-size-caption)" }}>EXECUTION BROKER</span>
-                      <span style={{ color: "var(--color-accent)", fontWeight: 600, fontSize: "var(--font-size-caption)" }}>
-                        E*TRADE REST API · {activeEnv} (Orders &amp; Previews)
-                      </span>
-                    </div>
-                  </div>
-
-                  {discovery?.message && (
-                    <div style={{ color: "var(--color-text-muted)", fontSize: "0.75rem", fontStyle: "italic" }}>
-                      ℹ️ {discovery.message}
-                    </div>
-                  )}
-                </div>
-
-                <Table
-                  columns={Object.keys(rows[0]).map((key) => ({
-                    key,
-                    header: key.replace(/([a-z])([A-Z])/g, "$1 $2"),
-                    render: (row) => {
-                      const value = (row as Record<string, unknown>)[key];
-                      if (key === "source") {
-                        return (
-                          <span style={{
-                            display: "inline-block",
-                            padding: "var(--space-0-5) var(--space-2)",
-                            borderRadius: "4px",
-                            fontSize: "var(--font-size-caption)",
-                            fontWeight: 600,
-                            background: String(value).includes("Curated") ? "var(--color-warning-subtle)" : "var(--color-accent-subtle)",
-                            color: String(value).includes("Curated") ? "var(--color-warning)" : "var(--color-accent)",
-                            border: `1px solid ${String(value).includes("Curated") ? "var(--color-warning)" : "var(--color-border-focus)"}`,
-                          }}>
-                            {String(value)}
-                          </span>
-                        );
-                      }
-                      if (key === "validationStatus") {
-                        return (
-                          <span style={{
-                            display: "inline-block",
-                            padding: "var(--space-0-5) var(--space-2)",
-                            borderRadius: "4px",
-                            fontSize: "var(--font-size-caption)",
-                            fontWeight: 600,
-                            background: value === "PASS_CONFIRMED" ? "var(--color-success-subtle)" : "var(--color-danger-subtle)",
-                            color: value === "PASS_CONFIRMED" ? "var(--color-success)" : "var(--color-danger)",
-                            border: `1px solid ${value === "PASS_CONFIRMED" ? "var(--color-success)" : "var(--color-danger)"}`,
-                          }}>
-                            {String(value)}
-                          </span>
-                        );
-                      }
-                      return displayValue(value);
-                    },
-                  }))}
-                  rows={rows}
-                  rowKey={(row, index) => `${String((row as Record<string, unknown>).symbol || index)}:${index}`}
-                />
-              </div>
-            )
-          )}
+          {/* Issue #2438: the provider dashboard — the screen's
+              provider-health section and the one source of truth for
+              provider health (owner decision). Stored state only: it
+              reads GET /api/data-providers (+ oauth/status presence)
+              and never runs, verifies, or tests a provider. */}
+          <div id="provider-dashboard" style={{ marginTop: "1.5rem" }}>
+            <ProviderConnectivityDashboard />
+          </div>
         </div>
       )}
 

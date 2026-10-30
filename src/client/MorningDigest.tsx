@@ -64,6 +64,12 @@ export interface DigestRun {
   success?: boolean;
   totalScanned?: number;
   matchedCount?: number;
+  /** Issue #2438: trigger is display-only here — it already exists on
+   *  ScreenRun; the digest previously dropped it from its prop type.
+   *  Absent means unknown, never defaulted. Per-run provider stays
+   *  OUT (data gap — not on the row type); the provider dashboard
+   *  covers health globally instead. */
+  trigger?: "manual" | "scheduled";
   partial?: {
     quotedCount: number;
     requestedCount: number;
@@ -184,6 +190,11 @@ export function MorningDigest({
                   <span style={{ fontWeight: 700 }}>
                     {run.universe || "Screen"} {run.sector ? `· ${run.sector}` : ""}
                   </span>
+                  {run.trigger && (
+                    <span style={{ fontSize: "var(--font-size-body)", color: "var(--color-text-muted)" }}>
+                      {run.trigger === "manual" ? "Manual" : "Scheduled"}
+                    </span>
+                  )}
                   <span style={{ fontSize: "var(--font-size-body)", color: "var(--color-text-muted)" }}>
                     {formatTime(new Date(run.timestamp).getTime())}
                     {typeof run.matchedCount === "number" && typeof run.totalScanned === "number"
@@ -211,6 +222,10 @@ export function MorningDigest({
                   <Button variant="secondary" size="sm" onClick={() => onSelectRun(run.timestamp)}>
                     View run detail
                   </Button>
+                  {/* Issue #2438: provider health lives on the ScreenersHub
+                      dashboard (the one source of truth) — this anchor
+                      jumps to it; it runs no probe and no job. */}
+                  <a href="#provider-dashboard">Provider health</a>
                   {pdfHref && (
                     <a href={pdfHref} target="_blank" rel="noreferrer">
                       PDF

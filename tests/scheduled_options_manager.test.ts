@@ -1240,10 +1240,14 @@ describe("ScheduledOptionsManager — profile-derived discovery (#533)", () => {
       inputModel: "profile-derived",
       symbols: ["NVDA", "MSFT"],
       profileId: "prof-1",
-      slackChannel: "#options-alerts",
       environment: "TEST",
       trigger: "scheduled",
     });
+    // Issue #2438 (conflicting-state rule): the stored discovery
+    // payload carries NO channel, so the edit save must not invent
+    // one — the pre-#2438 round-trip passed only because the form's
+    // create defaults (Slack on, "#options-alerts") leaked into edits.
+    expect(createCalls[0].body.payload).not.toHaveProperty("slackChannel");
     await waitForText("Schedule updated successfully");
   });
 
@@ -1499,10 +1503,12 @@ describe("ScheduledOptionsManager — no-view discovery (#534)", () => {
     expect(createCalls[0].body.payload).toEqual({
       inputModel: "no-view",
       constraintSets: userDiscoveryNoView.payload.constraintSets,
-      slackChannel: "#options-alerts",
       environment: "TEST",
       trigger: "scheduled",
     });
+    // Issue #2438 (conflicting-state rule): see the profile-derived
+    // edit test — no stored channel, no invented channel on save.
+    expect(createCalls[0].body.payload).not.toHaveProperty("slackChannel");
     await waitForText("Schedule updated successfully");
   });
 
