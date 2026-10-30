@@ -30,7 +30,10 @@ import type {
   RepositoryPort,
   RepositoryQueryOptions,
 } from "./repositoryPorts";
-import type { SettingsReadPort } from "./settingsReadPorts";
+import type {
+  SettingsPort,
+  SettingsReadPort,
+} from "./settingsReadPorts";
 import type {
   TransactionCompletionFields,
   TransactionLedgerPort,
@@ -333,5 +336,34 @@ export class InMemorySettingsReadAdapter implements SettingsReadPort {
 
   has(key: string): boolean {
     return this.values.has(key);
+  }
+}
+
+/**
+ * In-memory settings port (#2390, step 4g) — the conformance
+ * twin of DoSqliteSettingsAdapter. ensureSchema is a no-op
+ * (there is no table); the map is the store.
+ */
+export class InMemorySettingsAdapter implements SettingsPort {
+  constructor(private readonly values = new Map<string, string>()) {}
+
+  ensureSchema(): void {
+    // No DDL in memory: the map exists from construction.
+  }
+
+  get(key: string): string | null {
+    return this.values.get(key) ?? null;
+  }
+
+  has(key: string): boolean {
+    return this.values.has(key);
+  }
+
+  set(key: string, value: string): void {
+    this.values.set(key, value);
+  }
+
+  delete(key: string): void {
+    this.values.delete(key);
   }
 }
