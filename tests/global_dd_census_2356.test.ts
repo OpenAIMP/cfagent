@@ -29,10 +29,10 @@
  * tables are named allow-list entries with owners — they
  * are not fixed here and they are not silently passed.
  *
- * And the G-7 remainder (audit §5): mas_settings is NOT
- * ported; its value-writer set (4 modules) and DDL-ensurer
- * set (3 modules) are pinned exactly so a fifth writer
- * fails the pin until the G-7 ruling lands.
+ * And mas_settings (audit §5, gate G-7): pinned as a
+ * remainder while unported (4 writers / 3 ensurers); since
+ * step 4g (#2390) the pin asserts the port-owned end state —
+ * the settings adapter is the only writer and only ensurer.
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -106,10 +106,8 @@ function aboveLayerCounts(pattern: RegExp): Map<string, number> {
 
 /** [file, sites, owner] — every entry retires only in its owner's slice. */
 const STORAGE_ALLOW_LIST: Array<[string, number, string]> = [
-  ["src/agents/orchestrator.ts", 4, "remainder: ADR-out ai-chat lift (3) + G-7 mas_settings CREATE (1)"],
-  ["src/agents/orchestrator/reportDispatch.ts", 3, "#2390 step 4g (mas_settings read/write doors)"],
+  ["src/agents/orchestrator.ts", 3, "permanent remainder: ADR-out ai-chat lift (3)"],
   ["src/services/learnings.ts", 7, "R-1 gated — NOT step 4c (two-host question open)"],
-  ["src/services/screeningFlags.ts", 4, "G-7 (mas_settings)"],
   ["src/security/sessionStore.ts", 2, "step 5 (SessionStore / kv_store)"],
   ["src/actors/cfAgentsAdapter.ts", 1, "permanent — Agents-SDK shim (ADR-out)"],
 ];
@@ -163,7 +161,7 @@ const STEP4B_SERVICE_FILES = [
  *  step-3a read-only settings adapter, counted there.) */
 const STEP4B_DATA_LAYER_FILES: Array<[string, number]> = [
   ["src/data/doSqliteChallengerAdapter.ts", 15],
-  ["src/data/doSqliteStrategyWeightsAdapter.ts", 12],
+  ["src/data/doSqliteStrategyWeightsAdapter.ts", 11],
   ["src/data/doSqliteStrategyPolicyAdapter.ts", 11],
   ["src/data/doSqliteAdaptationAuditAdapter.ts", 5],
   ["src/data/doSqliteReselectionAdapter.ts", 3],
@@ -244,6 +242,12 @@ const STEP4E_DATA_LAYER_FILES: Array<[string, number]> = [
   ["src/data/createScreenRunLockPorts.ts", 0],
 ];
 
+/** The step-4g settings doors: zero above-layer sites remain. */
+const STEP4G_SERVICE_FILES = [
+  "src/agents/orchestrator/reportDispatch.ts",
+  "src/services/screeningFlags.ts",
+] as const;
+
 /** The step-4f index helpers: zero above-layer sites remain. */
 const STEP4F_SERVICE_FILES = [
   "src/services/masRetentionIndexes.ts",
@@ -275,8 +279,10 @@ describe("global D-D census: surface 1 — storage-shaped sites above the layer"
     // step 4d-2 (#2360) retires the payments route's 8 → 46;
     // step 4e (#2361) retires research-agent's 21 and
     // screener-agent's 1 → 24; step 4f (#2362) retires the
-    // two index helpers' 3 → 21.
-    expect(total).toBe(21);
+    // two index helpers' 3 → 21; step 4g (#2390) retires
+    // reportDispatch's 3, screeningFlags' 4 and the
+    // orchestrator's G-7 CREATE → 13.
+    expect(total).toBe(13);
   });
 
   for (const file of STEP4C_SERVICE_FILES) {
@@ -348,6 +354,12 @@ describe("global D-D census: surface 1 — storage-shaped sites above the layer"
   for (const [file, sites] of STEP4F_DATA_LAYER_FILES) {
     it(`${file} holds exactly ${sites} storage-exec sites`, () => {
       expect(countIn(STORAGE_EXEC_PATTERN, file)).toBe(sites);
+    });
+  }
+
+  for (const file of STEP4G_SERVICE_FILES) {
+    it(`${file} holds zero storage-exec sites (serves through its port)`, () => {
+      expect(countIn(STORAGE_EXEC_PATTERN, file)).toBe(0);
     });
   }
 });
@@ -588,28 +600,23 @@ describe("global D-D census: writer sets by table for ported tables", () => {
 });
 
 // ---------------------------------------------------------------------------
-// G-7 remainder — mas_settings writer sets (audit §5.3 recommendation)
+// G-7 — mas_settings writer sets (audit §5.3; port-owned since #2390)
 // ---------------------------------------------------------------------------
 
-describe("global D-D census: G-7 remainder — mas_settings", () => {
-  it("value writers are exactly the four measured modules", () => {
+describe("global D-D census: G-7 — mas_settings (port-owned since #2390)", () => {
+  it("the only value writer is the settings port's adapter", () => {
     const re = /(?:INSERT\s+(?:OR\s+\w+\s+)?INTO|UPDATE|DELETE\s+FROM)\s+mas_settings(?![\w])/gi;
     const actual = SRC_FILES.filter((f) => re.test(STRIPPED.get(f)!)).sort();
     expect(actual).toEqual([
-      "src/agents/orchestrator/reportDispatch.ts",
-      "src/data/doSqliteEnrichmentAdapter.ts",
-      "src/data/governedHalt.ts",
-      "src/services/screeningFlags.ts",
+      "src/data/doSqliteOrmAdapters.ts",
     ]);
   });
 
-  it("DDL ensurers are exactly the three measured modules", () => {
+  it("the only DDL ensurer is the settings port's adapter", () => {
     const re = /CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?\s+mas_settings(?![\w])/gi;
     const actual = SRC_FILES.filter((f) => re.test(STRIPPED.get(f)!)).sort();
     expect(actual).toEqual([
-      "src/agents/orchestrator.ts",
-      "src/data/doSqliteStrategyWeightsAdapter.ts",
-      "src/services/screeningFlags.ts",
+      "src/data/doSqliteOrmAdapters.ts",
     ]);
   });
 });
