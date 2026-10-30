@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "../types";
+import { runDoSchemaMigration } from "../data/doSchemaMarker";
 import {
   computeEventHash,
   type CreateIaaaAuditEventInput,
@@ -131,6 +132,16 @@ interface Measured<T> {
   rowsWritten: number;
 }
 
+/**
+ * The kv_store schema generation this code creates and serves
+ * (ADR 0022 D-A.4). Generation 1 is the original shape — the
+ * `kv_store` table below — recorded in the D-A.4 marker by the
+ * constructor (#2432). Bump this only alongside a schema change
+ * to kv_store itself, under runDoSchemaMigration discipline:
+ * the marker row is the commit record for the change.
+ */
+export const SESSION_STORE_SCHEMA_VERSION = 1;
+
 export class SessionStore extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -142,6 +153,31 @@ export class SessionStore extends DurableObject<Env> {
          expires_at INTEGER,
          PRIMARY KEY (ns, key)
        )`
+    );
+    // #2432 (ADR 0022 D-A.4): record the schema-version marker
+    // for this instance. SessionStore was the last DO evolving
+    // schema with no version marker; generation 1's body is the
+    // CREATE TABLE above, which stays unconditional and
+    // IF NOT EXISTS exactly as before — the migration call only
+    // records that the generation is in place (marker written
+    // last, and only when the recorded version is older). The
+    // write is additive and idempotent: it touches only the
+    // marker module's own table, never kv_store, and no op's
+    // behaviour depends on it.
+    //
+    // The marker module is served through execCounted rather
+    // than the raw SqlStorage: execCounted's toArray() is the
+    // cursor surface every statement in this class already
+    // standardises on (#1819), while the marker's DoSchemaSql
+    // contract iterates the exec result — an adapter over
+    // execCounted satisfies it without a second cursor idiom.
+    runDoSchemaMigration(
+      {
+        exec: (query: string, ...params: unknown[]) =>
+          this.execCounted<Record<string, unknown>>(query, ...params).rows,
+      },
+      SESSION_STORE_SCHEMA_VERSION,
+      () => {},
     );
   }
 
