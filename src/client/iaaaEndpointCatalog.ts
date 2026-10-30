@@ -625,6 +625,16 @@ export const API_ENDPOINT_CATALOG: ApiEndpointEntry[] = [
     source: "src/server.ts branch: path === /api/retention/purge",
   },
   {
+    id: "agents-registry",
+    method: "GET",
+    path: "/api/agents/registry",
+    aliases: [],
+    kind: "http",
+    auth: "session",
+    authNote: "401 unauthenticated; 405 non-GET. Read-only rendering of the G0 agent-mesh registry (src/agents/registry.ts): fleet classes with recorded status, the S15 door census, workflows, channels, tool families, S19 door budgets, and the programme records (G12 proof, trace spine). Credential posture carries env names only — never secret values.",
+    source: "src/server.ts branch: path === /api/agents/registry",
+  },
+  {
     id: "telemetry-summary",
     method: "GET",
     path: "/api/telemetry/summary",

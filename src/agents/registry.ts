@@ -24,6 +24,18 @@
 
 export type MeshAgentKind = "agent" | "durable-object" | "mcp-agent";
 
+/**
+ * Recorded capability posture of a fleet class (S20, #2469 — the
+ * status the Agents view renders). "live": bound, routed, and no
+ * recorded degradation. "degraded": the class runs, but a named
+ * capability fact recorded in `notes` limits it — the reason is
+ * carried in `statusReason` and evidenced in repo facts, pinned by
+ * tests/mesh_agents_view_s20_2469.test.ts. (The third posture of
+ * the tool-family vocabulary, "absent", has no instance among the
+ * classes: every registered class exists and is bound.)
+ */
+export type MeshAgentStatus = "live" | "degraded";
+
 export interface MeshAgentEntry {
   className: string;
   kind: MeshAgentKind;
@@ -33,6 +45,10 @@ export interface MeshAgentEntry {
   bindings: string[];
   sourceFile: string;
   role: string;
+  /** Recorded capability posture (S20, #2469). */
+  status: MeshAgentStatus;
+  /** Why the status is what it is — recorded evidence, not inference. */
+  statusReason: string;
   notes?: string;
 }
 
@@ -135,6 +151,9 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     bindings: ["SEARCH_AGENT", "ORCHESTRATOR_AGENT"],
     sourceFile: "src/agents/orchestrator.ts",
     role: "Primary conversational agent: chat turns, the MAS tool surface, NLQ and goal/chain execution; owns the mas_* SQL ledger the fleet reads from.",
+    status: "live",
+    statusReason:
+      "Bound on SEARCH_AGENT + ORCHESTRATOR_AGENT and routed for every chat turn; no recorded degradation.",
     notes:
       "Exported from src/server.ts both as OrchestratorAgent and under the legacy alias SearchAgent (the SEARCH_AGENT binding's class_name). Service and A2A addressing uses the shared orchestrator instance.",
   },
@@ -145,6 +164,9 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     bindings: ["RESEARCH_AGENT"],
     sourceFile: "src/agents/research-agent.ts",
     role: "Deep-research runs: discovery, source gathering, synthesis, optional publication.",
+    status: "live",
+    statusReason:
+      "Bound on RESEARCH_AGENT and reachable through the chat door and agent-as-a-tool; no recorded degradation.",
   },
   {
     className: "TradingAgent",
@@ -153,6 +175,9 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     bindings: ["TRADING_AGENT"],
     sourceFile: "src/agents/trading-agent.ts",
     role: "E*TRADE trading agent: quotes, previews, and the human approval door; starts TradingTradeWorkflow for approved executions.",
+    status: "live",
+    statusReason:
+      "Bound on TRADING_AGENT; proposals and the approval door are live (executions stay behind the human approval door by design, S9).",
     notes:
       "Chat reaches the proposal side through the G1 door (#2349, src/agents/orchestrator/meshDoors.ts), addressed to the acting user's own instance (trading:<login>): trade proposals via the preview-only stock_trading/options_trading services plus the accounts/positions/quote reads. Since S9/G4 (#2375) the chat turn also reaches the approval door through the same door: startTradeApproval starts the TradingTradeWorkflow run for a proposal and decideTradeApproval delivers the human's decision (authorizer DID derived server-side from the acting login), and the workflow's settle step calls executeApprovedOrder — which remains the one approval-door method with no direct chat caller.",
   },
@@ -163,6 +188,9 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     bindings: ["PAYMENTS_AGENT"],
     sourceFile: "src/agents/payments-agent.ts",
     role: "Payments agent: DID-attested drafts and x402/MPP premium legs over the payments ledger.",
+    status: "live",
+    statusReason:
+      "Bound on PAYMENTS_AGENT; budget checks and paid-request processing live behind the BudgetGuard; no recorded degradation.",
     notes:
       "Chat reaches budgetCheck + the read side (todaySpent/listPayments) through the G1 door (#2341, src/agents/orchestrator/meshDoors.ts), checks attributed to AGENTIC_SPEND_AGENT_ID; processPaidRequest has no chat caller by design — the chat paid-request flow is S10/G5 (PaymentWorkflow).",
   },
@@ -173,6 +201,9 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     bindings: ["SCREENER_AGENT"],
     sourceFile: "src/agents/screener-agent.ts",
     role: "Screening execution agent: stock and options screens; hosts ScreenerScreenWorkflow steps.",
+    status: "live",
+    statusReason:
+      "Bound on SCREENER_AGENT and hosting ScreenerScreenWorkflow steps; no recorded degradation.",
   },
   {
     className: "ScheduledAgent",
@@ -181,6 +212,9 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     bindings: ["SCHEDULED_AGENT"],
     sourceFile: "src/agents/scheduled-agent.ts",
     role: "Schedule catalogue and synthesized schedules/goals; singleton instance \"default\"; fires screens, research, and QA runs.",
+    status: "live",
+    statusReason:
+      "Bound on SCHEDULED_AGENT; catalogue and triggers live; no recorded degradation.",
     notes:
       "Chat reaches the goal catalogue through the G1 door (#2341, src/agents/orchestrator/meshDoors.ts): list/inspect + trigger, acting identity required. Add/remove/enable stay on the session-gated /api/schedule/* routes.",
   },
@@ -191,6 +225,9 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     bindings: ["REPORT_ASSET_AGENT"],
     sourceFile: "src/agents/report-asset-agent.ts",
     role: "Report asset storage and serving; blobs in R2 (REPORTS_BUCKET) when bound, metadata in DO storage.",
+    status: "live",
+    statusReason:
+      "Bound on REPORT_ASSET_AGENT; list/get/generation paths live; no recorded degradation.",
     notes:
       "Chat reaches the user's assets through the G1 door (#2349, src/agents/orchestrator/meshDoors.ts), addressed to the acting user's own instance (assets:<login>): list (listAssets metadata) + get, replacing the turn's indirect reach through the report pipeline. Generation stays with the pipeline/A2A callers.",
   },
@@ -201,6 +238,9 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     bindings: ["BROWSER_AGENT"],
     sourceFile: "src/agents/browserAgent.ts",
     role: "Browser fetch, inspect, and screenshot over the Browser Rendering binding (BROWSER, declared in wrangler.jsonc).",
+    status: "live",
+    statusReason:
+      "Bound on BROWSER_AGENT with the BROWSER rendering binding declared in wrangler.jsonc (#2253); no recorded degradation.",
     notes:
       "Chat reaches it through the G1 door (#2351, src/agents/orchestrator/meshDoors.ts), addressed to the fixed instance \"browser\" (A2A parity — the class is stateless/env-driven): transaction snap, page capture, and table scrape, results verbatim (a placeholder-labelled screenshot or a not-delivered outcome stays labelled). The door takes no caller-supplied webhookUrl — delivery targets are env configuration only (the survey §2.8 call, decided in #2351 following the #2223 A2A precedent).",
   },
@@ -211,6 +251,9 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     bindings: ["SLACK_AGENT"],
     sourceFile: "src/agents/slackAgent.ts",
     role: "Slack app agent: slash commands, events, interactions, approval buttons.",
+    status: "live",
+    statusReason:
+      "Bound on SLACK_AGENT; ingress converged onto the shared channel handler (S13); no recorded degradation.",
     notes:
       "Production Slack ingress arrives via the src/server.ts forwarder routes onto per-team OrchestratorAgent instances. Since S13/G10 (#2412) the agent's own gated ingress is no longer a parallel implementation: onRequest delegates to the same shared channel handler (src/agents/routes/tradingIntegrations.ts) with an agent-hosted context, so the gate, principal resolution, NLQ dep set, event dedup, and service are identical on both hosts (the channel record carries the full posture). Chat reaches its outbound side through the G1 door (#2351, src/agents/orchestrator/meshDoors.ts), addressed to the fixed instance \"slack\" (A2A parity): the pre-trade approval ticket (posts the HITL gate; approves/executes nothing) and the transaction snap, with no caller-supplied webhookUrl.",
   },
@@ -221,6 +264,9 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     bindings: ["AI_SEARCH_AGENT"],
     sourceFile: "src/agents/aiSearchAgent.ts",
     role: "AI Search agent (#2223): three-path search — Cloudflare AI Search namespace binding, the shared instance's MCP endpoint, REST fallback (src/agents/aiSearchPaths.ts).",
+    status: "degraded",
+    statusReason:
+      "Degraded: the ai_search_namespaces binding is dashboard-issued and NOT declared in wrangler.jsonc, so the namespace path is config-gated; the class degrades honestly to its MCP-endpoint and REST paths (see notes).",
     notes:
       "Landed after the mesh survey base (migration v12). The ai_search_namespaces binding is NOT declared in wrangler.jsonc — its namespace value is dashboard-issued (see src/types.ts) — so the namespace path is config-gated and degrades honestly to the other two paths. Chat reach (G1, verified in #2351): the chat turn already reaches this agent through the ai_search_agent_search command (#2250, src/mcp/cloudflareAgentCommands.ts) — a typed stub over the AI_SEARCH_AGENT binding on the fixed service instance \"aisearch\", threading the turn's session login as callerLogin so report-type results are served only to their owner. No mesh-door command is added for it: a second door to the same agent would be a parallel implementation.",
   },
@@ -231,6 +277,9 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     bindings: ["TICKER_AGENT"],
     sourceFile: "src/agents/ticker-agent.ts",
     role: "Public market-quotes tape: one shared instance (\"ticker\") broadcasting quote ticks over WebSocket (#2230).",
+    status: "live",
+    statusReason:
+      "Bound on TICKER_AGENT; the public quotes tape broadcast is live; no recorded degradation.",
     notes: "Landed after the mesh survey base (migration v11). Not routed through routeAgentRequest; no A2A surface.",
   },
   {
@@ -240,6 +289,9 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     bindings: ["SANDBOX_AGENT"],
     sourceFile: "src/agents/sandbox-agent.ts",
     role: "Sandbox command agent (#2253): delegates execution to ETradeSandboxService.",
+    status: "degraded",
+    statusReason:
+      "Degraded: no container backend is configured (no containers declared in wrangler.jsonc), so run_command honestly returns executed:false; the class and its A2A surface are live, the execution backend is absent (see notes).",
     notes:
       "Landed after the mesh survey base (migration v13). No container backend is configured, so runs honestly return executed:false. The A2A surface recorded as a follow-up landed in S15 (#2421): card + resolution + src/agents/sandboxA2aDispatch.ts (sandbox.status, sandbox.run_command) on the A2A edge gate; S16 (#2426) gave the surface its own mesh credential (A2A_TOKEN_SANDBOX — see the identity records), with the shared token as its transitional fallback. Chat/MCP still reach the sandbox capability by constructing the service directly, not through this class (the #2253 wiring follow-up; see the census).",
   },
@@ -250,6 +302,9 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     bindings: ["SESSION_STORE"],
     sourceFile: "src/security/sessionStore.ts",
     role: "Session, identity, and broker-token store: app sessions, OAuth tokens, channel identity mappings. A plain Durable Object, not an agent.",
+    status: "live",
+    statusReason:
+      "Bound on SESSION_STORE; the session/identity store every door authenticates against; no recorded degradation.",
   },
   {
     className: "OptionsScannerMCP",
@@ -258,6 +313,9 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     bindings: ["OPTIONS_SCANNER_MCP"],
     sourceFile: "src/services/cloudflareWalletsScanner.ts",
     role: "Paid options-scanner MCP server (x402).",
+    status: "live",
+    statusReason:
+      "Bound on OPTIONS_SCANNER_MCP; the paid scanner surface is live. Registered for binding completeness — OUT of mesh scope per #2225.",
     notes: "Registered for binding completeness; OUT of mesh scope per #2225 (no changes to this class in the programme).",
   },
 ];

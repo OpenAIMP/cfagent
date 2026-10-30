@@ -83,6 +83,7 @@ import {
   createShardJobAdapter,
   readJobHistory,
 } from "./data/createShardJobPorts";
+import { handleMeshRegistryRoute } from "./agents/meshRegistryRoute";
 import { handleRetentionPurgeRoute } from "./data/retentionRoute";
 import { dispatchSubscriberBatch } from "./messaging/cfQueueMessagingAdapter";
 import {
@@ -1712,6 +1713,19 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         chainId,
         readHistory: async () => history,
       });
+    }
+
+    // --- Agent Mesh registry view (issue #2469, S20/G9) ---
+    // GET /api/agents/registry: the Agents view's data route — a
+    // read-only rendering of the G0 registry (src/agents/
+    // registry.ts), derived at request time. Gated by requireAuth
+    // (any signed-in user), like the job-history read; the payload
+    // is fleet facts recorded in code (credential posture as env
+    // names only — never secret values), so no tenant scoping
+    // applies. The handler answers GET only.
+    if (path === "/api/agents/registry") {
+      const session = await requireAuth(request, env);
+      return handleMeshRegistryRoute({ session, method: request.method });
     }
 
     // --- Shard job reconciliation (issue #1676, slice 2) ---

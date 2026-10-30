@@ -5,11 +5,11 @@
  * from this table (see NavigationMenu.tsx and Chat.tsx).
  *
  * Shape of an entry:
- * - `id` is the tab id carried in the URL (`?tab=<id>`). All 31 ids Chat
+ * - `id` is the tab id carried in the URL (`?tab=<id>`). All 32 ids Chat
  *   has ever used are entries, including the six legacy/alias ids
  *   (trading, orders, scanner, reports, schedules, options) that never
  *   render as nav items but still land on a page.
- * - `navEntry` is present only for the 25 entries that render in the nav.
+ * - `navEntry` is present only for the 26 entries that render in the nav.
  *   Its `navOrder` reproduces the historical sidebar/top-strip order, so
  *   deriving NAVIGATION_ITEMS from this table changes nothing visible.
  * - `navGroup` is the nav entry highlighted when this tab is active. It
@@ -90,6 +90,23 @@ export const ROUTES = [
       navOrder: 18,
       defaultVisible: true,
       badge: "Partners",
+      badgeType: "neutral",
+    },
+  },
+  {
+    id: "agents",
+    navGroup: "agents",
+    crumb: "Agents",
+    category: "Platform",
+    icon: "Agents",
+    description:
+      "The agent fleet as the G0 registry records it: every class, its bindings, doors and gates, identity and credential posture, and the honest degraded/absent records",
+    navEntry: {
+      label: "Agents",
+      shortLabel: "Agents",
+      navOrder: 25,
+      defaultVisible: true,
+      badge: "Registry",
       badgeType: "neutral",
     },
   },

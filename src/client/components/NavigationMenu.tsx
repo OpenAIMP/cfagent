@@ -131,6 +131,14 @@ export const NavIcons = {
       <circle cx="12" cy="12" r="4" fill={active ? "currentColor" : "none"} fillOpacity={0.2} />
     </svg>
   ),
+  Agents: ({ active }: { active?: boolean; className?: string }) => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="5" r="2.5" fill={active ? "currentColor" : "none"} fillOpacity={0.2} />
+      <circle cx="5" cy="19" r="2.5" fill={active ? "currentColor" : "none"} fillOpacity={0.2} />
+      <circle cx="19" cy="19" r="2.5" fill={active ? "currentColor" : "none"} fillOpacity={0.2} />
+      <path d="M12 7.5 5.9 16.6M12 7.5l6.1 9.1M7.5 19h9" />
+    </svg>
+  ),
   Order: ({ active }: { active?: boolean; className?: string }) => (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill={active ? "currentColor" : "none"} fillOpacity={0.2} />
@@ -384,6 +392,7 @@ export const NavIcons = {
 
 /** NavIcons key -> component (the route table carries keys, not components). */
 const NAV_ICON_MAP: Record<string, NavItemDef["icon"]> = {
+  Agents: NavIcons.Agents,
   Autopilot: NavIcons.Autopilot,
   Order: NavIcons.Order,
   Portfolio: NavIcons.Portfolio,
