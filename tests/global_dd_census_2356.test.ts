@@ -214,7 +214,7 @@ const STEP4D_DATA_LAYER_FILES: Array<[string, number]> = [
   ["src/data/doSqlitePolicyVerdictAdapter.ts", 4],
   ["src/data/doSqliteReportConfirmationAdapter.ts", 9],
   ["src/data/doSqliteScreenerPresetAdapter.ts", 6],
-  ["src/data/doSqliteCanonicalReportStoreAdapter.ts", 19],
+  ["src/data/doSqliteCanonicalReportStoreAdapter.ts", 21],
   ["src/data/doSqliteUsageEventAdapter.ts", 4],
   ["src/data/orchestratorTablePorts.ts", 0],
   ["src/data/canonicalReportStorePorts.ts", 0],
