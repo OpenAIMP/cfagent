@@ -15,6 +15,7 @@
     "test": "vitest run",
     "test:ci": "vitest run --reporter=verbose",
     "test:quarantine": "node scripts/run-quarantined.mjs",
+    "test:workers": "vitest run --config vitest.workers.config.mts",
     "test:watch": "vitest",
     "check": "node scripts/gen-design-tokens.mjs --check && npm run typecheck && npm run test:ci && npm run build",
     "tokens:gen": "node scripts/gen-design-tokens.mjs",
@@ -43,6 +44,7 @@
     "zod": "^4.1.8"
   },
   "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.4.11",
     "@cloudflare/workers-types": "5.20260930.1",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
