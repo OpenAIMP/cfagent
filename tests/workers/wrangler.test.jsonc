@@ -1,0 +1,31 @@
+{
+  // Issue #2348 — TEST-ONLY wrangler config for the workerd
+  // transaction-primitive proof (npm run test:workers). Never
+  // deployed; the production config is ../../wrangler.jsonc.
+  // The compatibility date and flags mirror production so the
+  // proof runs in CI-shaped workerd conditions (nodejs_compat is
+  // load-bearing: the aspect tracks ambient units with
+  // AsyncLocalStorage from node:async_hooks).
+  "name": "cfagent-tx-proof-2348",
+  "main": "./proof-worker.ts",
+  "compatibility_date": "2026-09-29",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      { "name": "TX_PROOF_DO", "class_name": "TxProofDurableObject" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["TxProofDurableObject"] }
+  ],
+  // Local-only D1: Miniflare provisions it from this declaration;
+  // the database_id is a placeholder identifier for the local
+  // database, not a real D1 database.
+  "d1_databases": [
+    {
+      "binding": "TX_PROOF_DB",
+      "database_name": "cfagent-tx-proof-2348",
+      "database_id": "00000000-0000-4000-8000-000000000000"
+    }
+  ]
+}
