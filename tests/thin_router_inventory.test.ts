@@ -237,6 +237,12 @@
  * before schedules) — bringing the pinned array to 299 entries and
  * the delegation sequence to 32 calls.
  *
+ * Issue #2481 added one — GET/POST /tenant/settings/auto-refresh
+ * (in handleReportsRoutes, after the report-dispatch-hitl handler
+ * and before /trading/reports/confirm) — bringing the pinned
+ * array to 301 entries; the delegation sequence is unchanged
+ * (same handler, same position).
+ *
  * LANDMARK RULE (#405): all position assertions anchor to DELEGATION
  * CALLS - the only landmarks a thin router has.
  */
@@ -320,6 +326,7 @@ const EXPECTED_INVENTORY = [
   "handleReportsRoutes :: endsWith(\"/trading/reports/confirmations\")",
   "handleReportsRoutes :: endsWith(\"/trading/settings/report-dispatch-hitl\")",
   "handleReportsRoutes :: endsWith(\"/trading/settings/report-dispatch-hitl\")",
+  "handleReportsRoutes :: endsWith(\"/tenant/settings/auto-refresh\")",
   "handleReportsRoutes :: endsWith(\"/trading/reports/confirm\")",
   "handleReportsRoutes :: endsWith(\"/trading/reports/email\")",
   "handleReportsRoutes :: endsWith(\"/trading/reports/webhook\")",
