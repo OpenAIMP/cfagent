@@ -223,7 +223,7 @@ const ORCH = "agents/orchestrator.ts";
  *  the class) — measured 2,714 lines / 127,049 B, so budget lines
  *  rise to 2725 and bytes rise to 127_250. */
 const BUDGET_LINES = 2725;
-const BUDGET_BYTES = 127_250;
+const BUDGET_BYTES = 127_650;
 
 const count = (haystack: string, needle: string) =>
   haystack.split(needle).length - 1;

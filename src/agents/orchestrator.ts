@@ -68,7 +68,9 @@ import { formatTraceparent, newTraceContext } from "../observability/observabili
 import { recordTraceHopBestEffort } from "../data/createMeshTracePorts";
 import { createSocialBriefStoreFromNamespace } from "./social/briefStore";
 import type { DoNamespaceLike } from "../security/durableKv";
+import { createKvMembershipStore } from "../security/iaaaMembershipStore";
 import { isLoginShaped } from "../security/serviceIdentity";
+import { sessionStore } from "../security/session";
 import { submitAsyncJob, recoverQueuedAsyncJobs, getAsyncJob, listAsyncJobs, executeAsyncJob, ensureAsyncJobTables, scheduleScreenerFollowups, retryAsyncJob, type AsyncJobsContext } from "./orchestrator/asyncJobs";
 import type { ScreenerRunOutcome } from "../services/screenerFollowups";
 import { marketDateKey, readAutopilotStateRaw, getAutopilotState, writeAutopilotState, incrementAutopilotOrdersToday, fetchBrokerBalanceSnapshot, openNotionalForSymbol, evaluateAndRecordAutopilotVerdict, type AutopilotContext } from "./orchestrator/autopilot";
@@ -473,6 +475,8 @@ export class OrchestratorAgent extends PortThink {
       scheduledDiscoverySlots: (this.scheduledDiscoverySlots ??= new Set<string>()),
       scheduleScreenerFollowups: (outcome: ScreenerRunOutcome, userLogin: string, chainReport?: boolean) =>
         scheduleScreenerFollowups(this.asyncJobsContext(), outcome, userLogin, chainReport),
+      audit: (type, agent, payload) => this.audit(type, agent, payload),
+      serviceMembershipStore: createKvMembershipStore(sessionStore(this.env)),
     };
   }
 
@@ -559,6 +563,7 @@ export class OrchestratorAgent extends PortThink {
         getOrm: () => this.getOrm(),
         getScreenerAgent: (userLogin) => this.getScreenerAgent(userLogin),
       }),
+      serviceMembershipStore: createKvMembershipStore(sessionStore(this.env)),
     };
   }
 

@@ -19,8 +19,71 @@ import {
   createOptionsDiscoveryPorts,
 } from "../../data/createOptionsDiscoveryPorts";
 import { resolveScheduledLogin, type ScreenerExecutionContext } from "./scheduleMaintenance";
+import {
+  enforceBrokerDispatch,
+  enforceServiceDispatch,
+  resolveDispatchCandidate,
+  type DispatchDenialReason,
+} from "../../security/serviceDispatch";
+import { getServiceUserLogin } from "../../security/serviceIdentity";
+import type { MembershipStore } from "../../security/authorization";
 
 type ETradeEnvironment = "TEST" | "PROD";
+
+/**
+ * #2331 slice 2: one dispatch decision for every schedule callback.
+ * Resolution preserves each callback's existing precedence (the caller
+ * passes its already-resolved login); the broker check runs before the
+ * membership check, so brokerage-attached work denies as
+ * BROKER_REQUIRED even for an unprovisioned service identity. A denied
+ * dispatch never runs: the caller audits and returns, and the schedule
+ * is preserved (unlike the unowned case, which removes the schedule),
+ * so a provisioned-later retry still fires.
+ */
+type CallbackDispatch =
+  | { allowed: true; kind: "owner" | "service"; login: string }
+  | { denied: true; reason: DispatchDenialReason; detail?: string };
+
+async function resolveCallbackDispatch(
+  ctx: ScheduledCallbacksContext,
+  candidate: string | undefined,
+  needsBroker: boolean,
+): Promise<CallbackDispatch> {
+  const serviceLogin = getServiceUserLogin(ctx.env);
+  const identity = resolveDispatchCandidate(candidate, serviceLogin);
+  if ("denied" in identity) return identity;
+  const broker = enforceBrokerDispatch(identity.kind, needsBroker);
+  if ("denied" in broker) return broker;
+  if (identity.kind === "owner") {
+    return { allowed: true, kind: "owner", login: identity.login };
+  }
+  const store = ctx.serviceMembershipStore;
+  const decision = store
+    ? await enforceServiceDispatch(store, {
+        serviceLogin: serviceLogin ?? identity.login,
+        tier: "platform",
+        nowMs: Date.now(),
+      })
+    : {
+        denied: true as const,
+        reason: "SERVICE_NOT_PROVISIONED" as const,
+        detail: "no membership store on the callback context",
+      };
+  if ("denied" in decision) return decision;
+  return { allowed: true, kind: "service", login: identity.login };
+}
+
+function auditCallbackDenial(
+  ctx: ScheduledCallbacksContext,
+  callback: string,
+  decision: { reason: DispatchDenialReason; detail?: string },
+): void {
+  ctx.audit?.("schedule.dispatch_denied", "orchestrator", {
+    callback,
+    reason: decision.reason,
+    ...(decision.detail ? { detail: decision.detail } : {}),
+  });
+}
 
 /**
  * Ports the scheduled-callback functions receive from the class. The
@@ -47,6 +110,20 @@ export interface ScheduledCallbacksContext {
     userLogin: string,
     chainReport?: boolean,
   ) => Promise<void>;
+  /** #2331 slice 2: the funnel audit for dispatch decisions. Optional
+   *  so existing test contexts without it still compile; the
+   *  orchestrator builder always supplies it, and a denial without an
+   *  audit sink is still a denial (the run does not execute). */
+  audit?: (
+    type: string,
+    agent: "orchestrator",
+    payload: Record<string, unknown>,
+  ) => void;
+  /** #2331 slice 2: the membership store the dispatch guard checks
+   *  service identities against. The orchestrator builder supplies the
+   *  KV store; a context without one denies every service dispatch
+   *  (fail closed — an unverifiable service identity never runs). */
+  serviceMembershipStore?: MembershipStore;
 }
 
 /**
@@ -60,14 +137,22 @@ export async function autoRenewETradeTokens(ctx: ScheduledCallbacksContext, payl
   }
   const context = await ctx.getScreenerExecutionContext();
   const user = context?.userLogin || payload?.userLogin;
-  if (!user) {
-    await ctx.removeUnownedBaselineSchedules();
-    console.warn("[OrchestratorAgent] Skipping token renewal without an authenticated account owner.");
+  // #2331 slice 2: dispatch enforcement. Token renewal is brokerage
+  // work: a service identity never renews, and an unresolvable
+  // identity keeps the existing skip-and-remove behavior, now audited.
+  const dispatch = await resolveCallbackDispatch(ctx, user, true);
+  if ("denied" in dispatch) {
+    auditCallbackDenial(ctx, "autoRenewETradeTokens", dispatch);
+    if (dispatch.reason === "NO_IDENTITY") {
+      await ctx.removeUnownedBaselineSchedules();
+      console.warn("[OrchestratorAgent] Skipping token renewal without an authenticated account owner.");
+    }
     return;
   }
+  const userLogin = dispatch.login;
   const environment = context?.environment || payload?.env;
-  const service = new ScheduledTasksService(ctx.env, ctx.getOrm(), user, createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).scanRuns, undefined, undefined, undefined, ctx.scheduleScreenerFollowups);
-  const res = await service.autoRenewETradeTokens(user, environment);
+  const service = new ScheduledTasksService(ctx.env, ctx.getOrm(), userLogin, createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).scanRuns, undefined, undefined, undefined, ctx.scheduleScreenerFollowups);
+  const res = await service.autoRenewETradeTokens(userLogin, environment);
   if (!res.success) {
     console.warn("[OrchestratorAgent] autoRenewETradeTokens error:", res.error);
     // Issue #1174 (#1173 S1): a failed renewal is tonight's outage
@@ -78,7 +163,7 @@ export async function autoRenewETradeTokens(ctx: ScheduledCallbacksContext, payl
     const { deliverScreenerToSlackA2A } = await import("../../services/screenerSlackDelivery");
     await fireAuthEpisodeAlertOnce(
       ctx.agentCtx.storage as any,
-      etradeAuthEpisodeKey(user, Date.now()),
+      etradeAuthEpisodeKey(userLogin, Date.now()),
       async () => {
         await deliverScreenerToSlackA2A(ctx.env, {
           text: "⚠️ E*TRADE connection expired — automatic token renewal failed. Reconnect your account in Settings to keep scheduled runs working. Runs stay blocked (quietly) until you reconnect.",
@@ -131,13 +216,23 @@ export async function autonomousMarketScreen(ctx: ScheduledCallbacksContext, pay
     const savedContext = await ctx.getScreenerExecutionContext();
     const userLogin = resolveScheduledLogin(payload?.userLogin, savedContext?.userLogin);
     const environment = payload?.environment || savedContext?.environment;
-    if (trigger === "scheduled" && !userLogin) {
-      // A pre-auth startup schedule has no safe account mapping. Remove it
-      // before it can emit the same Slack failure every hour.
-      await ctx.removeUnownedBaselineSchedules();
-      console.warn("[OrchestratorAgent] Skipping unowned scheduled market screen.");
+    // #2331 slice 2: dispatch enforcement, before the slot logic. A
+    // denied dispatch audits and returns without running; the schedule
+    // is preserved (unlike the unowned case) so a provisioned-later
+    // retry still fires. The resolved login replaces the old ""
+    // fallback below.
+    const dispatch = await resolveCallbackDispatch(ctx, userLogin, false);
+    if ("denied" in dispatch) {
+      auditCallbackDenial(ctx, "autonomousMarketScreen", dispatch);
+      if (trigger === "scheduled" && dispatch.reason === "NO_IDENTITY") {
+        // A pre-auth startup schedule has no safe account mapping.
+        // Remove it before it can emit the same Slack failure every hour.
+        await ctx.removeUnownedBaselineSchedules();
+        console.warn("[OrchestratorAgent] Skipping unowned scheduled market screen.");
+      }
       return;
     }
+    const resolvedLogin = dispatch.login;
     if (trigger === "scheduled") {
       // Old or duplicate cron records can still invoke the same universe
       // more than once in an hour. Keep the last delivered slot per
@@ -159,12 +254,12 @@ export async function autonomousMarketScreen(ctx: ScheduledCallbacksContext, pay
     const orm = ctx.getOrm();
     // Scheduled callbacks have no authenticated HTTP headers. Use the
     // identity and environment saved from the user's schedules requests.
-    const service = new ScheduledTasksService(ctx.env, orm, userLogin || "", createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).scanRuns, undefined, undefined, undefined, ctx.scheduleScreenerFollowups, { sql: ctx.agentCtx.storage.sql, blobStorage: ctx.agentCtx.storage as any, env: ctx.env },
+    const service = new ScheduledTasksService(ctx.env, orm, resolvedLogin, createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).scanRuns, undefined, undefined, undefined, ctx.scheduleScreenerFollowups, { sql: ctx.agentCtx.storage.sql, blobStorage: ctx.agentCtx.storage as any, env: ctx.env },
       // Issue #1355: shard submission rides the agent's private
       // submitAsyncJob via the same (ctx.self as any) escape hatch
       // this file already uses for broadcast/keepAliveWhile.
       (spec) => (ctx.self as any).submitAsyncJob(spec));
-    const res = await service.autonomousMarketScreen({ ...payload, userLogin, environment, trigger });
+    const res = await service.autonomousMarketScreen({ ...payload, userLogin: resolvedLogin, environment, trigger });
     if ((res as any).skipped) return;
     // Issue #212: persist the run for the "last results" UX endpoint.
     try {
@@ -328,13 +423,21 @@ export async function autonomousGoalScreen(ctx: ScheduledCallbacksContext, paylo
     const savedContext = await ctx.getScreenerExecutionContext();
     const userLogin = resolveScheduledLogin(payload?.userLogin, savedContext?.userLogin);
     const environment = payload?.environment || savedContext?.environment;
-    if (trigger === "scheduled" && !userLogin) {
-      await ctx.removeUnownedBaselineSchedules();
-      console.warn("[OrchestratorAgent] Skipping unowned scheduled goal screen.");
+    // #2331 slice 2: dispatch enforcement, before the service. A
+    // denied dispatch audits and returns; the unowned scheduled case
+    // keeps its existing remove-the-schedule behavior, now audited.
+    const dispatch = await resolveCallbackDispatch(ctx, userLogin, false);
+    if ("denied" in dispatch) {
+      auditCallbackDenial(ctx, "autonomousGoalScreen", dispatch);
+      if (trigger === "scheduled" && dispatch.reason === "NO_IDENTITY") {
+        await ctx.removeUnownedBaselineSchedules();
+        console.warn("[OrchestratorAgent] Skipping unowned scheduled goal screen.");
+      }
       return;
     }
-    const service = new ScheduledTasksService(ctx.env, ctx.getOrm(), userLogin || "", createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).scanRuns, undefined, undefined, undefined, ctx.scheduleScreenerFollowups, { sql: ctx.agentCtx.storage.sql, blobStorage: ctx.agentCtx.storage as any, env: ctx.env });
-    const res = await service.autonomousGoalScreen({ ...payload, userLogin, environment, trigger });
+    const resolvedLogin = dispatch.login;
+    const service = new ScheduledTasksService(ctx.env, ctx.getOrm(), resolvedLogin, createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).scanRuns, undefined, undefined, undefined, ctx.scheduleScreenerFollowups, { sql: ctx.agentCtx.storage.sql, blobStorage: ctx.agentCtx.storage as any, env: ctx.env });
+    const res = await service.autonomousGoalScreen({ ...payload, userLogin: resolvedLogin, environment, trigger });
     if ((res as any).skipped) return;
     if (typeof (ctx.self as any).broadcast === "function") {
       try {
@@ -396,13 +499,22 @@ export async function autonomousStrategyDiscovery(ctx: ScheduledCallbacksContext
   }
   const runDiscovery = async () => {
     const savedContext = await ctx.getScreenerExecutionContext();
-    const userLogin = resolveScheduledLogin(payload?.userLogin, savedContext?.userLogin) || "";
+    const userLogin = resolveScheduledLogin(payload?.userLogin, savedContext?.userLogin);
     const environment = payload?.environment || savedContext?.environment;
-    if (payload?.trigger !== "manual" && !userLogin) {
-      await ctx.removeUnownedBaselineSchedules();
-      console.warn("[OrchestratorAgent] Skipping unowned scheduled strategy discovery.");
+    // #2331 slice 2: dispatch enforcement, before the slot logic, so a
+    // denied dispatch writes no slot keys and constructs no service.
+    // The unowned non-manual case keeps its existing remove behavior,
+    // now audited; a denied service dispatch preserves the schedule.
+    const dispatch = await resolveCallbackDispatch(ctx, userLogin, false);
+    if ("denied" in dispatch) {
+      auditCallbackDenial(ctx, "autonomousStrategyDiscovery", dispatch);
+      if (payload?.trigger !== "manual" && dispatch.reason === "NO_IDENTITY") {
+        await ctx.removeUnownedBaselineSchedules();
+        console.warn("[OrchestratorAgent] Skipping unowned scheduled strategy discovery.");
+      }
       return;
     }
+    const resolvedLogin = dispatch.login;
     if (payload?.trigger !== "manual") {
       // Duplicate-fire suppression, keyed on the saved-request set
       // (not a thesis): the same schedule re-firing inside one
@@ -431,18 +543,18 @@ export async function autonomousStrategyDiscovery(ctx: ScheduledCallbacksContext
       for (let i = 0; i < requestsJson.length; i++) {
         hash = ((hash << 5) - hash + requestsJson.charCodeAt(i)) | 0;
       }
-      const slotKey = `${userLogin}:${slot}:${(hash >>> 0).toString(36)}`;
+      const slotKey = `${resolvedLogin}:${slot}:${(hash >>> 0).toString(36)}`;
       ctx.scheduledDiscoverySlots ??= new Set<string>();
       if (ctx.scheduledDiscoverySlots.has(slotKey)) return;
       if (ctx.scheduledDiscoverySlots.size > 32) ctx.scheduledDiscoverySlots.clear();
       ctx.scheduledDiscoverySlots.add(slotKey);
       const key = `discovery:scheduled:last-slot:${(hash >>> 0).toString(36)}`;
       const last = await ctx.agentCtx.storage.get<{ slot: string; userLogin: string }>(key);
-      if (last?.slot === slot && last?.userLogin === userLogin) {
+      if (last?.slot === slot && last?.userLogin === resolvedLogin) {
         console.warn(`[OrchestratorAgent] Suppressing duplicate scheduled strategy discovery in ${slot}Z`);
         return;
       }
-      await ctx.agentCtx.storage.put(key, { slot, userLogin });
+      await ctx.agentCtx.storage.put(key, { slot, userLogin: resolvedLogin });
     }
     // Issue #1661: platformDeps threads the DO storage handle so scheduled
     // discovery listings fetch live + capture (behavior change from the
@@ -450,7 +562,7 @@ export async function autonomousStrategyDiscovery(ctx: ScheduledCallbacksContext
     const service = new ScheduledTasksService(
       ctx.env,
       ctx.getOrm(),
-      userLogin,
+      resolvedLogin,
       createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).scanRuns,
       undefined,
       createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).discoveryRuns,
@@ -460,7 +572,7 @@ export async function autonomousStrategyDiscovery(ctx: ScheduledCallbacksContext
       undefined,
       createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).feedSnapshots
     );
-    const res = await service.autonomousStrategyDiscovery({ ...payload, userLogin, environment });
+    const res = await service.autonomousStrategyDiscovery({ ...payload, userLogin: resolvedLogin, environment });
     if ((res as any).skipped) return;
     if (typeof (ctx.self as any).broadcast === "function") {
       try {
@@ -521,11 +633,20 @@ export async function collectIvHistory(ctx: ScheduledCallbacksContext, payload?:
   const runCollection = async () => {
     const context = await ctx.getScreenerExecutionContext();
     const userLogin = context?.userLogin || payload?.userLogin;
-    if (!userLogin) {
-      await ctx.removeUnownedBaselineSchedules();
-      console.warn("[OrchestratorAgent] Skipping IV collection without an authenticated account owner.");
+    // #2331 slice 2: IV history is options-chain work, so a service
+    // identity never collects it (broker legs fail closed downstream,
+    // but denial at dispatch is explicit and audited). The unowned
+    // case keeps its existing remove behavior, now audited.
+    const dispatch = await resolveCallbackDispatch(ctx, userLogin, true);
+    if ("denied" in dispatch) {
+      auditCallbackDenial(ctx, "collectIvHistory", dispatch);
+      if (dispatch.reason === "NO_IDENTITY") {
+        await ctx.removeUnownedBaselineSchedules();
+        console.warn("[OrchestratorAgent] Skipping IV collection without an authenticated account owner.");
+      }
       return;
     }
+    const resolvedLogin = dispatch.login;
     const environment = context?.environment || payload?.environment;
     // Issue #2337 cutover (R-2): the collector writes through
     // the env-aware build's IV store — D1 when AGENT_DB is
@@ -534,7 +655,7 @@ export async function collectIvHistory(ctx: ScheduledCallbacksContext, payload?:
     const service = new ScheduledTasksService(
       ctx.env,
       ctx.getOrm(),
-      userLogin,
+      resolvedLogin,
       createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).scanRuns,
       (await buildOptionsDiscoveryPorts(ctx.env, { sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage })).ivHistory,
       undefined,
@@ -576,7 +697,15 @@ export async function collectIvHistory(ctx: ScheduledCallbacksContext, payload?:
  */
 export async function expireStaleOrderDraft(ctx: ScheduledCallbacksContext, payload: { orderId: string; userLogin?: string }): Promise<void> {
   if (!payload?.orderId) return;
-  const service = new ScheduledTasksService(ctx.env, ctx.getOrm(), payload.userLogin || ctx.sessionKey(), createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).scanRuns, undefined, undefined, undefined, ctx.scheduleScreenerFollowups);
+  // #2331 slice 2: dispatch enforcement, before construction. Order
+  // state is owner-attached: a service identity never expires drafts,
+  // and the shared address is never an identity.
+  const dispatch = await resolveCallbackDispatch(ctx, payload.userLogin || ctx.sessionKey(), true);
+  if ("denied" in dispatch) {
+    auditCallbackDenial(ctx, "expireStaleOrderDraft", dispatch);
+    return;
+  }
+  const service = new ScheduledTasksService(ctx.env, ctx.getOrm(), dispatch.login, createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).scanRuns, undefined, undefined, undefined, ctx.scheduleScreenerFollowups);
   await service.expireStaleOrderDraft(payload.orderId);
 }
 
@@ -585,7 +714,15 @@ export async function expireStaleOrderDraft(ctx: ScheduledCallbacksContext, payl
  */
 export async function sendScheduledReminder(ctx: ScheduledCallbacksContext, payload: { reminderId: string; message: string; userLogin?: string }): Promise<void> {
   if (!payload?.reminderId) return;
-  const service = new ScheduledTasksService(ctx.env, ctx.getOrm(), payload.userLogin || ctx.sessionKey(), createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).scanRuns, undefined, undefined, undefined, ctx.scheduleScreenerFollowups);
+  // #2331 slice 2: dispatch enforcement, before construction. Chat
+  // delivery is not brokerage, so a provisioned service identity may
+  // deliver; an unprovisioned one and the shared address may not.
+  const dispatch = await resolveCallbackDispatch(ctx, payload.userLogin || ctx.sessionKey(), false);
+  if ("denied" in dispatch) {
+    auditCallbackDenial(ctx, "sendScheduledReminder", dispatch);
+    return;
+  }
+  const service = new ScheduledTasksService(ctx.env, ctx.getOrm(), dispatch.login, createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).scanRuns, undefined, undefined, undefined, ctx.scheduleScreenerFollowups);
   const res = await service.dispatchReminder(payload.reminderId, payload.message);
   if (typeof (ctx.self as any).broadcast === "function") {
     try {
