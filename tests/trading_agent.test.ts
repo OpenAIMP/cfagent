@@ -12,6 +12,7 @@ import {
   getTradingAgentConfig,
   TRADING_AGENT_CONFIG_BASELINE,
 } from "../src/config/tradingAgentConfig";
+import { MockSqlStorage } from "./mock-sql";
 // Issue #1738: OrchestratorAgent/ResearchAgent/TradingAgent are
 // Agents SDK actors now — mock the SDK with a plain base class
 // (the api_chat_route.test.ts idiom) so the real module graph's
@@ -620,6 +621,13 @@ describe("TradingAgent stock trading + approval door (#291 T3)", () => {
     const agent: any = Object.create(TradingAgent.prototype);
     agent.env = env;
     agent.config = () => tradeConfig;
+    // #2375: the door settle threads the instance ORM (the draft
+    // store), so the prototype agent needs a ctx like a real
+    // instance's. The fake platform ignores the ORM it is handed.
+    agent.ctx = {
+      id: { toString: () => "trading:test" },
+      storage: { sql: new MockSqlStorage() },
+    };
     orderCalls.executions.length = 0;
 
     const placed: any = await agent.executeApprovedOrder({
@@ -723,6 +731,12 @@ describe("TradingAgent options trading service (#291 T4)", () => {
     const agent: any = Object.create(TradingAgent.prototype);
     agent.env = env;
     agent.config = () => optConfig;
+    // #2375: see the stock approval-door test — the settle threads
+    // the instance ORM now.
+    agent.ctx = {
+      id: { toString: () => "trading:test" },
+      storage: { sql: new MockSqlStorage() },
+    };
     const placed: any = await agent.executeApprovedOrder({
       provider: "fakeopt291",
       orderId: "opt-draft-291",

@@ -135,7 +135,7 @@ export interface ToolPermissionPort {
  * fails loudly instead of executing unscoped.
  */
 export const MCP_TOOL_SCOPES: Record<string, McpScope> = {
-  // read (39)
+  // read (40)
   knowledge_search: "mcp:read",
   query_platform_knowledge: "mcp:read",
   get_async_job: "mcp:read",
@@ -181,6 +181,9 @@ export const MCP_TOOL_SCOPES: Record<string, McpScope> = {
   get_trading_quote: "mcp:read",
   list_report_assets: "mcp:read",
   get_report_asset: "mcp:read",
+  // #2375 (mesh S9): the trade approval run's status read — a pure
+  // read of the workflow binding's own status surface.
+  get_trade_approval_status: "mcp:read",
   // #2351 (mesh S7): the BrowserAgent door's scrape — a pure read of
   // a rendered page through the agent (its snap/capture siblings
   // deliver to Slack, so they sit in write).
@@ -222,7 +225,7 @@ export const MCP_TOOL_SCOPES: Record<string, McpScope> = {
   // ledger data, so both sit in the payments scope, not read).
   check_payment_budget: "mcp:payments",
   get_payments_overview: "mcp:payments",
-  // trade (8)
+  // trade (10)
   etrade_preview_order: "mcp:trade",
   etrade_execute_order: "mcp:trade",
   alpaca_place_order: "mcp:trade",
@@ -238,6 +241,12 @@ export const MCP_TOOL_SCOPES: Record<string, McpScope> = {
   // the trade flow, alongside the proposal commands); the ticket
   // approves and executes nothing by itself.
   slack_send_pre_trade_approval: "mcp:trade",
+  // #2375 (mesh S9): the TradingAgent approval door's workflow
+  // commands — submitting a proposal to the approval door and
+  // delivering the human's decision are order-flow acts (the start
+  // places nothing; the decision is what authorizes settlement).
+  start_trade_approval: "mcp:trade",
+  decide_trade_approval: "mcp:trade",
   // admin (4)
   get_audit_events: "mcp:admin",
   list_database_tables: "mcp:admin",
