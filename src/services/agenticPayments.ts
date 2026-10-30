@@ -64,6 +64,13 @@ import { DatabaseORM } from "../orm";
 import { AGENT_DIDS } from "../agents/did";
 import { verifyOnChainClaim, type X402ClaimVerifier } from "./x402Verifier";
 import { describeX402PaymentPath } from "./x402PaymentPath";
+import {
+  buildMeteredCallEvent,
+  meteredGateRefusal,
+  resolveMeteredTier,
+  type MeteredGateOptions,
+} from "./meteredPaymentGate";
+import type { StoreTier } from "../data/commercialPorts";
 import { consumeStoreKey, createStoreKv, type DoNamespaceLike } from "../security/durableKv";
 
 // Fallback replay guard used only when no SessionStore namespace is bound.
@@ -492,14 +499,29 @@ export class ETradeAgenticPaymentService {
   }
 
   /**
-   * Wrap an existing handler with automatic 402 gatekeeping and payment receipt injection
+   * Wrap an existing handler with automatic 402 gatekeeping and payment receipt injection.
+   *
+   * Issue #2408 (Phase 1.2): metering enforcement. When `metered`
+   * is supplied, a verified payment is served only through the
+   * meter: the tier is resolved (fail-closed default Free), the
+   * fulfillment runs, and exactly one usage_event is inserted
+   * BEFORE the result is served. A missing meter, a tier-store
+   * failure, an invalid tier, or a meter failure refuses with a
+   * typed error and serves nothing (the x402 tx hash is released,
+   * as on fulfill failure, so the payer can retry). When `metered`
+   * is absent the gate refuses served calls the same way — an
+   * unmetered paid serve through this gate is impossible after
+   * #2408; unpaid/failed payments keep their typed 402 either way.
+   * The meter identity is attribution only, never entitlement:
+   * entitlement is the verified payment itself.
    */
   async handleGatedEndpoint(
     req: Request,
     resource: string,
     priceUSD: number,
     description: string,
-    fulfill: (receipt: AgenticPaymentReceipt) => Promise<any>
+    fulfill: (receipt: AgenticPaymentReceipt) => Promise<any>,
+    metered?: MeteredGateOptions
   ): Promise<Response> {
     const extractedNonce = this.extractNonce(req.headers);
     const challenge = this.createX402Challenge(resource, priceUSD, description, extractedNonce);
@@ -507,7 +529,7 @@ export class ETradeAgenticPaymentService {
     const hasX402 = Boolean(req.headers.get("PAYMENT-SIGNATURE"));
     const hasMpp = /^payment\s/i.test(req.headers.get("Authorization") || "");
     if (hasMpp && !hasX402) {
-      return this.handleMppRequest(req, resource, priceUSD, description, fulfill);
+      return this.handleMppRequest(req, resource, priceUSD, description, fulfill, metered);
     }
 
     // Verify if payment headers are attached
@@ -520,6 +542,33 @@ export class ETradeAgenticPaymentService {
       return required;
     }
 
+    // Issue #2408: the meter is a gate condition. No meter, no serve.
+    if (!metered?.meter) {
+      console.error(`[payments] metered gate refused ${resource}: no usage meter configured — nothing served.`);
+      if (verification.receipt.txHash) await this.releaseTxHash(verification.receipt.txHash);
+      return meteredGateRefusal(503, "MeteringUnavailable", "The usage meter is not configured for this paid endpoint; the paid result was not served.");
+    }
+    const meter = metered.meter;
+    // Issue #2408: tier check at the gate. The identity is the
+    // verified session login when the worker set it, else the
+    // verified payer scope (#183) — the same rule the premium
+    // routes use for fulfillment identity.
+    const userLogin = req.headers.get("x-user-login") || payerScopeId(verification.receipt.payer);
+    let tier: StoreTier;
+    try {
+      tier = await resolveMeteredTier(metered.resolveTier, userLogin);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[payments] metered gate refused ${resource}: tier resolution failed: ${message}`);
+      if (verification.receipt.txHash) await this.releaseTxHash(verification.receipt.txHash);
+      // assertStoreTier's message is the only invalid-tier source
+      // here; anything else is a tier-store failure.
+      if (message.startsWith("Invalid tier:")) {
+        return meteredGateRefusal(500, "TierInvalid", `The stored tier for this caller is invalid; the paid result was not served. (${message})`);
+      }
+      return meteredGateRefusal(503, "TierUnavailable", "The tier store could not be read; the paid result was not served.");
+    }
+
     // Payment is valid: Fulfill the premium data
     let result: any;
     try {
@@ -527,6 +576,25 @@ export class ETradeAgenticPaymentService {
     } catch (error) {
       if (verification.receipt.txHash) await this.releaseTxHash(verification.receipt.txHash);
       throw error;
+    }
+
+    // Issue #2408: meter the SERVED call only, before serving it.
+    // A meter failure refuses with a typed error — the computed
+    // result is discarded, never served unmetered — and releases
+    // the tx hash so the payer can retry.
+    try {
+      meter.ensureSchema();
+      meter.insertEvent(buildMeteredCallEvent({
+        receipt: verification.receipt,
+        userLogin,
+        category: metered.category,
+        priceUSD,
+        tier,
+      }));
+    } catch (err) {
+      console.error(`[payments] metered gate refused ${resource}: usage meter failed: ${err instanceof Error ? err.message : String(err)}`);
+      if (verification.receipt.txHash) await this.releaseTxHash(verification.receipt.txHash);
+      return meteredGateRefusal(503, "MeteringUnavailable", "The usage meter failed; the paid result was not served. Retry the payment.");
     }
 
     // Attach x402 and MPP receipt headers
@@ -612,7 +680,8 @@ export class ETradeAgenticPaymentService {
     resource: string,
     priceUSD: number,
     description: string,
-    fulfill: (receipt: AgenticPaymentReceipt) => Promise<any>
+    fulfill: (receipt: AgenticPaymentReceipt) => Promise<any>,
+    metered?: MeteredGateOptions
   ): Promise<Response> {
     const mppx = await this.createMppx();
     if (!mppx) {
@@ -648,7 +717,44 @@ export class ETradeAgenticPaymentService {
     };
     await this.recordPaymentTransaction(receipt, "inbound");
 
+    // Issue #2408: same metered-gate enforcement as the x402
+    // branch — no meter, no serve; tier checked before fulfill;
+    // the served call metered before the receipt is attached.
+    // (MPP has no tx hash to release: the mppx receipt exposes
+    // none, a pre-existing gap noted on the receipt itself. A
+    // meter refusal here still serves nothing and stays typed.)
+    if (!metered?.meter) {
+      console.error(`[payments] metered gate refused ${resource}: no usage meter configured — nothing served.`);
+      return meteredGateRefusal(503, "MeteringUnavailable", "The usage meter is not configured for this paid endpoint; the paid result was not served.");
+    }
+    const meter = metered.meter;
+    const userLogin = req.headers.get("x-user-login") || payerScopeId(receipt.payer);
+    let tier: StoreTier;
+    try {
+      tier = await resolveMeteredTier(metered.resolveTier, userLogin);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[payments] metered gate refused ${resource}: tier resolution failed: ${message}`);
+      if (message.startsWith("Invalid tier:")) {
+        return meteredGateRefusal(500, "TierInvalid", `The stored tier for this caller is invalid; the paid result was not served. (${message})`);
+      }
+      return meteredGateRefusal(503, "TierUnavailable", "The tier store could not be read; the paid result was not served.");
+    }
+
     const data = await fulfill(receipt);
+    try {
+      meter.ensureSchema();
+      meter.insertEvent(buildMeteredCallEvent({
+        receipt,
+        userLogin,
+        category: metered.category,
+        priceUSD,
+        tier,
+      }));
+    } catch (err) {
+      console.error(`[payments] metered gate refused ${resource}: usage meter failed: ${err instanceof Error ? err.message : String(err)}`);
+      return meteredGateRefusal(503, "MeteringUnavailable", "The usage meter failed; the paid result was not served. Retry the payment.");
+    }
     return result.withReceipt(
       new Response(JSON.stringify(data), { status: 200, headers: { "Content-Type": "application/json" } })
     ) as Response;

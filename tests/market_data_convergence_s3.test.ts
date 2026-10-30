@@ -345,8 +345,12 @@ describe("S3 (c) — premium stock-signals: no constant confidence, pipeline-der
 
     const runScreen = vi.fn(async () => marketDataResult());
     const persist = vi.fn();
+    // Issue #2408: the route meters served calls through ctx.sql —
+    // the production host always supplies it (makePremiumRouteContext),
+    // so this route-level served expectation supplies it too.
     const ctx = {
       env,
+      sql: new MockSqlStorage(),
       getOrm: () => orm,
       getScreenerAgent: vi.fn(() => ({ runScreen })),
       persistScreenerReportCanonical: persist,
