@@ -18,21 +18,29 @@
  * - Wiring ON, wired session: the cached copy only decides THAT
  *   the session is wired (internalUserId never changes after
  *   creation, so a <=60s-stale copy cannot misclassify it). The
- *   enforcement decision itself always uses a FRESH read
- *   (getSession, never getSessionCached): the 60s isolate cache
- *   cannot enforce idle timeouts in either direction — it can
- *   falsely reject a session touched in another isolate within
- *   the last 60s, or accept a session up to 60s past its idle
- *   deadline. After a touch persist, the caller MUST invalidate
+ *   enforcement decision uses a FRESH read (getSession, never
+ *   getSessionCached) — EXCEPT when the #2444 freshness gate applies:
+ *   a cached copy fetched within IAAA_WIRED_FRESHNESS_MS (default
+ *   30s) is served after local expiry validation only, with no fresh
+ *   read. The 60s isolate cache cannot enforce idle timeouts in
+ *   either direction — it can falsely reject a session touched in
+ *   another isolate within the last 60s, or accept a session up to
+ *   60s past its idle deadline — which is why the gate still runs
+ *   local expiry validation and why the fresh-read path remains for
+ *   stale copies. After a touch persist, the caller MUST invalidate
  *   the isolate cache (done here, in the same isolate); updateSession
  *   cannot do it itself without a circular import.
  *
- * Performance note (wiring ON only): wired sessions cost one
- * fresh store read per request on top of the cached read, plus
- * one store write per >=60s of activity (touch precision). That
- * is the deliberate price of idle enforcement; wiring OFF costs
- * nothing extra, and non-wired sessions under wiring ON cost
- * nothing extra either (no fresh read happens for them).
+ * Performance note (wiring ON only): a wired session costs one fresh
+ * store read per request on top of the cached read, plus one store
+ * write per >=60s of activity (touch precision) — UNLESS the #2444
+ * gate applies, in which case the fresh read is skipped entirely and
+ * the request costs no store read beyond the cached read that
+ * requireAuth already performed (zero on a cache hit). That is the
+ * deliberate price of idle enforcement, bounded by the window;
+ * wiring OFF costs nothing extra, and non-wired sessions under
+ * wiring ON cost nothing extra either (no fresh read happens for
+ * them).
  *
  * Limitations, stated plainly:
  * - A wired session whose store record vanished (deleted in
@@ -82,11 +90,73 @@ export type WiredSessionValidation =
  *
  * `cached` is the session requireAuth already read (cached path).
  * Only its internalUserId is consulted, and only to decide whether
- * this session is wired at all. All enforcement uses the fresh read.
+ * this session is wired at all.
+ *
+ * Issue #2444 — freshness gate: when the caller supplies a fetchedAtMs
+ * within freshnessWindowMs, the cached copy is served after LOCAL
+ * expiry validation only (absolute + idle, pure computation on the
+ * cached fields — no store op), without a fresh read. SECURITY
+ * TRADE-OFF, stated plainly: revocation and step-up are NOT visible
+ * in the cached copy, so a session revoked (or newly step-up-gated)
+ * in the store within the window keeps being served until the window
+ * elapses. That delay is bounded by the window and is a CISO-domain
+ * decision (#945 revocation propagation); the window value is
+ * owner-set via IAAA_WIRED_FRESHNESS_MS. Expiry is NOT delayed by the
+ * gate: a cached copy that fails local validation falls through to
+ * the authoritative fresh-read path below. Touch/persist is deferred
+ * to the first stale request after the window; idle enforcement stays
+ * conservative (a lagging lastActivityMs can only expire a session
+ * early, never late).
  */
 export interface WiredSessionValidationOptions {
   /** Owner override for the idle window (default 30 minutes). */
   idleTimeoutMs?: number;
+  /**
+   * Issue #2444: ms since epoch when the cached copy was fetched from
+   * the backing store (see getSessionCachedFetchedAt). Absent → the
+   * gate is inactive and behavior is unchanged.
+   */
+  fetchedAtMs?: number;
+  /**
+   * Issue #2444: freshness window in ms. 0 disables gating (the
+   * rollback lever: set IAAA_WIRED_FRESHNESS_MS=0, redeploy, no code
+   * change). Absent → the gate is inactive and behavior is unchanged.
+   */
+  freshnessWindowMs?: number;
+}
+
+/**
+ * Issue #2444 — default wired freshness window (ms). Single named
+ * default: no interval literal for this tunable appears at any use
+ * site. Overridden by IAAA_WIRED_FRESHNESS_MS via
+ * resolveWiredFreshnessMs; 0 disables gating.
+ */
+export const DEFAULT_WIRED_FRESHNESS_MS = 30_000;
+
+/**
+ * Issue #2444 — resolve the wired freshness window from an operator
+ * override, mirroring resolveIdleTimeoutMs. Well-formed non-negative
+ * integers win (0 = gating disabled); anything else (unset, empty,
+ * non-numeric, negative, non-finite) falls back to the default, so a
+ * typo can neither disable the gate nor invent a window.
+ */
+export function resolveWiredFreshnessMs(
+  rawOverride: string | number | undefined | null,
+): number {
+  // An empty (or whitespace-only) value means "unset", not zero:
+  // Number("") is 0, and silently disabling the gate on an empty var
+  // would be exactly the wrong failure mode.
+  if (typeof rawOverride === "string" && rawOverride.trim() === "") {
+    return DEFAULT_WIRED_FRESHNESS_MS;
+  }
+  const value =
+    typeof rawOverride === "number"
+      ? rawOverride
+      : rawOverride == null
+        ? Number.NaN
+        : Number(rawOverride);
+  if (!Number.isFinite(value) || value < 0) return DEFAULT_WIRED_FRESHNESS_MS;
+  return value;
 }
 
 export async function validateAndTouchWiredSession(
@@ -98,6 +168,27 @@ export async function validateAndTouchWiredSession(
 ): Promise<WiredSessionValidation> {
   if (!cached?.internalUserId) {
     return { wired: false };
+  }
+  // Issue #2444 — freshness gate. A cached copy fetched within the
+  // window is served after local expiry validation only (see the
+  // options doc above for the trade-off). When the gate does not
+  // apply — no fetchedAt, window 0/unset, stale copy, or failed local
+  // validation — execution falls through to the fresh-read path
+  // below, exactly as before.
+  const freshnessWindowMs = options?.freshnessWindowMs;
+  const fetchedAtMs = options?.fetchedAtMs;
+  if (
+    typeof freshnessWindowMs === "number" &&
+    Number.isFinite(freshnessWindowMs) &&
+    freshnessWindowMs > 0 &&
+    typeof fetchedAtMs === "number" &&
+    Number.isFinite(fetchedAtMs) &&
+    nowMs - fetchedAtMs < freshnessWindowMs
+  ) {
+    const locallyValidated = getValidatedSession(cached, nowMs, options);
+    if (locallyValidated.ok) {
+      return { wired: true, session: locallyValidated.session };
+    }
   }
   const fresh = await deps.freshRead(sessionId);
   if (!fresh) {
