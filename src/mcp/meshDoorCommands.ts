@@ -124,6 +124,38 @@ import {
   type PreTradeApprovalDraftDoorInput,
   type PreTradeApprovalTicketDoorResult,
 } from "../agents/orchestrator/meshDoors";
+import { recordTraceHopBestEffort } from "../data/createMeshTracePorts";
+import { childContextOfTraceparent } from "../observability/meshTrace";
+
+/**
+ * Issue #2428 (Agent Mesh S17): record this door call's hop on
+ * the turn's mesh trace. Every command in this family calls it
+ * once, right after resolving the acting identity and before
+ * dispatch — the hop records the ATTEMPT under the door's own
+ * discipline (a refused call still leaves its hop, with the
+ * refusal in the command's audit; the trace observes, it does
+ * not gate). No traceparent carrier (external MCP callers,
+ * untraced turns) → no hop: the registry's recorded break,
+ * never a fabricated trace.
+ */
+async function recordDoorHop(
+  context: McpToolContext,
+  commandName: string,
+  targetClass: string,
+): Promise<void> {
+  const child = childContextOfTraceparent(context.traceparent?.());
+  if (!child) return;
+  await recordTraceHopBestEffort(context.env, {
+    traceId: child.traceId,
+    spanId: child.spanId,
+    parentSpanId: child.parentSpanId,
+    kind: "door",
+    operation: commandName,
+    timestampMs: Date.now(),
+    caller: context.actingLogin?.() ?? undefined,
+    agent: targetClass,
+  });
+}
 
 /* ------------------------------------------------------------------ */
 /* list_scheduled_goals                                                */
@@ -153,6 +185,7 @@ export class ListScheduledGoalsCommand implements IMcpToolCommand<{
     context: McpToolContext,
   ): Promise<ScheduledGoalsDoorResult> {
     const actingLogin = context.actingLogin?.();
+    await recordDoorHop(context, this.name, "ScheduledAgent");
     const result = await listScheduledGoalsViaDoor(context.env, actingLogin, input.goalId);
     context.audit("list_scheduled_goals", "mcp", {
       actingLogin: actingLogin ?? null,
@@ -192,6 +225,7 @@ export class TriggerScheduledGoalCommand implements IMcpToolCommand<{
     context: McpToolContext,
   ): Promise<ScheduledGoalTriggerDoorResult> {
     const actingLogin = context.actingLogin?.();
+    await recordDoorHop(context, this.name, "ScheduledAgent");
     const result = await triggerScheduledGoalViaDoor(context.env, actingLogin, input.goalId);
     context.audit("trigger_scheduled_goal", "mcp", {
       actingLogin: actingLogin ?? null,
@@ -239,6 +273,7 @@ export class CheckPaymentBudgetCommand implements IMcpToolCommand<{
     context: McpToolContext,
   ): Promise<PaymentBudgetDoorResult> {
     const actingLogin = context.actingLogin?.();
+    await recordDoorHop(context, this.name, "PaymentsAgent");
     const result = await checkPaymentBudgetViaDoor(context.env, actingLogin, input);
     context.audit("check_payment_budget", "mcp", {
       actingLogin: actingLogin ?? null,
@@ -279,6 +314,7 @@ export class GetPaymentsOverviewCommand implements IMcpToolCommand<{
     context: McpToolContext,
   ): Promise<PaymentsOverviewDoorResult> {
     const actingLogin = context.actingLogin?.();
+    await recordDoorHop(context, this.name, "PaymentsAgent");
     const result = await getPaymentsOverviewViaDoor(context.env, actingLogin, input.limit);
     context.audit("get_payments_overview", "mcp", {
       actingLogin: actingLogin ?? null,
@@ -328,6 +364,7 @@ export class ProposeStockTradeCommand implements IMcpToolCommand<StockTradePropo
     context: McpToolContext,
   ): Promise<TradeProposalDoorResult> {
     const actingLogin = context.actingLogin?.();
+    await recordDoorHop(context, this.name, "TradingAgent");
     const result = await proposeStockTradeViaDoor(context.env, actingLogin, input);
     context.audit("propose_stock_trade", "mcp", {
       actingLogin: actingLogin ?? null,
@@ -394,6 +431,7 @@ export class ProposeOptionsTradeCommand implements IMcpToolCommand<OptionsTradeP
     context: McpToolContext,
   ): Promise<TradeProposalDoorResult> {
     const actingLogin = context.actingLogin?.();
+    await recordDoorHop(context, this.name, "TradingAgent");
     const result = await proposeOptionsTradeViaDoor(context.env, actingLogin, input);
     context.audit("propose_options_trade", "mcp", {
       actingLogin: actingLogin ?? null,
@@ -428,6 +466,7 @@ export class GetTradingAccountsCommand implements IMcpToolCommand<{ provider?: s
 
   async execute(input: { provider?: string }, context: McpToolContext): Promise<unknown> {
     const actingLogin = context.actingLogin?.();
+    await recordDoorHop(context, this.name, "TradingAgent");
     const result = await getTradingAccountsViaDoor(context.env, actingLogin, input.provider);
     context.audit("get_trading_accounts", "mcp", {
       actingLogin: actingLogin ?? null,
@@ -465,6 +504,7 @@ export class GetTradingPositionsCommand implements IMcpToolCommand<{
     context: McpToolContext,
   ): Promise<unknown> {
     const actingLogin = context.actingLogin?.();
+    await recordDoorHop(context, this.name, "TradingAgent");
     const result = await getTradingPositionsViaDoor(context.env, actingLogin, input);
     context.audit("get_trading_positions", "mcp", {
       actingLogin: actingLogin ?? null,
@@ -504,6 +544,7 @@ export class GetTradingQuoteCommand implements IMcpToolCommand<{
     context: McpToolContext,
   ): Promise<unknown> {
     const actingLogin = context.actingLogin?.();
+    await recordDoorHop(context, this.name, "TradingAgent");
     const result = await getTradingQuoteViaDoor(context.env, actingLogin, input);
     context.audit("get_trading_quote", "mcp", {
       actingLogin: actingLogin ?? null,
@@ -543,6 +584,7 @@ export class StartTradeApprovalCommand implements IMcpToolCommand<{
     context: McpToolContext,
   ): Promise<TradeApprovalStartDoorResult> {
     const actingLogin = context.actingLogin?.();
+    await recordDoorHop(context, this.name, "TradingAgent");
     const result = await startTradeApprovalViaDoor(context.env, actingLogin, input);
     context.audit("start_trade_approval", "mcp", {
       actingLogin: actingLogin ?? null,
@@ -586,6 +628,7 @@ export class DecideTradeApprovalCommand implements IMcpToolCommand<{
     context: McpToolContext,
   ): Promise<TradeApprovalDecisionDoorResult> {
     const actingLogin = context.actingLogin?.();
+    await recordDoorHop(context, this.name, "TradingAgent");
     const result = await decideTradeApprovalViaDoor(context.env, actingLogin, input);
     context.audit("decide_trade_approval", "mcp", {
       actingLogin: actingLogin ?? null,
@@ -623,6 +666,7 @@ export class GetTradeApprovalStatusCommand implements IMcpToolCommand<{
     context: McpToolContext,
   ): Promise<TradeApprovalStatusDoorResult> {
     const actingLogin = context.actingLogin?.();
+    await recordDoorHop(context, this.name, "TradingAgent");
     const result = await getTradeApprovalStatusViaDoor(context.env, actingLogin, input);
     context.audit("get_trade_approval_status", "mcp", {
       actingLogin: actingLogin ?? null,
@@ -656,6 +700,7 @@ export class ListReportAssetsCommand implements IMcpToolCommand<{ limit?: number
     context: McpToolContext,
   ): Promise<ReportAssetsDoorResult> {
     const actingLogin = context.actingLogin?.();
+    await recordDoorHop(context, this.name, "ReportAssetAgent");
     const result = await listReportAssetsViaDoor(context.env, actingLogin, input.limit);
     context.audit("list_report_assets", "mcp", {
       actingLogin: actingLogin ?? null,
@@ -689,6 +734,7 @@ export class GetReportAssetCommand implements IMcpToolCommand<{ key: string }> {
     context: McpToolContext,
   ): Promise<ReportAssetDoorResult> {
     const actingLogin = context.actingLogin?.();
+    await recordDoorHop(context, this.name, "ReportAssetAgent");
     const result = await getReportAssetViaDoor(context.env, actingLogin, input.key);
     context.audit("get_report_asset", "mcp", {
       actingLogin: actingLogin ?? null,
@@ -793,6 +839,7 @@ export class BrowserSnapTransactionCommand implements IMcpToolCommand<BrowserSna
     context: McpToolContext,
   ): Promise<BrowserAgentSnapResult> {
     const actingLogin = context.actingLogin?.();
+    await recordDoorHop(context, this.name, "BrowserAgent");
     const result = await sendTransactionSnapViaDoor(context.env, actingLogin, input);
     context.audit("browser_snap_transaction", "mcp", {
       actingLogin: actingLogin ?? null,
@@ -838,6 +885,7 @@ export class BrowserCapturePageCommand implements IMcpToolCommand<BrowserCapture
     context: McpToolContext,
   ): Promise<BrowserAgentSnapResult> {
     const actingLogin = context.actingLogin?.();
+    await recordDoorHop(context, this.name, "BrowserAgent");
     const result = await capturePageSnapshotViaDoor(context.env, actingLogin, input);
     context.audit("browser_capture_page", "mcp", {
       actingLogin: actingLogin ?? null,
@@ -872,6 +920,7 @@ export class BrowserScrapeTablesCommand implements IMcpToolCommand<{ url: string
     context: McpToolContext,
   ): Promise<BrowserInspectResult> {
     const actingLogin = context.actingLogin?.();
+    await recordDoorHop(context, this.name, "BrowserAgent");
     const result = await scrapePageTablesViaDoor(context.env, actingLogin, input.url);
     context.audit("browser_scrape_tables", "mcp", {
       actingLogin: actingLogin ?? null,
@@ -957,6 +1006,7 @@ export class SlackSendPreTradeApprovalCommand implements IMcpToolCommand<SlackSe
     context: McpToolContext,
   ): Promise<PreTradeApprovalTicketDoorResult> {
     const actingLogin = context.actingLogin?.();
+    await recordDoorHop(context, this.name, "SlackAgent");
     const result = await sendPreTradeApprovalTicketViaDoor(context.env, actingLogin, input);
     context.audit("slack_send_pre_trade_approval", "mcp", {
       actingLogin: actingLogin ?? null,
@@ -1007,6 +1057,7 @@ export class SlackDispatchTransactionSnapCommand implements IMcpToolCommand<Slac
     context: McpToolContext,
   ): Promise<BrowserAgentSnapResult> {
     const actingLogin = context.actingLogin?.();
+    await recordDoorHop(context, this.name, "SlackAgent");
     const result = await dispatchTransactionSnapViaDoor(context.env, actingLogin, input);
     context.audit("slack_dispatch_transaction_snap", "mcp", {
       actingLogin: actingLogin ?? null,

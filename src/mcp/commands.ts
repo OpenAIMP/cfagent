@@ -87,6 +87,7 @@ import {
   AgentDbChainStatusCommand,
   AgentDbJobsHistoryCommand,
   AgentDbReportsListCommand,
+  AgentDbTraceGetCommand,
 } from "./agentDbReadCommands";
 import {
   ListScheduledGoalsCommand,
@@ -1716,6 +1717,10 @@ export class McpToolFactory {
     this.registerTool(new AgentDbJobsHistoryCommand());
     this.registerTool(new AgentDbAuditHistoryCommand());
     this.registerTool(new AgentDbReportsListCommand());
+    // Agent Mesh S17 (#2428, G13a): the unified-trace read
+    // surface, in this same AgentDB-read family (see
+    // agentDbReadCommands.ts header).
+    this.registerTool(new AgentDbTraceGetCommand());
 
     // Agent Mesh G1 doors (#2341, S5 batch A): the chat turn reaches
     // ScheduledAgent and PaymentsAgent through typed doors

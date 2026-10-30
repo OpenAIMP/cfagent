@@ -243,6 +243,8 @@ export async function executeMCPTool(
     principal?: McpPrincipal;
     /** #2341: acting-identity resolver, spread through to the tool context like the scoped carriers (see McpToolContext.actingLogin). */
     actingLogin?: () => string | undefined;
+    /** #2428: mesh-trace traceparent resolver, spread through to the tool context like the actingLogin carrier (see McpToolContext.traceparent). */
+    traceparent?: () => string | undefined;
     permissionPort?: ToolPermissionPort;
     permissionDecisionSink?: ObservabilitySink;
     /** #1722: NLQ_MODE session/user carriers, spread through to the tool context. */

@@ -24,6 +24,8 @@ import {
 } from "../../workflows/workflowPorts";
 import { readJobHistory } from "../../data/createShardJobPorts";
 import type { ShardJobRow } from "../../data/shardJobPorts";
+import { meshTraceStoreForEnv } from "../../data/createMeshTracePorts";
+import { childContextOfTraceparent } from "../../observability/meshTrace";
 import {
   listScheduledReports,
   resolveCanonicalReportBody,
@@ -96,6 +98,21 @@ export interface NlqPortsContext {
   workflowAwaitDeadlineMs?: number;
   sleep?: (ms: number) => Promise<void>;
   nowMs?: () => number;
+  /**
+   * Issue #2428 (Agent Mesh S17): the in-flight turn's mesh
+   * traceparent resolver — the workflow command built here is
+   * stamped with it (the #1743 traceparent field), so the run
+   * joins the turn's trace. Absent → the command carries no
+   * traceparent: the run is untraced (the registry's recorded
+   * break), never stamped with a minted-after-the-fact trace.
+   */
+  traceparent?: () => string | undefined;
+  /**
+   * Issue #2428 test seam: trace hop store override. Absent →
+   * the env-resolved store (createMeshTracePorts); explicit
+   * null → hop recording off for this context.
+   */
+  traceStore?: import("../../data/meshTracePorts").MeshTraceStore | null;
   /**
    * Issue #2378 (Agent Mesh S10, G5) paid-path seams. All
    * optional; the production defaults derive from `env`
@@ -316,6 +333,13 @@ function buildChatScreenCommand(
   // never adopt each other's run.
   const jobId = `screener:chat:${universeId}:${startedAtIso}:${crypto.randomUUID().slice(0, 8)}`;
   const tenantId = workflowTenantId(ctx.env);
+  // Issue #2428 (Agent Mesh S17): stamp the turn's traceparent
+  // onto the command (the #1743 field's first producer). The
+  // resolver is the turn stash's lazy mint, so the command, the
+  // workflow's step hops, and the read-surface assembly all
+  // share the turn's ONE trace id. No resolver / no turn → no
+  // stamp: an untraced run, honestly.
+  const traceparent = ctx.traceparent?.();
   const command: WorkflowJobCommand = {
     jobId,
     type: "run-screen",
@@ -328,8 +352,46 @@ function buildChatScreenCommand(
     filters: req.filters as unknown as Record<string, unknown>,
     maxItems: 10,
     pollIntervalMs: CHAT_SCREEN_PARENT_POLL_INTERVAL_MS,
+    ...(traceparent ? { traceparent } : {}),
   };
   return { command, jobId, tenantId, shards, startedAtIso };
+}
+
+/**
+ * Issue #2428: record the workflow-start hop for a chat screen
+ * run, under the command's traceparent. Best-effort through the
+ * env-resolved store (or the context's seam): a recording
+ * failure degrades the trace, never the run. No traceparent →
+ * no hop (the recorded break).
+ */
+async function recordChatScreenStartHop(
+  ctx: NlqPortsContext,
+  parts: ChatScreenCommandParts,
+  operation: string,
+): Promise<void> {
+  const child = childContextOfTraceparent(parts.command.traceparent);
+  if (!child) return;
+  const hop: import("../../data/meshTracePorts").MeshTraceHop = {
+    traceId: child.traceId,
+    spanId: child.spanId,
+    parentSpanId: child.parentSpanId,
+    kind: "workflow-start",
+    operation,
+    timestampMs: (ctx.nowMs ?? Date.now)(),
+    tenantId: parts.tenantId,
+    caller: parts.command.userLogin,
+    agent: "ScreenerScreenWorkflow",
+    jobId: parts.jobId,
+  };
+  try {
+    if (ctx.traceStore !== undefined) {
+      if (ctx.traceStore) await ctx.traceStore.record(hop);
+    } else {
+      await meshTraceStoreForEnv(ctx.env).record(hop);
+    }
+  } catch {
+    // Best-effort by design (the #1743 degradation rule).
+  }
 }
 
 /**
@@ -362,6 +424,10 @@ async function runChatScreenViaWorkflow(
     );
     return null;
   }
+
+  // Issue #2428: the run exists — record its start hop on the
+  // turn's trace (best-effort; never blocks the await below).
+  await recordChatScreenStartHop(ctx, { command, jobId, tenantId, shards, startedAtIso }, "screener.start");
 
   const readHistory =
     ctx.readWorkflowJobHistory ?? ((t: string, c: string) => readJobHistory(ctx.env, t, c));
@@ -600,6 +666,12 @@ async function runChatPaidScreen(
       ? (ctx.paymentWorkflowBinding ?? undefined)
       : (ctx.env.PAYMENT_WORKFLOW as unknown as PaymentWorkflowBinding | undefined);
   const started = await startPaymentWorkflowViaBinding(binding, params);
+
+  // Issue #2428: the payment run exists — record its start hop
+  // on the turn's trace (the screener command it will start
+  // carries the same traceparent, stamped in
+  // buildChatScreenCommand).
+  await recordChatScreenStartHop(ctx, { command, jobId, tenantId, shards, startedAtIso }, "payment.start");
 
   // 6. Await: the payment run starts the screener under the
   // same job id once coverage/payment lands.

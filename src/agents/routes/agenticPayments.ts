@@ -62,6 +62,8 @@
  */
 
 import { ETradeAgenticPaymentService } from "../../services/agenticPayments";
+import { recordTraceHopBestEffort } from "../../data/createMeshTracePorts";
+import { deterministicSpanId } from "../../observability/meshTrace";
 import {
   aggregateCfpayRevenue,
   buildCfpayChargeTransaction,
@@ -291,6 +293,7 @@ export async function handleAgenticPaymentsRoutes(
         payer?: unknown;
         proofSignature?: unknown;
         caller?: unknown;
+        traceId?: unknown;
         createdAt?: unknown;
       };
       const agentId = typeof body.agentId === "string" ? body.agentId.trim() : "";
@@ -339,7 +342,33 @@ export async function handleAgenticPaymentsRoutes(
         ...(typeof body.caller === "string" && body.caller.length > 0
           ? { caller: body.caller }
           : {}),
+        // Mesh trace (issue #2428): beside the caller, the W3C
+        // trace id the payment's dispatch threaded from the
+        // edge traceparent — same provenance discipline as the
+        // caller (it reaches this handler only through the
+        // PaymentsAgent ledger forward, never asserted by the
+        // external caller), and shape-checked as a trace id.
+        ...(typeof body.traceId === "string" && /^[0-9a-f]{32}$/.test(body.traceId)
+          ? { traceId: body.traceId }
+          : {}),
       });
+      // Issue #2428: the ledger hop on the payment's trace —
+      // the write above is the hop's evidence. Best-effort,
+      // recorded only when the forward carried a valid trace
+      // id; the span is deterministic on the idempotency key
+      // so a replayed record converges instead of duplicating.
+      if (typeof body.traceId === "string" && /^[0-9a-f]{32}$/.test(body.traceId)) {
+        await recordTraceHopBestEffort(ctx.env, {
+          traceId: body.traceId,
+          spanId: deterministicSpanId(`ledger:${idempotencyKey}`),
+          kind: "ledger",
+          operation: "payments_agent.recorded",
+          timestampMs: Date.now(),
+          caller: typeof body.caller === "string" ? body.caller : undefined,
+          agent: "PaymentsAgent",
+          note: operation,
+        });
+      }
       return Response.json({ duplicate: false, record: toPaymentRecord(tx) });
     } catch (err: any) {
       return Response.json({ error: err.message || "Failed to record payment in ledger" }, { status: 500 });

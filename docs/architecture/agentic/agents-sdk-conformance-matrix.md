@@ -497,3 +497,18 @@ on. Later rounds should add, in owning-slice order:
   `DID_ATTESTATION_KEY` is bound, an explicitly unkeyed content
   label (`UnkeyedContentLabel2026`) otherwise — no surface calls
   the unkeyed value a proof.
+
+**S17 note (#2428, G13a — unified traces).** The matrix's
+subject is SDK conformance per agent × aspect; the trace spine
+is a programme-level (G13) substrate, not an SDK aspect, so no
+cells change and the totals stand (168 cells: 58 IMPLEMENTED /
+82 NOT-APPLICABLE / 28 GAP). What S17 adds is the evidence
+layer S18's golden tasks and S19's proposal pipeline consume:
+one W3C trace id carried from ingress through turn, doors,
+jobs, workflow starts/steps, projections, the A2A edge, and
+the payments ledger, recorded in `agent_mesh_trace_hops`
+(migration 0023) and assembled by `agentdb.trace.get`. The
+spine's carried hops and its four named breaks (Trading and
+Payment workflow step spans, route-originated workflow
+starts, direct channel-ingress paths) are recorded in the
+registry's `MESH_TRACE_SPINE`, not in this matrix.
