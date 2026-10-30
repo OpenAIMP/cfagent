@@ -30,6 +30,10 @@
  * metadata plus its bytes base64-encoded — the explicit design for
  * carrying bytes in the JSON { text, data } outcome (SURVEY §1.6
  * names generate + a base64 get as the two honest options).
+ * report_asset.list (#2421, Agent Mesh S15) enumerates the service
+ * instance's asset metadata through the class's listAssets — the
+ * list the chat door has had since #2349 — metadata only: asset
+ * bytes never ride a listing.
  *
  * The executor has no module-local default: the methods are
  * ReportAssetAgent-bound, so the class injects its bound methods
@@ -38,7 +42,12 @@
 import { AGENT_ERROR_CATALOG, AgentErrorCode } from "../aspects/errorCodes";
 import { getServiceUserLogin } from "../security/serviceIdentity";
 import type { Env } from "../types";
-import type { AssetRequest, AssetResult, AssetType } from "./report-asset-agent";
+import type {
+  AssetRequest,
+  AssetResult,
+  AssetType,
+  ReportAssetMeta,
+} from "./report-asset-agent";
 
 /**
  * The operations this dispatch serves. This constant is the
@@ -48,6 +57,7 @@ import type { AssetRequest, AssetResult, AssetType } from "./report-asset-agent"
 export const REPORT_ASSET_A2A_OPERATIONS = [
   "report_asset.generate",
   "report_asset.get",
+  "report_asset.list",
 ] as const;
 
 export type ReportAssetA2AOperation = (typeof REPORT_ASSET_A2A_OPERATIONS)[number];
@@ -103,6 +113,7 @@ export interface ReportAssetA2ADataResult {
 export interface ReportAssetA2AExecutor {
   generateAsset(request: AssetRequest): Promise<AssetResult | null>;
   getAsset(key: string): Promise<{ bytes: Uint8Array; fileName: string } | null>;
+  listAssets(limit?: number): Promise<ReportAssetMeta[]>;
 }
 
 export interface ReportAssetA2ADeps {
@@ -248,6 +259,22 @@ async function executeOperation(
         },
       };
     }
+    case "report_asset.list": {
+      let limit: number | undefined;
+      if (args.limit !== undefined) {
+        if (
+          typeof args.limit !== "number" ||
+          !Number.isFinite(args.limit) ||
+          args.limit <= 0
+        ) {
+          throw new ReportAssetA2AInputError(
+            `Operation "${operation}" requires "limit" to be a positive number when present.`,
+          );
+        }
+        limit = Math.floor(args.limit);
+      }
+      return { result: await executor.listAssets(limit) };
+    }
   }
 }
 
@@ -342,6 +369,8 @@ function successText(data: ReportAssetA2ADataResult): string {
       return `report_asset.generate completed: asset stored as "${String(result?.fileName ?? "")}" under key "${String(result?.key ?? "")}".`;
     case "report_asset.get":
       return `report_asset.get completed: "${String(result?.fileName ?? "")}" (${typeof result?.byteLength === "number" ? result.byteLength : 0} bytes, base64 in the data part).`;
+    case "report_asset.list":
+      return `report_asset.list completed: ${Array.isArray(data.result) ? data.result.length : 0} asset(s) on the service instance (metadata only — no bytes in a listing).`;
     default:
       return `${data.operation ?? "report-asset operation"} completed.`;
   }

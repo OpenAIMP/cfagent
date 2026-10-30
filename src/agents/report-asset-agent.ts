@@ -165,6 +165,7 @@ export class ReportAssetAgent extends PortThink {
       executor: {
         generateAsset: (request) => this.generateAsset(request),
         getAsset: (key) => this.getAsset(key),
+        listAssets: (limit) => this.listAssets(limit),
       },
     });
     return reportAssetA2AOutcome(data);

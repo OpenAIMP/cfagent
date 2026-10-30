@@ -71,9 +71,11 @@ describe("A2A resolution map (#2223 slice 1)", () => {
     // Slice 1's set, extended by the payments/AiSearchAgent slices
     // and completed by the final slice (screener, research,
     // report-asset, browser, slack). Updated in the final slice per
-    // the §7 pin rule — this is the full #2223 set.
+    // the §7 pin rule — this is the full #2223 set. Extended once
+    // since, per the same rule: sandbox (#2421, Agent Mesh S15 —
+    // the #2253 recorded follow-up).
     expect(Object.keys(A2A_RESOLUTIONS).sort()).toEqual(
-      ["aisearch", "browser", "memory", "nlq", "orchestrator", "payments", "report-asset", "research", "scheduled", "screener", "search", "slack", "tasks", "trading"].sort(),
+      ["aisearch", "browser", "memory", "nlq", "orchestrator", "payments", "report-asset", "research", "sandbox", "scheduled", "screener", "search", "slack", "tasks", "trading"].sort(),
     );
   });
 
