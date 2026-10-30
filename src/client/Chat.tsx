@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import type { ReactNode } from "react";
 import { startPolling } from "./polling";
 import { getPollingConfig } from "./pollingConfig";
+import { useAutoRefresh } from "./autoRefresh";
 import { BRAND } from "./branding";
 import { apiFetch as fetch } from "./apiFetch";
 import { McpApiExplorer } from "./McpApiExplorer";
@@ -165,25 +166,13 @@ export function Chat({ user }: { user: User }) {
   });
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
 
-  // Centralized Global Auto-Refresh configuration (managed in Settings)
-  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState<boolean>(() => {
-    if (typeof window !== "undefined") {
-      const stored = localStorage.getItem("cfagent_global_autorefresh_enabled");
-      if (stored !== null) return stored === "true";
-      return localStorage.getItem("cfagent_options_autorefresh_enabled") === "true";
-    }
-    return false;
-  });
-
-  const [autoRefreshInterval, setAutoRefreshInterval] = useState<number>(() => {
-    if (typeof window !== "undefined") {
-      const stored = localStorage.getItem("cfagent_global_autorefresh_interval");
-      if (stored) return Number(stored);
-      const fallback = localStorage.getItem("cfagent_options_autorefresh_interval");
-      if (fallback) return Number(fallback);
-    }
-    return 15;
-  });
+  // Issue #2481 — the global auto-refresh switch now lives in
+  // autoRefresh.ts (single key family, single write path); Chat
+  // no longer keeps its own copy. The dynamic panel is controlled
+  // from here via the props below.
+  const [autoRefreshState, setAutoRefreshState] = useAutoRefresh();
+  const autoRefreshEnabled = autoRefreshState.enabled;
+  const autoRefreshInterval = autoRefreshState.interval;
 
   // Issue #277: server-owned setting for HITL confirmation on
   // research-report dispatch. Default ON (#1144, owner decision).
@@ -260,22 +249,7 @@ export function Chat({ user }: { user: User }) {
   };
 
   const handleToggleAutoRefresh = (enabled: boolean, interval?: number) => {
-    setAutoRefreshEnabled(enabled);
-    const nextInterval = interval !== undefined ? interval : autoRefreshInterval;
-    if (interval !== undefined) setAutoRefreshInterval(interval);
-    if (typeof window !== "undefined") {
-      localStorage.setItem("cfagent_global_autorefresh_enabled", String(enabled));
-      localStorage.setItem("cfagent_global_autorefresh_interval", String(nextInterval));
-      localStorage.setItem("cfagent_options_autorefresh_enabled", String(enabled));
-      localStorage.setItem("cfagent_options_autorefresh_interval", String(nextInterval));
-      localStorage.setItem("cfagent_options_research_autorefresh_enabled", String(enabled));
-      localStorage.setItem("cfagent_options_research_autorefresh_interval", String(nextInterval));
-      window.dispatchEvent(
-        new CustomEvent("cfagent-autorefresh-changed", {
-          detail: { enabled, interval: nextInterval },
-        })
-      );
-    }
+    setAutoRefreshState(enabled, interval);
   };
 
   const handleGlobalRefresh = useCallback(async () => {
