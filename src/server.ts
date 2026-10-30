@@ -305,6 +305,20 @@ function isAllowedOrigin(request: Request, env: Env): boolean {
 }
 
 /**
+ * Issue #2412 (Agent Mesh S13, G10): the NLQ webhook channel's service
+ * identity. The webhook caller is authenticated by HMAC as a SYSTEM
+ * caller, not as a user: when the caller asserts a well-formed userId,
+ * the run is attributed to the namespaced principal
+ * `nlq_webhook_<userId>`; when it asserts none, the run lands on this
+ * named service identity — the channel's own instance, not a person's
+ * login and not a shared user account. The value is the historical
+ * instance name (renaming it would orphan the instance's existing
+ * NLQ state); S13's change is to name the posture in code and in the
+ * mesh channel registry (src/agents/registry.ts), not to move state.
+ */
+const NLQ_WEBHOOK_SERVICE_LOGIN = "nlq_webhook";
+
+/**
  * Issue #313: single-owner handler for the NLQ inbound webhook.
  * All three advertised spellings — /nlq/webhook, /api/trading/nlq/webhook,
  * /api/nlq/webhook — delegate here so the logic (throttle, signature
@@ -325,7 +339,7 @@ async function handleNlqWebhookRequest(
   }
   const rawBody = await request.text();
   if (rawBody.length > 128_000) return Response.json({ error: "Webhook payload exceeds 128 KB." }, { status: 413 });
-  const verifier = new ETradeWebhookService(undefined, env, "nlq_webhook");
+  const verifier = new ETradeWebhookService(undefined, env, NLQ_WEBHOOK_SERVICE_LOGIN);
   const isValid = await verifier.verifySignature(
     rawBody,
     request.headers.get("X-Signature-256"),
@@ -378,7 +392,7 @@ async function handleNlqWebhookRequest(
   }
   const userLogin = typeof body.userId === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(body.userId)
     ? `nlq_webhook_${body.userId}`
-    : "nlq_webhook";
+    : NLQ_WEBHOOK_SERVICE_LOGIN;
   const agentId = env.SEARCH_AGENT.idFromName(userLogin);
   const target = new URL("/nlq", "https://agent.internal");
   const forwarded = new Request(target, {
