@@ -46,6 +46,13 @@ const MAX_ENTRIES = SESSION_LIMITS.cacheMaxEntries;
 interface CacheEntry {
   data: SessionData | null;
   expiresAt: number;
+  /**
+   * Issue #2444: ms since epoch when this entry was fetched from the
+   * backing store. The wired freshness gate uses it to decide whether
+   * a fresh store read is needed at all; it is never a session field
+   * and never leaves this isolate.
+   */
+  fetchedAtMs: number;
 }
 
 const cache = new Map<string, CacheEntry>();
@@ -69,6 +76,7 @@ function writeEntry(sessionId: string, data: SessionData | null): void {
   cache.set(sessionId, {
     data,
     expiresAt: Date.now() + (data ? SESSION_CACHE_POSITIVE_TTL_MS : NEGATIVE_TTL_MS),
+    fetchedAtMs: Date.now(),
   });
 }
 
@@ -92,6 +100,19 @@ export async function getSessionCached(
   // negative TTL is acceptable because the session is unusable either way.
   writeEntry(sessionId, session);
   return session;
+}
+
+/**
+ * Issue #2444: when the live cache entry for a session was fetched from
+ * the backing store, in ms since epoch — or null when no live entry
+ * exists. Pure cache inspection: never performs a store read and emits
+ * no resource event. The wired freshness gate calls this after
+ * getSessionCached, so the entry is live whenever the caller holds a
+ * cached session; a null here means the gate must not apply.
+ */
+export function getSessionCachedFetchedAt(sessionId: string): number | null {
+  const entry = readEntry(sessionId);
+  return entry ? entry.fetchedAtMs : null;
 }
 
 /**
