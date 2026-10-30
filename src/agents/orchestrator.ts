@@ -483,6 +483,10 @@ export class OrchestratorAgent extends PortThink {
         createSocialBriefStoreFromNamespace(
           this.env.SESSION_STORE as unknown as DoNamespaceLike | undefined,
         ),
+      // Issue #2369: env + this instance's SQL for the chat
+      // screen's workflow start and mas_reports read-back.
+      env: this.env,
+      ensureTables: () => this.ensureTables(),
     };
   }
 
