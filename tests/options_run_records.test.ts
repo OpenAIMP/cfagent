@@ -141,7 +141,7 @@ describe("recordOptionsServeReport", () => {
         symbols: [],
         totalScanned: 0,
         matchedCount: 0,
-        error: "[SCREEN_003] incomplete universe",
+        error: "[FAILURE_SCREEN_NO_CONTRACTS_EVALUATED] incomplete universe",
         deliveryId: "scheduled:options:chain-2",
         userLogin: OWNER,
       } as any,
@@ -149,7 +149,7 @@ describe("recordOptionsServeReport", () => {
 
     const [row] = listJobOutcomes(sql as any, 10);
     expect(row.status).toBe("failed");
-    expect(row.codedError).toContain("SCREEN_003");
+    expect(row.codedError).toContain("FAILURE_SCREEN_NO_CONTRACTS_EVALUATED");
   });
 });
 

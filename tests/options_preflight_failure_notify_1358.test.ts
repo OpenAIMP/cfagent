@@ -39,8 +39,8 @@ describe("autonomousOptionsAnalysis preflight-blocked failure path (#1358)", () 
         blocked: true,
         alerted,
         error: alerted
-          ? "⚠️ [AUTH_003] E*TRADE connection missing — scheduled options screen is blocked. A connect alert has been sent for this episode."
-          : "⚠️ [AUTH_003] E*TRADE connection missing — scheduled options screen is blocked. A connect alert was already sent for this episode; further runs today stay quiet.",
+          ? "⚠️ [FAILURE_AUTH_NO_SESSION] E*TRADE connection missing — scheduled options screen is blocked. A connect alert has been sent for this episode."
+          : "⚠️ [FAILURE_AUTH_NO_SESSION] E*TRADE connection missing — scheduled options screen is blocked. A connect alert was already sent for this episode; further runs today stay quiet.",
       };
     };
     return { service, publish };
@@ -54,11 +54,11 @@ describe("autonomousOptionsAnalysis preflight-blocked failure path (#1358)", () 
       riskProfile: "balanced",
     });
     expect(result.success).toBe(false);
-    expect(String((result as any).error)).toContain("[AUTH_003]");
+    expect(String((result as any).error)).toContain("[FAILURE_AUTH_NO_SESSION]");
     const events = publish.mock.calls.map((c) => c[0]);
     const failed = events.find((e: any) => e.type === "options.failed");
     expect(failed).toBeDefined();
-    expect(failed.error).toContain("[AUTH_003]");
+    expect(failed.error).toContain("[FAILURE_AUTH_NO_SESSION]");
     expect(failed.trigger).toBe("scheduled");
   });
 
@@ -71,7 +71,7 @@ describe("autonomousOptionsAnalysis preflight-blocked failure path (#1358)", () 
     // Run 2: subsequent blocked run in same episode (alerted: false) -> quiet contract
     const r2 = await service.autonomousOptionsAnalysis({ symbols: ["AAPL"], thesis: "bullish" });
     expect(r2.success).toBe(false);
-    expect(String((r2 as any).error)).toContain("[AUTH_003]");
+    expect(String((r2 as any).error)).toContain("[FAILURE_AUTH_NO_SESSION]");
     expect(String((r2 as any).error)).toContain("further runs today stay quiet");
 
     // Only run 1 published failure event; run 2 stayed quiet

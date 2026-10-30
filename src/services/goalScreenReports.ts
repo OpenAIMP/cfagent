@@ -8,7 +8,7 @@
  *
  * The 0-record case is the point: an empty report states its counts
  * and carries 0 data rows; it never skips, and a generation failure
- * is recorded per format (REPORT_001) without failing the run — the
+ * is recorded per format (FAILURE_REPORT_PDF_GENERATION) without failing the run — the
  * #1278 (R5) failure contract, applied to goal-screen artifacts.
  */
 
@@ -213,7 +213,7 @@ interface BlobStorage {
 /**
  * Generate + store all three artifacts for a goal-screen result, each
  * retried under the R1 report policy. A per-format failure is recorded
- * on the outcome (REPORT_001) and never throws — the run completed,
+ * on the outcome (FAILURE_REPORT_PDF_GENERATION) and never throws — the run completed,
  * the artifact did not.
  */
 export async function generateAndStoreGoalScreenArtifacts(
@@ -224,7 +224,7 @@ export async function generateAndStoreGoalScreenArtifacts(
   const { putReportPdf } = await import("./reportBlobStore");
   const { resolvePipelinePolicy } = await import("./pipelinePolicy");
   const { withRetry } = await import("./resilience");
-  const { codedMessage } = await import("../errors/errorAspects");
+  const { codedMessage, hasOutcomeCodePrefix } = await import("../outcomes/outcomeAspects");
   const policy = resolvePipelinePolicy(env as Record<string, unknown>);
   const contentTypes: Record<GoalScreenArtifactFormat, string> = {
     pdf: "application/pdf",
@@ -268,9 +268,9 @@ export async function generateAndStoreGoalScreenArtifacts(
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       outcome[statusKey] = "failed";
-      outcome[errorKey] = message.startsWith("[REPORT_")
+      outcome[errorKey] = hasOutcomeCodePrefix(message)
         ? message
-        : codedMessage("REPORT_001", message);
+        : codedMessage("FAILURE_REPORT_PDF_GENERATION", message);
       console.error(`[GoalScreenReports] ${format} artifact failed:`, outcome[errorKey]);
     }
   }

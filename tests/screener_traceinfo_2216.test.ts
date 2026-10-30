@@ -102,9 +102,9 @@ describe("#2216 guard alert carries catalog message + trace", () => {
     });
     expect(res.blocked).toBe(true);
     expect(posted.length).toBe(1);
-    // Catalog-rendered (AUTH_003 businessMessage), not the hand-built variant.
+    // Catalog-rendered (FAILURE_AUTH_NO_SESSION businessMessage), not the hand-built variant.
     expect(posted[0]).toContain(
-      "[AUTH_003] No E*TRADE session is stored for this account. Please connect your account in Settings."
+      "[FAILURE_AUTH_NO_SESSION] No E*TRADE session is stored for this account. Please connect your account in Settings."
     );
     expect(posted[0]).not.toContain("No stored E*TRADE session exists");
     expect(posted[0]).toContain("Run: options_scanner:2026-10-29T04:35:02.787Z:bullish");
@@ -151,11 +151,11 @@ describe("#2216 failure leg appends the trace block", () => {
         success: false,
         pdfKeys: [],
         thesis: "bullish",
-        error: "[AUTH_003] No E*TRADE session is stored for this account.",
+        error: "[FAILURE_AUTH_NO_SESSION] No E*TRADE session is stored for this account.",
         trace: fullTrace,
       } as never,
     );
-    expect(text).toContain("❌ [SCREEN_001] The screen run failed. — Options screen — bullish");
+    expect(text).toContain("❌ [FAILURE_SCREEN_RUN_FAILED] The screen run failed. — Options screen — bullish");
     expect(text).toContain("Run: options_scanner:2026-10-29T04:35:02.787Z:bullish");
     expect(text).toContain("Schedule: hourly options NASDAQ100 (_D6hWyU_S)");
   });
@@ -167,10 +167,10 @@ describe("#2216 failure leg appends the trace block", () => {
       success: false,
       pdfKeys: [],
       thesis: "bullish",
-      error: "[AUTH_003] No E*TRADE session is stored for this account.",
+      error: "[FAILURE_AUTH_NO_SESSION] No E*TRADE session is stored for this account.",
     } as never);
     expect(text).toBe(
-      "❌ [SCREEN_001] The screen run failed. — Options screen — bullish — [AUTH_003] No E*TRADE session is stored for this account."
+      "❌ [FAILURE_SCREEN_RUN_FAILED] The screen run failed. — Options screen — bullish — [FAILURE_AUTH_NO_SESSION] No E*TRADE session is stored for this account."
     );
   });
 });

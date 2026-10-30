@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { acquireUniverse } from "../src/trading/screenerPipeline";
-import { BusinessError } from "../src/errors/errorAspects";
+import { BusinessError } from "../src/outcomes/outcomeAspects";
 
 const listings = (symbols: string[]) =>
   symbols.map((symbol) => ({ symbol, companyName: `${symbol} Inc`, exchange: "NASDAQ" }) as any);
 
 // #908 scenario: auth failures are the root cause even when most
 // failures are batch-omitted secondaries. Zero quotes + any auth
-// failure must surface AUTH_002, never the technical token message.
+// failure must surface FAILURE_AUTH_TOKEN_EXPIRED, never the technical token message.
 const mixedDeps = {
   fetchQuote: async (symbol: string) => {
     if (symbol === "AUTHX") {
@@ -23,8 +23,8 @@ const nonAuthDeps = {
   },
 };
 
-describe("AUTH_002 on mixed auth + batch-omitted failures (#908)", () => {
-  it("live-quotes mode throws AUTH_002 when any auth failure occurs with zero quotes", async () => {
+describe("FAILURE_AUTH_TOKEN_EXPIRED on mixed auth + batch-omitted failures (#908)", () => {
+  it("live-quotes mode throws FAILURE_AUTH_TOKEN_EXPIRED when any auth failure occurs with zero quotes", async () => {
     const err = await acquireUniverse({
       mode: "live-quotes",
       symbols: listings(["AUTHX", "BATCH1", "BATCH2"]),
@@ -34,11 +34,11 @@ describe("AUTH_002 on mixed auth + batch-omitted failures (#908)", () => {
       (e) => e
     );
     expect(err).toBeInstanceOf(BusinessError);
-    expect((err as BusinessError).code).toBe("AUTH_002");
+    expect((err as BusinessError).code).toBe("FAILURE_AUTH_TOKEN_EXPIRED");
     expect((err as Error).message).not.toContain("OAuth access token is missing");
   });
 
-  it("etrade-only mode throws AUTH_002 for the same mixed failure", async () => {
+  it("etrade-only mode throws FAILURE_AUTH_TOKEN_EXPIRED for the same mixed failure", async () => {
     const err = await acquireUniverse({
       mode: "etrade-only",
       symbols: listings(["AUTHX", "BATCH1", "BATCH2"]),
@@ -48,10 +48,10 @@ describe("AUTH_002 on mixed auth + batch-omitted failures (#908)", () => {
       (e) => e
     );
     expect(err).toBeInstanceOf(BusinessError);
-    expect((err as BusinessError).code).toBe("AUTH_002");
+    expect((err as BusinessError).code).toBe("FAILURE_AUTH_TOKEN_EXPIRED");
   });
 
-  it("zero quotes with no auth failure still surfaces the technical error, not AUTH_002", async () => {
+  it("zero quotes with no auth failure still surfaces the technical error, not FAILURE_AUTH_TOKEN_EXPIRED", async () => {
     const err = await acquireUniverse({
       mode: "live-quotes",
       symbols: listings(["BATCH1", "BATCH2"]),

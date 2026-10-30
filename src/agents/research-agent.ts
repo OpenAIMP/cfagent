@@ -17,7 +17,7 @@
  */
 
 import { PortThink } from "../actors/thinkAdapter";
-import { codedMessage } from "../errors/errorAspects";
+import { codedMessage } from "../outcomes/outcomeAspects";
 import {
   dispatchResearchA2A,
   researchA2AOutcome,
@@ -790,7 +790,7 @@ export class ResearchAgent extends PortThink {
       outcome.xlsxKey = key;
       outcome.xlsxStatus = "generated";
     } catch (err) {
-      outcome.xlsxError = codedMessage("REPORT_002", err instanceof Error ? err.message : String(err));
+      outcome.xlsxError = codedMessage("FAILURE_REPORT_XLSX_GENERATION", err instanceof Error ? err.message : String(err));
       console.error("[ResearchAgent] Research XLSX generation failed:", outcome.xlsxError);
     }
 
@@ -813,7 +813,7 @@ export class ResearchAgent extends PortThink {
       outcome.csvKey = key;
       outcome.csvStatus = "generated";
     } catch (err) {
-      outcome.csvError = codedMessage("REPORT_004", err instanceof Error ? err.message : String(err));
+      outcome.csvError = codedMessage("FAILURE_REPORT_CSV_GENERATION", err instanceof Error ? err.message : String(err));
       console.error("[ResearchAgent] Research CSV generation failed:", outcome.csvError);
     }
 

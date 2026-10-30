@@ -66,9 +66,9 @@ export async function handleWatchlistsRoutes(
           watchlists = await etrade.getWatchlists();
         } catch (err) {
           // Issue #826: BusinessError carries business message for UI.
-          const { BusinessError } = await import("../../errors/errorAspects");
+          const { BusinessError } = await import("../../outcomes/outcomeAspects");
           if (err instanceof BusinessError) {
-            return Response.json(err.toJSON(), { status: err.entry.httpStatus });
+            return Response.json(err.toJSON(), { status: err.entry?.httpStatus ?? 500 });
           }
           throw err;
         }

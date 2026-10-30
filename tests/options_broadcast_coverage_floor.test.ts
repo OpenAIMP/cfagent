@@ -6,7 +6,7 @@
  * link on any notification surface. Instead its notification is a
  * degraded notice naming coverage and the top skip reason. At or above
  * the floor behavior is exactly today's, and zero evaluated still takes
- * the SCREEN_003 gate (unchanged).
+ * the FAILURE_SCREEN_NO_CONTRACTS_EVALUATED gate (unchanged).
  *
  * RED first: the floor helpers, the lifecycle gate, the outcome
  * plumbing, and the direct-Slack branch do not exist yet.
@@ -361,7 +361,7 @@ describe("direct Slack delivery in autonomousOptionsAnalysis", () => {
     expect(String(call.text ?? "")).toContain("✅ Screen completed");
   });
 
-  it("zero evaluated still takes the SCREEN_003 gate, not the degraded notice", async () => {
+  it("zero evaluated still takes the FAILURE_SCREEN_NO_CONTRACTS_EVALUATED gate, not the degraded notice", async () => {
     (UnifiedOptionsService as any).scan = {
       success: true,
       summary: "scan",
@@ -386,12 +386,12 @@ describe("direct Slack delivery in autonomousOptionsAnalysis", () => {
       slackChannel: "stock_screener_channel",
     });
     expect(res.success).toBe(false);
-    expect(res.error).toContain("SCREEN_003");
+    expect(res.error).toContain("FAILURE_SCREEN_NO_CONTRACTS_EVALUATED");
     // The only Slack send is the failure notice, never a degraded or success notice.
     expect(mockDeliverA2A).toHaveBeenCalledTimes(1);
     const text = String((mockDeliverA2A.mock.calls[0][1] as Record<string, unknown>).text ?? "");
     expect(text).toContain("FAILED");
-    expect(text).toContain("SCREEN_003");
+    expect(text).toContain("FAILURE_SCREEN_NO_CONTRACTS_EVALUATED");
     expect(text).not.toContain("degraded");
   });
 });

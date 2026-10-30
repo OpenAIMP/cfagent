@@ -9,7 +9,7 @@
  * - A guard-blocked E*TRADE scheduled stock run completes via Yahoo
  *   (monolithic Yahoo path, even when the schedule asked for sharded
  *   execution — the sharded chain's E*TRADE feed shard has no
- *   auth-dead mode) instead of failing with [AUTH_003].
+ *   auth-dead mode) instead of failing with [FAILURE_AUTH_NO_SESSION].
  * - The fallback run carries an explicit providerFallback marker on
  *   the result, the screener.completed event, the bridge outcome, and
  *   the returned data — and the PDF provenance names it as a Yahoo
@@ -78,7 +78,7 @@ describe("scheduled stock Yahoo fallback (#1527)", () => {
     (service as any).audit = audit;
     (service as any).guardScheduledAuth = async () => ({
       blocked: true,
-      error: "⚠️ [AUTH_003] E*TRADE connection missing — scheduled stock screen is blocked.",
+      error: "⚠️ [FAILURE_AUTH_NO_SESSION] E*TRADE connection missing — scheduled stock screen is blocked.",
     });
     (service as any).getScreenerAgent = () => ({ runScreen });
     return { service, publish, audit, runScreen };

@@ -5,7 +5,7 @@
  * A. runReportPipeline retries PDF generation under the R1 pipeline
  *    policy (retry.report) — a null asset from generatePdfAsset (its
  *    failure contract: it never throws) counts as a failed attempt —
- *    and the recorded pdfError carries the REPORT_001 catalog code.
+ *    and the recorded pdfError carries the FAILURE_REPORT_PDF_GENERATION catalog code.
  * B. The stock screener PDF's provenance lines are built from the
  *    run's actual provider (no more hardcoded "E*TRADE live snapshots"
  *    on Yahoo runs), and partial technicals coverage is stated in the
@@ -192,7 +192,7 @@ describe("C. ScreenerAgent.regenerateLatestReport (#1278)", () => {
       pdfKey: "",
       generationId: "screener:manual:2026-10-23T13:05:29.000Z",
       pdfStatus: "failed",
-      pdfError: "[REPORT_001] The PDF report could not be generated. — still broken",
+      pdfError: "[FAILURE_REPORT_PDF_GENERATION] The PDF report could not be generated. — still broken",
     };
     const storage = new FakeStorage();
     await storage.put("screener:owner-login", "test-owner");
@@ -202,7 +202,7 @@ describe("C. ScreenerAgent.regenerateLatestReport (#1278)", () => {
 
     const out = await agent.regenerateLatestReport();
     expect(out.pdfStatus).toBe("failed");
-    expect(out.pdfError).toContain("REPORT_001");
+    expect(out.pdfError).toContain("FAILURE_REPORT_PDF_GENERATION");
     const latest = (await storage.get<any>("screener:latest"))!;
     expect(latest.pdfStatus).toBe("failed");
     expect(latest.pdfError).toContain("still broken");
@@ -212,7 +212,7 @@ describe("C. ScreenerAgent.regenerateLatestReport (#1278)", () => {
     const agent = makeAgent(new FakeStorage());
     const out = await agent.regenerateLatestReport();
     expect(out.pdfStatus).toBe("failed");
-    expect(out.pdfError).toContain("REPORT_003");
+    expect(out.pdfError).toContain("FAILURE_REPORT_ARTIFACT_MISSING");
     expect(hoisted.pipelineCalls).toHaveLength(0);
   });
 });

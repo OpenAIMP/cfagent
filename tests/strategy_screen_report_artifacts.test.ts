@@ -322,7 +322,7 @@ describe("ScreenerAgent strategy report storage (#2162)", () => {
 
     expect(outcome.xlsxStatus).toBe("failed");
     expect(outcome.xlsxKey).toBeUndefined();
-    expect(outcome.xlsxError).toContain("REPORT_002");
+    expect(outcome.xlsxError).toContain("FAILURE_REPORT_XLSX_GENERATION");
     expect(outcome.pdfStatus).toBe("generated");
     expect(outcome.pdfKey).toBeTruthy();
     expect(outcome.csvStatus).toBe("generated");
@@ -335,7 +335,7 @@ describe("ScreenerAgent strategy report storage (#2162)", () => {
 
     expect(outcome.csvStatus).toBe("failed");
     expect(outcome.csvKey).toBeUndefined();
-    expect(outcome.csvError).toContain("REPORT_004");
+    expect(outcome.csvError).toContain("FAILURE_REPORT_CSV_GENERATION");
     expect(outcome.xlsxStatus).toBe("generated");
     expect(outcome.xlsxKey).toBeTruthy();
     expect(outcome.pdfStatus).toBe("generated");

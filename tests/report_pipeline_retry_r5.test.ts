@@ -3,7 +3,7 @@
  * generation under the R1 pipeline policy (retry.report). The
  * ReportAssetAgent helper `generatePdfAsset` never throws — null IS
  * its failure signal — so a null asset must count as a failed attempt.
- * The recorded pdfError carries the REPORT_001 catalog code (R4).
+ * The recorded pdfError carries the FAILURE_REPORT_PDF_GENERATION catalog code (R4).
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -61,12 +61,12 @@ describe("runReportPipeline retry (#1278 R5-A)", () => {
     expect(hoisted.assetCalls).toBe(3);
   });
 
-  it("gives up after the default report attempts (2) and records a REPORT_001-coded error", async () => {
+  it("gives up after the default report attempts (2) and records a FAILURE_REPORT_PDF_GENERATION-coded error", async () => {
     const out = await runReportPipeline({ ...FAST } as any, storage as any, INPUT as any);
     expect(out.pdfStatus).toBe("failed");
     expect(out.pdfKey).toBe("");
     expect(hoisted.assetCalls).toBe(2);
-    expect(out.pdfError).toContain("[REPORT_001]");
+    expect(out.pdfError).toContain("[FAILURE_REPORT_PDF_GENERATION]");
   });
 
   it("honors PIPELINE_REPORT_RETRY_ATTEMPTS=1 (single attempt, no retry)", async () => {

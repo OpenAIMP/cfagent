@@ -10,7 +10,7 @@
 
 import type { Env, ScheduledTaskResult, StageChainConfig, TradeRecord, ScreenedStockItem } from "../types";
 import { DatabaseORM } from "../orm";
-import { codedMessage } from "../errors/errorAspects";
+import { codedMessage } from "../outcomes/outcomeAspects";
 import { renewETradeAccessToken, getStoredTokens } from "../security/etradeOAuth";
 import { getServiceUserLogin } from "../security/serviceIdentity";
 import { createMessagingPorts } from "../messaging/createMessagingPorts";
@@ -2190,7 +2190,7 @@ export class ScheduledTasksService {
           : "";
         throw new Error(
           codedMessage(
-            "SCREEN_003",
+            "FAILURE_SCREEN_NO_CONTRACTS_EVALUATED",
             `Incomplete options universe: ${scannedCount} of ${symbols.length} underlyings scanned, ` +
             `${coverageErrors} quote/chain failures, ${truncatedCount} truncated.${reasonSuffix} No partial report published.`,
           )
@@ -2198,7 +2198,7 @@ export class ScheduledTasksService {
       }
       if (coverageErrors > 0 || truncatedCount > 0) {
         console.warn(
-          `[ScheduledTasks] [SCREEN_002] Partial options coverage: ${scannedCount} of ${symbols.length} scanned, ` +
+          `[ScheduledTasks] [FAILURE_SCREEN_PARTIAL_COVERAGE] Partial options coverage: ${scannedCount} of ${symbols.length} scanned, ` +
           `${coverageErrors} quote/chain failures, ${truncatedCount} truncated. Publishing partial report.`
         );
       }

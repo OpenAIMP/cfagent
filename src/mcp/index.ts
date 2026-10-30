@@ -14,7 +14,7 @@ import type { AsyncJobSubmission, Env } from "../types";
 import type { DatabaseORM } from "../orm";
 import { computeMarketplaceRevenueSummary } from "../data/marketplacePorts";
 import { McpToolFactory } from "./commands";
-import { BusinessError } from "../errors/errorAspects";
+import { BusinessError } from "../outcomes/outcomeAspects";
 import { createObservabilitySink } from "../observability/createObservabilityPorts";
 import type { ObservabilitySink } from "../observability/observabilityPorts";
 import {

@@ -1322,11 +1322,11 @@ export async function acquireUniverse(
       // With zero quotes there is no screen to qualify — fail
       // honestly with the full diagnostics (mirrors etrade-only,
       // issue #462/#902/#907: any auth failure makes the root
-      // cause auth, hence AUTH_002).
+      // cause auth, hence FAILURE_AUTH_TOKEN_EXPIRED).
       const authFailures = failureReasons["auth"] ?? 0;
       if (authFailures > 0) {
-        const { BusinessError } = await import("../errors/errorAspects");
-        throw new BusinessError("AUTH_002", { failedCount: failed.length, authFailures });
+        const { BusinessError } = await import("../outcomes/outcomeAspects");
+        throw new BusinessError("FAILURE_AUTH_TOKEN_EXPIRED", { failedCount: failed.length, authFailures });
       }
       throw new Error(
         `Live quotes unavailable: ${providerLabel} returned no live quotes (${quotes.length} of ${limited.length} symbols quoted` +
@@ -1614,12 +1614,12 @@ export async function acquireUniverse(
       // returns qualified results below instead of failing.)
       // Issue #902/#907: if ANY auth failures occurred and no quotes were
       // returned, the root cause is auth (batch-omitted are secondary to the
-      // auth failure). Throw BusinessError with AUTH_002 instead of the
+      // auth failure). Throw BusinessError with FAILURE_AUTH_TOKEN_EXPIRED instead of the
       // technical "OAuth access token is missing".
       const authFailures = failureReasons["auth"] ?? 0;
       if (authFailures > 0) {
-        const { BusinessError } = await import("../errors/errorAspects");
-        throw new BusinessError("AUTH_002", { failedCount: failed.length, authFailures });
+        const { BusinessError } = await import("../outcomes/outcomeAspects");
+        throw new BusinessError("FAILURE_AUTH_TOKEN_EXPIRED", { failedCount: failed.length, authFailures });
       }
       throw new Error(
         `E*TRADE unavailable: no live quotes returned (${quotes.length} of ${limited.length} symbols quoted` +

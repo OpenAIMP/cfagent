@@ -287,15 +287,15 @@ describe("delivery chaining (executor)", () => {
     const rec = getAsyncJob(ctx, String(deliveryRow?.job_id));
     expect(rec?.status).toBe("completed");
     expect(rec?.result).toMatchObject({ status: "skipped", noticeSent: true });
-    expect((rec?.result as { reason?: string }).reason).toContain("[REPORT_001]");
+    expect((rec?.result as { reason?: string }).reason).toContain("[FAILURE_REPORT_PDF_GENERATION]");
     expect((rec?.result as { reason?: string }).reason).toContain("render blew up");
     expect(delivered).toHaveLength(0);
     // #1228: the delivery was the completion message on this channel,
     // so the skipped delivery announces the outcome + reason itself.
     expect(notified).toHaveLength(1);
     expect(notified[0].channel).toBe("slack");
-    // #1252: the skip reason now carries its catalog code (REPORT_001).
-    expect(notified[0].text).toContain("No report is attached: [REPORT_001]");
+    // #1252: the skip reason now carries its catalog code (FAILURE_REPORT_PDF_GENERATION).
+    expect(notified[0].text).toContain("No report is attached: [FAILURE_REPORT_PDF_GENERATION]");
     expect(notified[0].text).toContain("render blew up");
   });
 });
