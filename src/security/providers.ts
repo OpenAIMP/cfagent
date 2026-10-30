@@ -47,6 +47,7 @@
  */
 import type { Env } from "../types";
 import type { AuditStore } from "./iaaaAudit";
+import { authOutcomeLoginUrl } from "./authOutcome";
 import { createOidcProvider } from "./oidcProvider";
 
 /**
@@ -274,12 +275,19 @@ export function resolveLoginProvider(
   return { provider, disabledReason: null };
 }
 
-/** The response a disabled login gets. No provider fallback, no redirect to login. */
+/**
+ * #2402: the response a disabled login gets. No provider fallback.
+ * Previously a bare 403 text body — silent in the same way the
+ * #2280 loop was silent. Now a redirect to the login page carrying
+ * the outcome code, so the login page itself shows the user-safe
+ * message (wiring-disabled, or provider-unavailable for the other
+ * two reasons). No store read, no provider internals in the message.
+ */
 export function disabledLoginResponse(reason: DisabledReason): Response {
-  const messages: Record<DisabledReason, string> = {
-    "wiring-disabled": "IAAA login wiring is disabled",
-    "provider-not-enabled": "This login provider is not enabled",
-    "provider-not-registered": "This login provider is not registered",
-  };
-  return new Response(messages[reason], { status: 403 });
+  const code =
+    reason === "wiring-disabled" ? "wiring_disabled" : "provider_unavailable";
+  return new Response(null, {
+    status: 302,
+    headers: { Location: authOutcomeLoginUrl(code) },
+  });
 }
