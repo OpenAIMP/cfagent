@@ -71,9 +71,20 @@ afterAll(() => {
   registerTransactionRunner(undefined as never);
 });
 
-/** SqlStorage-shaped executor over node:sqlite (real semantics). */
+/**
+ * SqlStorage-shaped executor over node:sqlite (real semantics),
+ * doubling as the storage: `sql` is the storage's own handle
+ * (this executor), and `transactionSync` invokes its closure
+ * with NO argument — the real facade's shape, as observed by
+ * #2348 and implemented by the aspect after #2455 (the pre-fix
+ * doubles passed a `{ sql }` argument and are corrected here,
+ * semantics unchanged).
+ */
 class SqliteTestStorage {
   readonly sqlite = new DatabaseSync(":memory:");
+  get sql(): SqliteTestStorage {
+    return this;
+  }
   exec(query: string, ...params: unknown[]): unknown[] {
     const stmt = this.sqlite.prepare(query);
     if (/^\s*(SELECT|PRAGMA)/i.test(query)) {
@@ -82,10 +93,10 @@ class SqliteTestStorage {
     stmt.run(...(params as never[]));
     return [];
   }
-  transactionSync<T>(closure: (txn: { sql: SqliteTestStorage }) => T): T {
+  transactionSync<T>(closure: () => T): T {
     this.sqlite.exec("BEGIN");
     try {
-      const result = closure({ sql: this });
+      const result = closure();
       this.sqlite.exec("COMMIT");
       return result;
     } catch (err) {
@@ -96,22 +107,20 @@ class SqliteTestStorage {
 }
 
 /**
- * The step-0 lying-primitive control, in its step-0 form: a
- * transactionSync that runs the closure with NO transaction.
- * Atomicity pins must fail against it — that failure is what
- * proves the pins test the primitive rather than nothing.
+ * The step-0 lying-primitive control: a transactionSync that
+ * runs the closure with NO transaction. Atomicity pins must
+ * fail against it — that failure is what proves the pins test
+ * the primitive rather than nothing.
  */
 class LyingTestStorage extends SqliteTestStorage {
-  override transactionSync<T>(closure: (txn: { sql: SqliteTestStorage }) => T): T {
-    return closure({ sql: this });
+  override transactionSync<T>(closure: () => T): T {
+    return closure();
   }
 }
 
 /** A store whose primitive refuses the unit outright. */
 class RefusingTestStorage extends SqliteTestStorage {
-  override transactionSync<T>(
-    _closure: (txn: { sql: SqliteTestStorage }) => T,
-  ): T {
+  override transactionSync<T>(_closure: () => T): T {
     throw new DataFoundationError(
       DataFoundationCode.TX_CANNOT_HONOUR,
       "test double: the store cannot honour a unit of work",
@@ -128,8 +137,8 @@ class RefusingTestStorage extends SqliteTestStorage {
  */
 class StatusFlipStorage extends SqliteTestStorage {
   flip: { id: string; status: string } | null = null;
-  override transactionSync<T>(closure: (txn: { sql: SqliteTestStorage }) => T): T {
-    return super.transactionSync((txn) => {
+  override transactionSync<T>(closure: () => T): T {
+    return super.transactionSync(() => {
       if (this.flip) {
         this.exec(
           `UPDATE mas_challengers SET status = ? WHERE id = ?`,
@@ -138,7 +147,7 @@ class StatusFlipStorage extends SqliteTestStorage {
         );
         this.flip = null;
       }
-      return closure(txn);
+      return closure();
     });
   }
 }
@@ -691,5 +700,73 @@ describe("absence discipline #2346", () => {
     } finally {
       registerTransactionRunner(aspectTransactionRunner);
     }
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* #2455: the production-shaped facade storage                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Production-shaped storage (#2455): a DISTINCT object whose
+ * `sql` property is the executor and whose `transactionSync`
+ * invokes its closure with NO argument — the DurableObjectStorage
+ * shape the hosts actually pass (ctx.storage, with
+ * ctx.storage.sql as the executor), unlike SqliteTestStorage
+ * above, which doubles as its own executor. Against the pre-fix
+ * aspect, runPromotionUnit over this shape never ran the unit:
+ * the guard's typed TX_CANNOT_HONOUR is what a promotion attempt
+ * produced (demonstrated on the pristine tree). After the fix
+ * the transition applies — atomically.
+ */
+class FacadeTestStorage {
+  readonly engine = new SqliteTestStorage();
+  readonly sql = this.engine;
+  transactionSync<T>(closure: () => T): T {
+    return this.engine.transactionSync(closure);
+  }
+}
+
+describe("#2455 facade shape: promotion through a production-shaped storage", () => {
+  function setup() {
+    const storage = new FacadeTestStorage();
+    const sql = storage.engine;
+    seedWeight(sql, "iron_condor", "chop", 1.0);
+    const challenger = makeChallenger(sql, {
+      spec: { weights: { iron_condor: 1.4, bull_put: 0.8 } },
+    });
+    return { storage, sql, challenger };
+  }
+
+  it("the transition applies through the wrap: records, weights, status", () => {
+    const { storage, sql, challenger } = setup();
+    const res = promoteChallenger(storage.sql as never, "alice", challenger.id, {
+      actor: OWNER,
+      now: NOW,
+    }, storage as never);
+    expect(res).toEqual({ ok: true });
+    const weights = getStrategyWeightsV2(sql as never);
+    expect(weights[weightsV2Key("iron_condor", "chop")]).toBe(1.4);
+    expect(weights[weightsV2Key("bull_put", "chop")]).toBe(0.8);
+    const records = listPromotionRecords(sql as never, "alice", challenger.id);
+    expect(records).toHaveLength(1);
+    expect(records[0].action).toBe("promoted");
+    expect(getChallenger(sql as never, "alice", challenger.id)?.status).toBe("promoted");
+  });
+
+  it("a throw at the promotion-record leg rolls the whole transition back", () => {
+    const { storage, sql, challenger } = setup();
+    const before = dumpState(sql);
+    const faulty = new FaultySql(storage.sql, RECORD_WRITE, "promotion-record leg");
+    expect(() =>
+      promoteChallenger(faulty as never, "alice", challenger.id, {
+        actor: OWNER,
+        now: NOW,
+      }, storage as never),
+    ).toThrow(/sabotage/);
+    expect(dumpState(sql)).toEqual(before);
+    expect(getChallenger(sql as never, "alice", challenger.id)?.status).toBe("evaluated");
+    expect(listPromotionRecords(sql as never, "alice", challenger.id)).toHaveLength(0);
+    expect(getStrategyWeightsV2(sql as never)[weightsV2Key("iron_condor", "chop")]).toBe(1.0);
   });
 });
