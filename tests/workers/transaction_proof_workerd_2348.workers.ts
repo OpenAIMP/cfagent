@@ -31,29 +31,34 @@
  *
  * DIVERGENCES (contract-as-documented vs facade-as-observed):
  *
- *  D-1 (DO leg, BLOCKING — the proof's headline finding):
- *  the aspect's DoTransactionStorage models transactionSync as
- *  invoking its closure WITH a transaction object carrying sql
+ *  D-1 (DO leg — FOUND by #2348, FIXED by #2455; kept as the
+ *  record of the divergence): at #2348's build, the aspect's
+ *  DoTransactionStorage modelled transactionSync as invoking
+ *  its closure WITH a transaction object carrying sql
  *  (closure: (txn: { sql }) => T) — the shape the step-0 double
- *  implements. The real facade invokes the closure with NO
- *  argument (observed argCount 0; @cloudflare/workers-types
- *  declares transactionSync<T>(closure: () => T): T). Inside
- *  the closure, the storage's own sql is the transaction-scoped
- *  handle. Consequence: DoSqlTransactionBackend.execute reads
- *  txn.sql on an undefined argument and throws a bare TypeError
- *  on EVERY real-facade call. The throw happens inside the
- *  closure, so the transaction rolls back — nothing is ever
- *  corrupted — but no DO-leg unit can commit through the aspect
- *  against the real facade, and the failure is not the typed
- *  catalog error. Every production wrap routed through
- *  src/data/transactionRunner.ts (the DO SQLite adapters,
- *  including the step-3b champion/challenger promotion wrap)
- *  is affected. The five aspect DO-leg pins below are therefore
- *  marked it.fails: they assert the correct contract, they fail
- *  today for exactly this reason, and they turn red again the
- *  moment a corrective fix makes them pass — remove the markers
- *  in that change. Per #2348's scope the aspect is NOT fixed
- *  here; the divergence is the deliverable.
+ *  implemented, step 0 having misread the documented contract.
+ *  The real facade invokes the closure with NO argument
+ *  (observed argCount 0; @cloudflare/workers-types declares
+ *  transactionSync<T>(closure: () => T): T). Inside the
+ *  closure, the storage's own sql is the transaction-scoped
+ *  handle. Consequence at the time: DoSqlTransactionBackend
+ *  .execute read txn.sql on an undefined argument and threw a
+ *  bare TypeError on EVERY real-facade call. The throw happened
+ *  inside the closure, so the transaction rolled back — nothing
+ *  was ever corrupted — but no DO-leg unit could commit through
+ *  the aspect against the real facade, and the failure was not
+ *  the typed catalog error. Every production wrap routed
+ *  through src/data/transactionRunner.ts (the DO SQLite
+ *  adapters, including the step-3b champion/challenger
+ *  promotion wrap) was affected. #2348 planted the five aspect
+ *  DO-leg pins below as expected-fail tripwires; #2455 rebuilt
+ *  the backend against the real contract (no-argument closure,
+ *  unit opened on the storage's own sql, every refusal the
+ *  typed TX_CANNOT_HONOUR — including a transactionSync that
+ *  throws before invoking the closure), corrected the step-0
+ *  double to the same shape, and removed the tripwire markers:
+ *  the five pins now pass un-marked, and the header record
+ *  above is history, not current behaviour.
  *
  *  NOT divergences, proven against the real facades:
  *  - D1 leg: every pin green. batch() is all-or-nothing, the
@@ -163,21 +168,21 @@ beforeAll(async () => {
 /* ------------------------------------------------------------------ */
 
 describe("#2348 proof (workerd) — DO leg against the real transactionSync facade", () => {
-  it.fails("commits a wrapped multi-write atomically: every row lands — DIVERGES on the real facade (header D-1)", async () => {
+  it("commits a wrapped multi-write atomically: every row lands — header D-1, fixed by #2455", async () => {
     const res = await proofStub("do-commit").doCommit();
     expect(res.result).toBe("done");
     expect(res.rows.map((r) => r.id)).toEqual(["a", "b"]);
     expect(res.outcomes).toEqual([DataFoundationCode.TX_COMMITTED]);
   });
 
-  it.fails("rolls back a wrapped multi-write fully when the wrapped call throws — DIVERGES on the real facade (header D-1)", async () => {
+  it("rolls back a wrapped multi-write fully when the wrapped call throws — header D-1, fixed by #2455", async () => {
     const res = await proofStub("do-rollback").doRollbackOnThrow();
     expect(res.errorMessage).toBe("wrapped call failed");
     expect(res.rows).toHaveLength(0);
     expect(res.outcomes).toEqual([DataFoundationCode.TX_ROLLED_BACK]);
   });
 
-  it.fails("refuses an async wrapped call on the DO leg and rolls back its synchronous writes — DIVERGES on the real facade (header D-1)", async () => {
+  it("refuses an async wrapped call on the DO leg and rolls back its synchronous writes — header D-1, fixed by #2455", async () => {
     const res = await proofStub("do-async-refusal").doAsyncRefusal();
     expect(res.errorName).toBe("DataFoundationError");
     expect(res.errorCode).toBe(DataFoundationCode.TX_CANNOT_HONOUR);
@@ -185,7 +190,7 @@ describe("#2348 proof (workerd) — DO leg against the real transactionSync faca
     expect(res.outcomes).toEqual([DataFoundationCode.TX_CANNOT_HONOUR]);
   });
 
-  it.fails("nested calls join the ambient unit: one outcome, one atomic whole — DIVERGES on the real facade (header D-1)", async () => {
+  it("nested calls join the ambient unit: one outcome, one atomic whole — header D-1, fixed by #2455", async () => {
     const res = await proofStub("do-nested-join").doNestedJoin();
     expect(res.result).toBe("done");
     expect(res.rows.map((r) => r.id)).toEqual(["a", "b"]);
@@ -193,7 +198,7 @@ describe("#2348 proof (workerd) — DO leg against the real transactionSync faca
     expect(res.innerOutcomes).toEqual([]);
   });
 
-  it.fails("a synchronous throw by the wrapped call rolls back nested (joined) writes too — DIVERGES on the real facade (header D-1)", async () => {
+  it("a synchronous throw by the wrapped call rolls back nested (joined) writes too — header D-1, fixed by #2455", async () => {
     const res = await proofStub("do-nested-throw").doNestedThrow();
     expect(res.errorMessage).toBe("outer failed after nested write");
     expect(res.rows).toHaveLength(0);
