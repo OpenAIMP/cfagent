@@ -625,7 +625,7 @@ describe("#2288 substrate — migration registration + parity + structure", () =
     expect(new Set(versions).size).toBe(versions.length);
     expect(versions).toContain(17);
     expect(versions).toContain(13); // claimed by #2306 (subscription Stripe ids, #2198)
-    expect(versions).not.toContain(14);
+    expect(versions).toContain(14); // claimed by #2296 (billing, #2202)
     expect(MIGRATION_0017_INTELLIGENCE_SUBSTRATE.version).toBe(17);
   });
 
