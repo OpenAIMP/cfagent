@@ -130,7 +130,7 @@ real SDK primitive.
 | OrchestratorAgent | `recovery` | S12 (G6 conformance) |
 | ResearchAgent | `recovery` | S12 (G6 conformance) |
 | TradingAgent | `recovery` | S12 (G6 conformance) |
-| TradingAgent | `sessions` | S9 (G4 chat trading — first turn caller) |
+| TradingAgent | `sessions` | Programme backlog (re-dispositioned by #2375 — S9 landed the door caller, not a turn) |
 | ScreenerAgent | `recovery` | S12 (G6 conformance) |
 | SlackAgent | `identity` | S16 (G14 identity records + mesh credentials) |
 | SlackAgent | `recovery` | S13 (G10 channel completeness — first instantiation) |
@@ -183,12 +183,12 @@ AiSearchAgent's unthreaded session login for turn-tool/RPC callers
 |---|---|---|
 | `identity` | IMPLEMENTED | Name-derived acting identity: instanceUserLogin() (trading-agent.ts:1042) inverts tradingAgentName (:1254); the workflow door refuses a payload without userLogin (trading-trade-workflow.ts) and decideTradeApproval requires an authorizer DID. The fleet's fail-closed precedent (#1185/#291) that G8/G14 generalize from. |
 | `state` | IMPLEMENTED | ctx.storage KV facade plus SQLite ORM over ctx.storage.sql in-instance; config resolved per call from env. |
-| `connections` | NOT-APPLICABLE | No client connects and no connection surface exists; reachable via A2A dispatch and via stub RPC — since #2349 the orchestrator's chat turn is a production stub caller through the G1 door (proposals + reads, src/agents/orchestrator/meshDoors.ts). |
+| `connections` | NOT-APPLICABLE | No client connects and no connection surface exists; reachable via A2A dispatch and via stub RPC — since #2349 the orchestrator's chat turn is a production stub caller through the G1 door (proposals + reads, src/agents/orchestrator/meshDoors.ts), and since #2375 also through the approval door's workflow operations (start/decide). |
 | `scheduling` | NOT-APPLICABLE | None in the agent: its durable timing lives in TradingTradeWorkflow's 24h waitForEvent, not in any schedule of its own. |
 | `recovery` | GAP | No onStart; drafts/proposals are storage-backed and re-validated at settle time by the shared core, so the wait survives in the workflow — but no eviction/resume pin covers the agent. Owner: S12 (G6 workflow + agent conformance). |
 | `sdk-state` | IMPLEMENTED | Deliberate divergence, classified explicitly per the reference set (#2225 comment 6491152513): durable state is held through the actor-port state facet (createCfActorState over ctx.storage, src/actors/cfAgentsAdapter.ts:29-40) and Think's own storage use; the SDK setState API is unused (fleet pin: zero this.setState in agent sources). |
-| `sessions` | GAP | The mechanism is wired: portHooks are set lazily via tradingTurnHooks() (:975). But no production caller has ever driven a turn on this class (survey §1/§6.5), so no transcript has ever accumulated — claiming IMPLEMENTED would overclaim. Owner: S9 (G4 chat trading), the first-caller slice. |
-| `routing` | IMPLEMENTED | Binding TRADING_AGENT; A2A surface trading — handleA2A at :1236 dispatching to dispatchTradingA2A, pinned by tests/trading_agent.test.ts. The orchestrator's G1 chat door (#2349, src/agents/orchestrator/meshDoors.ts) is the first production stub caller: proposals and reads only, addressed per-user via tradingAgentName. The approval door (executeApprovedOrder/startTradeApproval/decideTradeApproval) has no door or turn caller; S9/G4 builds behind it. |
+| `sessions` | GAP | The mechanism is wired: portHooks are set lazily via tradingTurnHooks(). #2375 (S9/G4) made the chat turn the first production caller of this class's door surface — proposal → approval-workflow start → decision → settle — but that path is typed RPC from the orchestrator's turn and drives no turn ON this class, so no transcript has ever accumulated and claiming IMPLEMENTED would overclaim; NOT-APPLICABLE is barred because the hooks are set (the portHooks coherence pin). Re-dispositioned by #2375: the GAP stays; conversion needs a slice that drives a real turn on this class. |
+| `routing` | IMPLEMENTED | Binding TRADING_AGENT; A2A surface trading — handleA2A at :1236 dispatching to dispatchTradingA2A, pinned by tests/trading_agent.test.ts. The orchestrator's G1 chat door (#2349, src/agents/orchestrator/meshDoors.ts) is the first production stub caller: proposals and reads, addressed per-user via tradingAgentName. Since #2375 (S9/G4) the door also carries the approval door's workflow operations — startTradeApproval starts TradingTradeWorkflow, decideTradeApproval delivers the decision with the authorizer derived server-side — while executeApprovedOrder stays workflow-called only (the settle step), never door-called. |
 | `websockets` | NOT-APPLICABLE | No WebSocket surface of its own: it defines no onConnect/onMessage and no socket client connects to it (fleet pin: onConnect exists only in TickerAgent). |
 | `sdk-scheduling` | NOT-APPLICABLE | No SDK scheduler use: the file contains no this.schedule/this.scheduleEvery call (fleet pin: such calls exist only in OrchestratorAgent and TickerAgent). |
 | `fibers` | GAP | No agent uses the SDK/Think fiber primitive (fleet pin: no runFiber/startFiber in agent sources). The only fiber surface, src/services/durableFibers.ts, is home-grown and NOT durable: live records sit in an in-memory Map (activeFibers, :32), checkpoints are written but never read back, and the onFiberRecovered hook its header advertises (:9) exists nowhere else in src/. Owner: programme backlog (no slice yet). |
@@ -380,8 +380,11 @@ on. Later rounds should add, in owning-slice order:
 
 - Behavioral eviction/resume pins per agent and workflow — S12,
   converting the recovery GAPs one by one.
-- A first-turn proof for TradingAgent — S9, converting its sessions
-  GAP.
+- A first-turn proof for TradingAgent — re-dispositioned by #2375:
+  S9 landed the first production door caller (chat trade via the
+  approval door + TradingTradeWorkflow) but drives no turn on the
+  class, so its sessions GAP stays in the programme backlog until a
+  slice drives a real turn on it.
 - SlackAgent's identity fix and first instantiation — S16/S13,
   converting its two GAPs.
 - A fibers adoption decision (SDK primitive behind the actor port,

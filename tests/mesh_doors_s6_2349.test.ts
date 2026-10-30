@@ -19,7 +19,12 @@
  *   decideTradeApproval) is not typed on the stub, not called by any
  *   door operation, and no turn command names an execute/approve
  *   path — order execution stays behind the existing approval door
- *   until S9/G4;
+ *   until S9/G4. (#2375/S9 has since crossed that boundary THROUGH
+ *   the door: startTradeApproval / decideTradeApproval are now
+ *   typed and door-called by design; the boundary that remains —
+ *   and that the block below now pins — is that the synchronous
+ *   settle, executeApprovedOrder, is never door-typed or
+ *   door-called. The batch-B proposal/read surface is unchanged.);
  * - a report asset get shapes the stored asset as the A2A door does
  *   and an unknown key is an honest typed error, never an empty
  *   success;
@@ -380,25 +385,30 @@ describe("mesh doors batch B: identity fails closed before dispatch (#2349)", ()
 // The hard boundary: no execution surface
 // ---------------------------------------------------------------------------
 
-describe("mesh doors batch B: the approval door stays unexposed (#2349)", () => {
-  it("no door module source calls the approval-door methods", () => {
+describe("mesh doors batch B: the approval-door boundary, as re-scoped by S9 (#2349, #2375)", () => {
+  it("no door module source calls the synchronous settle — the workflow's step is its only caller", () => {
     for (const file of ["src/agents/orchestrator/meshDoors.ts", "src/mcp/meshDoorCommands.ts"]) {
       const text = readFileSync(join(__dirname, "..", file), "utf8");
       expect(text, file).not.toMatch(/\.executeApprovedOrder\s*\(/);
-      expect(text, file).not.toMatch(/\.startTradeApproval\s*\(/);
-      expect(text, file).not.toMatch(/\.decideTradeApproval\s*\(/);
     }
+    // #2375: start/decide ARE door-called by design now — the door
+    // crosses the approval boundary through the door itself.
+    const doors = readFileSync(join(__dirname, "../src/agents/orchestrator/meshDoors.ts"), "utf8");
+    expect(doors).toMatch(/\.startTradeApproval\s*\(/);
+    expect(doors).toMatch(/\.decideTradeApproval\s*\(/);
   });
 
-  it("the TradingAgent door stub types no execution method", () => {
+  it("the TradingAgent door stub types the workflow operations but never the synchronous settle", () => {
     const text = readFileSync(join(__dirname, "../src/agents/orchestrator/meshDoors.ts"), "utf8");
     const start = text.indexOf("interface TradingAgentDoorStub");
-    const end = text.indexOf("}", start);
+    const end = text.indexOf("export function getTradingAgentDoor", start);
     const block = text.slice(start, end);
     expect(block).toContain("executeService");
-    expect(block).not.toContain("executeApprovedOrder");
-    expect(block).not.toContain("startTradeApproval");
-    expect(block).not.toContain("decideTradeApproval");
+    // A signature check, not a word check: the stub's own comment
+    // names the settle to say it is NOT typed here.
+    expect(block).not.toMatch(/executeApprovedOrder\s*\(/);
+    expect(block).toContain("startTradeApproval");
+    expect(block).toContain("decideTradeApproval");
   });
 
   it("no batch-B command name carries an execute/approve/decide path", () => {

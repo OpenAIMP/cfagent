@@ -140,7 +140,7 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     sourceFile: "src/agents/trading-agent.ts",
     role: "E*TRADE trading agent: quotes, previews, and the human approval door; starts TradingTradeWorkflow for approved executions.",
     notes:
-      "Chat reaches the proposal side through the G1 door (#2349, src/agents/orchestrator/meshDoors.ts), addressed to the acting user's own instance (trading:<login>): trade proposals via the preview-only stock_trading/options_trading services plus the accounts/positions/quote reads. The approval door (executeApprovedOrder/startTradeApproval/decideTradeApproval) has no chat caller by design — S9/G4 wires the workflow run behind it.",
+      "Chat reaches the proposal side through the G1 door (#2349, src/agents/orchestrator/meshDoors.ts), addressed to the acting user's own instance (trading:<login>): trade proposals via the preview-only stock_trading/options_trading services plus the accounts/positions/quote reads. Since S9/G4 (#2375) the chat turn also reaches the approval door through the same door: startTradeApproval starts the TradingTradeWorkflow run for a proposal and decideTradeApproval delivers the human's decision (authorizer DID derived server-side from the acting login), and the workflow's settle step calls executeApprovedOrder — which remains the one approval-door method with no direct chat caller.",
   },
   {
     className: "PaymentsAgent",
@@ -469,10 +469,13 @@ export const MESH_TOOL_FAMILIES: MeshToolFamilyEntry[] = [
       "browser_scrape_tables",
       "slack_send_pre_trade_approval",
       "slack_dispatch_transaction_snap",
+      "start_trade_approval",
+      "decide_trade_approval",
+      "get_trade_approval_status",
     ],
     commandSources: [{ file: "src/mcp/meshDoorCommands.ts", kind: "readonly-name" }],
     notes:
-      "G1 outbound doors, batches A (#2341) + B (#2349) + C (#2351): the chat turn reaches ScheduledAgent, PaymentsAgent, TradingAgent, ReportAssetAgent, BrowserAgent, and SlackAgent through the typed doors in src/agents/orchestrator/meshDoors.ts. The commands require the turn's acting identity (the context actingLogin carrier) and fail closed without one, so they serve the chat door; external MCP callers use the A2A doors for these agents. The TradingAgent door exposes proposals (preview only) and reads — never the approval door. The Browser/Slack doors take no caller-supplied webhookUrl: delivery targets are env configuration only. AiSearchAgent is deliberately not in this family — the chat turn already reaches it through ai_search_agent_search (#2250, see its agent record).",
+      "G1 outbound doors, batches A (#2341) + B (#2349) + C (#2351), plus S9/G4 batch D (#2375): the chat turn reaches ScheduledAgent, PaymentsAgent, TradingAgent, ReportAssetAgent, BrowserAgent, and SlackAgent through the typed doors in src/agents/orchestrator/meshDoors.ts. The commands require the turn's acting identity (the context actingLogin carrier) and fail closed without one, so they serve the chat door; external MCP callers use the A2A doors for these agents. The TradingAgent door exposes proposals (preview only) and reads, and — since #2375 — the approval door's workflow operations (start_trade_approval / decide_trade_approval / get_trade_approval_status): a chat trade runs as a TradingTradeWorkflow through the approval door, with the authorizer derived server-side; the synchronous settle (executeApprovedOrder) is never on the door. The Browser/Slack doors take no caller-supplied webhookUrl: delivery targets are env configuration only. AiSearchAgent is deliberately not in this family — the chat turn already reaches it through ai_search_agent_search (#2250, see its agent record).",
   },
   {
     id: "mas-tools",

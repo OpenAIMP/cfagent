@@ -47,15 +47,27 @@
  * reportAssetAgentName — the bare "trading" / "default" instances
  * belong to the configured service identity alone, #1185).
  *
- * The TradingAgent approval door is deliberately NOT exposed:
- * executeApprovedOrder, startTradeApproval, and decideTradeApproval
- * are not typed on the door stub, not called by any door operation,
- * and have no turn command. Order execution stays behind the
- * agent's existing approval door and the shared approval engine;
- * S9/G4 wires the workflow run behind that door. This batch gives
- * the turn only the proposal side (the preview-only trade services,
+ * Batch B deliberately did NOT expose the TradingAgent approval
+ * door: executeApprovedOrder, startTradeApproval, and
+ * decideTradeApproval were not typed on the door stub, not called
+ * by any door operation, and had no turn command. Batch B gave the
+ * turn only the proposal side (the preview-only trade services,
  * whose result is a pending-approval proposal — never a placed
  * order) and the typed reads.
+ *
+ * Batch D (#2375, S9/G4) is the slice that crosses that boundary —
+ * through the approval door itself, not around it. The door now
+ * types startTradeApproval and decideTradeApproval, and exposes
+ * three operations: start a TradingTradeWorkflow run behind the
+ * door for an existing proposal, deliver the human's decision to
+ * that run, and read the run's status from the TRADE_WORKFLOW
+ * binding's own instance status (Trading has no D1 projection, and
+ * no second tracker is invented here). The authorizer DID on a
+ * decision is derived server-side from the acting login
+ * (getUserDid) — it is never a caller-supplied field. The
+ * synchronous settle (executeApprovedOrder) stays OFF the door:
+ * it is called only by the workflow's settle step, inside the
+ * agent that holds the draft store.
  *
  * Batch C (#2351, G1) adds the BrowserAgent and SlackAgent doors
  * below, under the same discipline. Addressing follows the A2A
@@ -96,6 +108,7 @@ import {
   type PaymentRecord,
 } from "../../payments/ledger";
 import { tradingAgentName } from "../trading-agent";
+import { getUserDid } from "../did";
 import {
   reportAssetAgentName,
   type ReportAssetMeta,
@@ -339,11 +352,40 @@ export interface TradingServiceDoorCall {
   userLogin: string;
 }
 
+/** The approval door's start result (TradingAgent.startTradeApproval). */
+export interface TradeApprovalStartDoorResult {
+  workflowId: string;
+  orderId: string;
+  status: "awaiting_approval";
+}
+
+/** The approval door's decision result (TradingAgent.decideTradeApproval). */
+export interface TradeApprovalDecisionDoorResult {
+  workflowId: string;
+  delivered: true;
+}
+
 export interface TradingAgentDoorStub {
   executeService(call: TradingServiceDoorCall): Promise<unknown>;
   getAccounts(provider?: string): Promise<unknown>;
   getPositions(accountKey?: string, provider?: string): Promise<unknown>;
   getQuote(symbol: string, provider?: string): Promise<unknown>;
+  /** #2375 (batch D): the approval door's workflow operations —
+   *  start a TradingTradeWorkflow run for a previewed order, and
+   *  deliver a decision to it. The synchronous settle
+   *  (executeApprovedOrder) is deliberately NOT typed here: it is
+   *  reached only by the workflow's own settle step. */
+  startTradeApproval(input: {
+    orderId: string;
+    provider?: string;
+    userLogin: string;
+  }): Promise<TradeApprovalStartDoorResult>;
+  decideTradeApproval(input: {
+    workflowId: string;
+    authorizerDid: string;
+    decision: "approved" | "rejected";
+    reason?: string;
+  }): Promise<TradeApprovalDecisionDoorResult>;
 }
 
 export function getTradingAgentDoor(env: Env, actingLogin: string): TradingAgentDoorStub {
@@ -498,6 +540,121 @@ export async function getTradingQuoteViaDoor(
   const login = requireActingLogin(actingLogin);
   const door = getTradingAgentDoor(env, login);
   return door.getQuote(input.symbol, input.provider);
+}
+
+// ---------------------------------------------------------------------------
+// TradingAgent approval door (#2375, batch D — S9/G4). A proposal
+// created through the batch-B door is submitted to the agent's
+// approval door, which starts the durable TradingTradeWorkflow run;
+// the human's decision is delivered back through the same door; the
+// run's status reads from the workflow binding's own surface.
+// ---------------------------------------------------------------------------
+
+/**
+ * Submit an existing proposal (an orderId from propose_stock_trade /
+ * propose_options_trade) to TradingAgent's approval door: the agent
+ * starts a TradingTradeWorkflow run that waits for the decision
+ * (up to the workflow's 24h timeout) and settles through the
+ * agent's own draft store on an approved decision. The acting
+ * identity is threaded as the run's userLogin — the run's owner is
+ * the acting user, never the service identity. Places nothing:
+ * starting the run only opens the approval wait.
+ */
+export async function startTradeApprovalViaDoor(
+  env: Env,
+  actingLogin: string | undefined | null,
+  input: { orderId: string; provider?: string },
+): Promise<TradeApprovalStartDoorResult> {
+  const login = requireActingLogin(actingLogin);
+  const door = getTradingAgentDoor(env, login);
+  return door.startTradeApproval({
+    orderId: input.orderId,
+    ...(input.provider !== undefined ? { provider: input.provider } : {}),
+    userLogin: login,
+  });
+}
+
+/**
+ * Deliver the human's decision to a running trade approval
+ * workflow through TradingAgent's approval door. The authorizer DID
+ * is derived here from the acting login (getUserDid — the same
+ * derivation the platform stamps on the draft at preview); it is
+ * never accepted from the caller, so a decision can only ever be
+ * attributed to the signed-in user delivering it. An approved
+ * decision makes the workflow settle the draft exactly once; a
+ * rejected decision settles it as rejected and places nothing.
+ */
+export async function decideTradeApprovalViaDoor(
+  env: Env,
+  actingLogin: string | undefined | null,
+  input: { workflowId: string; decision: "approved" | "rejected"; reason?: string },
+): Promise<TradeApprovalDecisionDoorResult> {
+  const login = requireActingLogin(actingLogin);
+  const door = getTradingAgentDoor(env, login);
+  return door.decideTradeApproval({
+    workflowId: input.workflowId,
+    authorizerDid: getUserDid(login),
+    decision: input.decision,
+    ...(input.reason !== undefined ? { reason: input.reason } : {}),
+  });
+}
+
+/** The status read for one trade approval run: the workflow
+ *  binding's own instance status, shaped without inventing a
+ *  vocabulary — `status` is the binding's value verbatim, `output`
+ *  carries the run's outcome once complete, `error` its message
+ *  once errored. */
+export interface TradeApprovalStatusDoorResult {
+  workflowId: string;
+  status: string;
+  output?: unknown;
+  error?: string;
+}
+
+/**
+ * Read one trade approval run's status from the TRADE_WORKFLOW
+ * binding. Trading writes no D1 projection (survey §3.1), so the
+ * workflow's own status IS the status surface — no second tracker.
+ * Identity gates first, as at every door; a missing binding is an
+ * honest door_unavailable.
+ */
+export async function getTradeApprovalStatusViaDoor(
+  env: Env,
+  actingLogin: string | undefined | null,
+  input: { workflowId: string },
+): Promise<TradeApprovalStatusDoorResult> {
+  requireActingLogin(actingLogin);
+  const binding = env.TRADE_WORKFLOW as unknown as
+    | {
+        get(id: string): {
+          status(): Promise<{
+            status: string;
+            output?: unknown;
+            error?: { name?: string; message?: string } | string;
+          }>;
+        };
+      }
+    | undefined;
+  if (!binding) {
+    throw new MeshDoorError(
+      "door_unavailable",
+      "Trade approval status is unavailable: the TRADE_WORKFLOW binding is not configured on this deployment.",
+    );
+  }
+  const s = await binding.get(input.workflowId).status();
+  return {
+    workflowId: input.workflowId,
+    status: s.status,
+    ...(s.output !== undefined ? { output: s.output } : {}),
+    ...(s.error !== undefined && s.error !== null
+      ? {
+          error:
+            typeof s.error === "string"
+              ? s.error
+              : (s.error.message ?? s.error.name ?? "workflow error"),
+        }
+      : {}),
+  };
 }
 
 // ---------------------------------------------------------------------------

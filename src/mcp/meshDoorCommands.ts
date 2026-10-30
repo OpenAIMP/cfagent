@@ -40,9 +40,25 @@
  *   - `list_report_assets`    (mcp:read)  — the acting user's
  *     report assets (metadata) through ReportAssetAgent.
  *   - `get_report_asset`      (mcp:read)  — one asset by key.
- * No command reaches TradingAgent's approval door: there is no
- * execute/approve/decide command in this family, by design — order
- * execution stays behind the existing approval door until S9/G4.
+ * Batch B deliberately had no command reaching TradingAgent's
+ * approval door: no execute/approve/decide command existed in this
+ * family, by design — order execution stayed behind the existing
+ * approval door until S9/G4.
+ *
+ * Batch D (#2375, S9/G4) adds three commands over the approval
+ * door, each also declaring exactly one scope:
+ *   - `start_trade_approval`    (mcp:trade) — submit an existing
+ *     proposal (orderId) to the approval door: starts the durable
+ *     TradingTradeWorkflow run that waits for the human decision.
+ *     Places nothing.
+ *   - `decide_trade_approval`   (mcp:trade) — deliver the human's
+ *     approved/rejected decision to that run. The schema carries
+ *     NO identity field: the authorizer DID is derived server-side
+ *     from the acting identity by the door.
+ *   - `get_trade_approval_status` (mcp:read) — the run's status
+ *     from the TRADE_WORKFLOW binding's own status surface.
+ * The synchronous settle (executeApprovedOrder) still has no
+ * command: it is reached only by the workflow's settle step.
  *
  * Batch C (#2351) adds five commands over the BrowserAgent and
  * SlackAgent doors, each also declaring exactly one scope:
@@ -82,6 +98,9 @@ import {
   getTradingAccountsViaDoor,
   getTradingPositionsViaDoor,
   getTradingQuoteViaDoor,
+  startTradeApprovalViaDoor,
+  decideTradeApprovalViaDoor,
+  getTradeApprovalStatusViaDoor,
   listReportAssetsViaDoor,
   getReportAssetViaDoor,
   sendTransactionSnapViaDoor,
@@ -96,6 +115,9 @@ import {
   type TradeProposalDoorResult,
   type StockTradeProposalInput,
   type OptionsTradeProposalInput,
+  type TradeApprovalStartDoorResult,
+  type TradeApprovalDecisionDoorResult,
+  type TradeApprovalStatusDoorResult,
   type ReportAssetsDoorResult,
   type ReportAssetDoorResult,
   type TransactionSnapDoorInput,
@@ -487,6 +509,125 @@ export class GetTradingQuoteCommand implements IMcpToolCommand<{
       actingLogin: actingLogin ?? null,
       symbol: input.symbol,
       provider: input.provider ?? null,
+    });
+    return result;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* start_trade_approval (#2375)                                        */
+/* ------------------------------------------------------------------ */
+
+export class StartTradeApprovalCommand implements IMcpToolCommand<{
+  orderId: string;
+  provider?: string;
+}> {
+  readonly name = "start_trade_approval";
+  readonly description =
+    "Submit an existing trade proposal (the orderId returned by propose_stock_trade / propose_options_trade) to TradingAgent's approval door: starts the durable TradingTradeWorkflow run that waits for the human's decision (up to 24h) and, on an approved decision, settles the trade exactly once through TradingAgent. Returns the workflowId and awaiting_approval status. Places nothing by itself. Requires the chat turn's acting identity.";
+  readonly jsonSchema = {
+    type: "object" as const,
+    properties: {
+      orderId: { type: "string", description: "The proposal's order id from propose_stock_trade / propose_options_trade." },
+      provider: { type: "string", description: "Broker provider id the proposal was previewed under (optional; the agent's default otherwise)." },
+    },
+    required: ["orderId"],
+  };
+  readonly zodSchema = z.object({
+    orderId: z.string().min(1).describe("The proposal's order id"),
+    provider: z.string().min(1).optional().describe("Broker provider id (optional)"),
+  });
+
+  async execute(
+    input: { orderId: string; provider?: string },
+    context: McpToolContext,
+  ): Promise<TradeApprovalStartDoorResult> {
+    const actingLogin = context.actingLogin?.();
+    const result = await startTradeApprovalViaDoor(context.env, actingLogin, input);
+    context.audit("start_trade_approval", "mcp", {
+      actingLogin: actingLogin ?? null,
+      orderId: input.orderId,
+      workflowId: result.workflowId,
+      status: result.status,
+    });
+    return result;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* decide_trade_approval (#2375)                                       */
+/* ------------------------------------------------------------------ */
+
+export class DecideTradeApprovalCommand implements IMcpToolCommand<{
+  workflowId: string;
+  decision: "approved" | "rejected";
+  reason?: string;
+}> {
+  readonly name = "decide_trade_approval";
+  readonly description =
+    "Deliver the human's approval decision for a trade approval run started by start_trade_approval. The authorizer identity is derived from the chat turn's acting identity server-side — it cannot be supplied as an argument. An approved decision settles the trade exactly once through TradingAgent; a rejected decision settles the proposal as rejected and places nothing. Requires the chat turn's acting identity.";
+  readonly jsonSchema = {
+    type: "object" as const,
+    properties: {
+      workflowId: { type: "string", description: "The approval run's workflowId from start_trade_approval." },
+      decision: { type: "string", description: "approved or rejected." },
+      reason: { type: "string", description: "Decision reason (optional)." },
+    },
+    required: ["workflowId", "decision"],
+  };
+  readonly zodSchema = z.object({
+    workflowId: z.string().min(1).describe("The approval run's workflowId"),
+    decision: z.enum(["approved", "rejected"]).describe("approved or rejected"),
+    reason: z.string().min(1).optional().describe("Decision reason (optional)"),
+  });
+
+  async execute(
+    input: { workflowId: string; decision: "approved" | "rejected"; reason?: string },
+    context: McpToolContext,
+  ): Promise<TradeApprovalDecisionDoorResult> {
+    const actingLogin = context.actingLogin?.();
+    const result = await decideTradeApprovalViaDoor(context.env, actingLogin, input);
+    context.audit("decide_trade_approval", "mcp", {
+      actingLogin: actingLogin ?? null,
+      workflowId: input.workflowId,
+      decision: input.decision,
+      delivered: result.delivered,
+    });
+    return result;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* get_trade_approval_status (#2375)                                   */
+/* ------------------------------------------------------------------ */
+
+export class GetTradeApprovalStatusCommand implements IMcpToolCommand<{
+  workflowId: string;
+}> {
+  readonly name = "get_trade_approval_status";
+  readonly description =
+    "Read the status of a trade approval run (from start_trade_approval) from the TradingTradeWorkflow binding's own status surface: the run's status, and its outcome (settled/expired) once complete. Read-only. Requires the chat turn's acting identity.";
+  readonly jsonSchema = {
+    type: "object" as const,
+    properties: {
+      workflowId: { type: "string", description: "The approval run's workflowId from start_trade_approval." },
+    },
+    required: ["workflowId"],
+  };
+  readonly zodSchema = z.object({
+    workflowId: z.string().min(1).describe("The approval run's workflowId"),
+  });
+
+  async execute(
+    input: { workflowId: string },
+    context: McpToolContext,
+  ): Promise<TradeApprovalStatusDoorResult> {
+    const actingLogin = context.actingLogin?.();
+    const result = await getTradeApprovalStatusViaDoor(context.env, actingLogin, input);
+    context.audit("get_trade_approval_status", "mcp", {
+      actingLogin: actingLogin ?? null,
+      workflowId: input.workflowId,
+      status: result.status,
     });
     return result;
   }
