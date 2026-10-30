@@ -48,7 +48,7 @@ export interface MeshSurfaceEntry {
 }
 
 export interface MeshChannelEntry {
-  id: "web-chat" | "slack" | "email" | "voice" | "webhook";
+  id: "web-chat" | "slack" | "email" | "voice" | "webhook" | "nlq-webhook";
   name: string;
   /** Where the channel enters the Worker. */
   ingress: string;
@@ -56,6 +56,20 @@ export interface MeshChannelEntry {
   terminatesAt: string;
   /** Survey §7 posture vocabulary. */
   posture: "FORWARDER" | "MIXED";
+  /**
+   * How a channel principal becomes a login — or, honestly, that no
+   * mapping exists / the caller is a system identity (S13, #2412).
+   */
+  identity: string;
+  /** The channel's gate: signature / session / approval discipline. */
+  gate: string;
+  /** Parity state vs the shared NLQ + approval pipeline (#1262). */
+  parity: string;
+  /**
+   * The named adapter: the module that implements the ingress
+   * (leading token is the file path; drift-pinned to exist).
+   */
+  adapter: string;
   notes?: string;
 }
 
@@ -198,7 +212,7 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     sourceFile: "src/agents/slackAgent.ts",
     role: "Slack app agent: slash commands, events, interactions, approval buttons.",
     notes:
-      "Production Slack ingress currently arrives via the src/server.ts forwarder routes; the agent's own gated ingress is a parallel implementation (channel posture MIXED; G10 completes it in a later slice). Chat reaches its outbound side through the G1 door (#2351, src/agents/orchestrator/meshDoors.ts), addressed to the fixed instance \"slack\" (A2A parity): the pre-trade approval ticket (posts the HITL gate; approves/executes nothing) and the transaction snap, with no caller-supplied webhookUrl. Ingress is not part of the door — S13/G10 owns it.",
+      "Production Slack ingress arrives via the src/server.ts forwarder routes onto per-team OrchestratorAgent instances. Since S13/G10 (#2412) the agent's own gated ingress is no longer a parallel implementation: onRequest delegates to the same shared channel handler (src/agents/routes/tradingIntegrations.ts) with an agent-hosted context, so the gate, principal resolution, NLQ dep set, event dedup, and service are identical on both hosts (the channel record carries the full posture). Chat reaches its outbound side through the G1 door (#2351, src/agents/orchestrator/meshDoors.ts), addressed to the fixed instance \"slack\" (A2A parity): the pre-trade approval ticket (posts the HITL gate; approves/executes nothing) and the transaction snap, with no caller-supplied webhookUrl.",
   },
   {
     className: "AiSearchAgent",
@@ -273,6 +287,16 @@ export const MESH_SURFACES: MeshSurfaceEntry[] = [
 
 // ---------------------------------------------------------------------------
 // Channels — ingresses a person or external system starts from (§7).
+//
+// Reconciliation (S13, #2412): survey §7 tables NINE channels. Six of
+// them are channels in this registry's vocabulary (an ingress a
+// person or external system starts from, terminating on an agent);
+// MCP and A2A are DOORS (recorded in MESH_DOORS — they are
+// invocation surfaces, not ingresses), and cron/scheduler is a
+// TRIGGER (recorded with the doors section's scheduling note). S1
+// recorded five channels and omitted the NLQ webhook; S13 adds it
+// and completes every record with identity / gate / parity /
+// adapter, drift-pinned by tests/mesh_channels_s13_2412.test.ts.
 // ---------------------------------------------------------------------------
 
 export const MESH_CHANNELS: MeshChannelEntry[] = [
@@ -282,37 +306,100 @@ export const MESH_CHANNELS: MeshChannelEntry[] = [
     ingress: "Agents SDK routing (routeAgentRequest) in src/server.ts",
     terminatesAt: "OrchestratorAgent (per-login instance)",
     posture: "FORWARDER",
+    identity:
+      "App session: the verified session login names the instance (idFromName(userLogin)) — the instance name IS the session login; no channel mapping exists or is needed.",
+    gate:
+      "App session required before the socket is accepted (onBeforeConnect: origin check + session → 403/401; onBeforeRequest: session → 401).",
+    parity:
+      "Reference channel: the shared NLQ pipeline and the approval discipline are native here; channel parity is measured against this channel.",
+    adapter:
+      "src/server.ts — Agents SDK routing (routeAgentRequest); no adapter code of ours.",
   },
   {
     id: "slack",
     name: "Slack",
-    ingress: "POST /slack and /slack/events routes in src/server.ts",
-    terminatesAt: "OrchestratorAgent (per-team orchestrator instances; approvals via the shared approval engine)",
-    posture: "MIXED",
+    ingress:
+      "POST /slack/commands, /slack, /slack/events, /slack/interactions routes in src/server.ts; SDK-routed /agents/slack-agent/* reaches the same handler hosted by SlackAgent",
+    terminatesAt:
+      "OrchestratorAgent (per-team instance slack_<teamId>) in production; SlackAgent when SDK-routed — both hosts run the one shared channel handler",
+    posture: "FORWARDER",
+    identity:
+      "Connect-code link store (#1262): Slack team+user → session login at tier trade, confirmed in an authenticated web session (POST /api/trading/slack/link); an unlinked Slack user gets an explicit refusal and can run the `link` DM command — workspace membership alone grants no tier. The session-authenticated simulator (/api/trading/slack/test) asserts the verified session login instead.",
+    gate:
+      "gateSlackRequest (src/security/webhookSecurity.ts) at the worker routes AND inside SlackAgent.onRequest — the Slack signing secret is mandatory (unconfigured → loud 503, bad signature → 401, 5-minute timestamp replay window); event deliveries are deduped on event_id in the shared handler (#2412); trade executions run through the shared approval engine.",
+    parity:
+      "Full: the channel runs the shared NLQ dependency set and the shared approval engine (#1262); channel NLQ is flagged untrustedContent unconditionally (#880).",
+    adapter:
+      "src/agents/routes/tradingIntegrations.ts — the shared channel handler (handleTradingIntegrationsRoutes) both the production forward and SlackAgent.onRequest delegate to; the service is ETradeSlackTradingService (src/trading/slack/agent.ts).",
     notes:
-      "SlackAgent's own gated ingress (src/agents/slackAgent.ts) is a parallel implementation the production routes bypass; completing the channel is G10, a later slice.",
+      "Converged in S13 (#2412): SlackAgent.onRequest previously carried a parallel ingress (own principal resolution, service built with no NLQ deps); it now delegates to the shared handler with an agent-hosted context, so behavior cannot differ by entry point. The production host stays the per-team orchestrator instance because the NLQ dep set is host-bound (scheduling callbacks live on OrchestratorAgent; the draft ledger lives in the host instance's ORM).",
   },
   {
     id: "email",
     name: "Email",
-    ingress: "Worker email() handler in src/server.ts",
-    terminatesAt: "OrchestratorAgent (sender-mapped login instance)",
+    ingress:
+      "Worker email() handler in src/server.ts → handleCloudflareEmailMessage; HTTP variant POST /api/trading/email/inbound forwards to the same DO route",
+    terminatesAt: "OrchestratorAgent (shared inbound-email instance; DO route /trading/email/inbound)",
     posture: "FORWARDER",
+    identity:
+      "Sender → login via CHANNEL_EMAIL_PRINCIPALS, gated by Authentication-Results (DKIM/SPF) — the parsed sender address is never used for routing; the session-authenticated simulator asserts the verified session login. An unmapped sender still constructs the service so it receives an explicit refusal; it runs nothing.",
+    gate:
+      "Order execution only via signed approval links (#1262 Phase 5: token signature + expiry + principal-map re-check inside the DO); trade actions through the shared approval engine — a bare APPROVE reply executes nothing on the production path.",
+    parity:
+      "Full: shared NLQ pipeline + shared approval engine (#1262), with the social-brief port withheld from untrusted-origin NLQ.",
+    adapter:
+      "src/trading/email/agent.ts — handleCloudflareEmailMessage + ETradeEmailTradingService; DO-side route in src/agents/routes/tradingIntegrations.ts.",
     notes: "Trading actions over email are identity-hardened (#1262): sender-to-login mapping plus signed approval links.",
   },
   {
     id: "voice",
     name: "Voice",
-    ingress: "/voice/trade WebSocket and /api/trading/voice/* routes in src/server.ts",
-    terminatesAt: "OrchestratorAgent (per-login instance, via the voice turn forwarder)",
+    ingress:
+      "WebSocket GET /voice/trade and /api/trading/voice/ws in src/server.ts — the socket terminates at the worker and each turn is forwarded per-turn",
+    terminatesAt: "OrchestratorAgent (per-login instance, POST /trading/voice/turn)",
     posture: "FORWARDER",
+    identity:
+      "App session: identity is the verified session login end-to-end; the turn forwarder sets the identity header from the session, never from caller input.",
+    gate:
+      "App session checked BEFORE the socket is accepted (a null session never proceeds); handshake/interrupt/end_call stay worker-local; trade actions through the shared approval engine.",
+    parity:
+      "Full: same channel services and shared approval engine (#1262); voice adopted the ChannelIntake principal contract in Phase 1.",
+    adapter:
+      "src/trading/voice/agent.ts — createOrchestratorVoiceTurnForwarder + ETradeVoiceTradingService; DO-side route in src/agents/routes/tradingIntegrations.ts.",
   },
   {
     id: "webhook",
     name: "Webhooks (payments + trading)",
-    ingress: "Webhook routes in src/server.ts (payment gateway callbacks, trading report webhooks)",
-    terminatesAt: "OrchestratorAgent (draft-owner instance, addressed via the webhook receiver identity)",
+    ingress:
+      "POST /api/payments/webhook (+ /payments/webhook) and the trading report webhook routes in src/server.ts",
+    terminatesAt:
+      "OrchestratorAgent (the system_webhook_receiver instance receives; settlement re-routes to the draft's owning instance)",
     posture: "FORWARDER",
+    identity:
+      "No edge session by design and no identity taken from the payload: settlement routing derives only from the server-written draft-owner registry (src/payments/draftOwners.ts) — the payload contributes nothing but the draftId to routing.",
+    gate:
+      "Per-gateway HMAC verification inside the DO listener (Stripe / PayPal / Lemon Squeezy); verification fails closed when a secret is unconfigured (#140). Trading webhooks verify via ETradeWebhookService (unconfigured → 503).",
+    parity:
+      "Not an NLQ channel: terminates on the payments settlement pipeline, not the NLQ/approval pipeline.",
+    adapter:
+      "src/server.ts — webhook routes; settlement routing via src/payments/draftOwners.ts.",
+  },
+  {
+    id: "nlq-webhook",
+    name: "NLQ webhook",
+    ingress:
+      "POST /nlq/webhook (+ /api/trading/nlq/webhook, /api/nlq/webhook) in src/server.ts — all three spellings delegate to the single-owner handler handleNlqWebhookRequest (#313)",
+    terminatesAt:
+      "OrchestratorAgent (the asserted user's nlq_webhook_<userId> instance, or the channel's service-identity instance when no userId is asserted)",
+    posture: "FORWARDER",
+    identity:
+      "HMAC-authenticated SYSTEM caller, not a user session: a well-formed caller-asserted userId attributes the run to the namespaced principal nlq_webhook_<userId>; with no userId the run lands on the channel's named service identity NLQ_WEBHOOK_SERVICE_LOGIN (\"nlq_webhook\") — a service identity, not a person's login (#2412).",
+    gate:
+      "HMAC signature over the raw body (INBOUND_NLQ_WEBHOOK_SECRET — unconfigured → 503, invalid → 401), 5-minute timestamp window, nonce replay claim, per-source-IP throttle, 128 KB body cap, query sanitized at entry (#1763).",
+    parity:
+      "Shared NLQ pipeline with the social brief port withheld — webhook bodies are untrusted external content (#1077); scheduling and discovery ports stand. Email delivery of action results is refused at the route.",
+    adapter:
+      "src/server.ts — handleNlqWebhookRequest (single-owner handler for all three spellings).",
   },
 ];
 

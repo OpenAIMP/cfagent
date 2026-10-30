@@ -365,18 +365,18 @@ const MATRIX: MatrixRow[] = [
     cells: {
       identity: GAP(
         "S16 (G14 identity records + mesh credentials)",
-        "sessionKey() falls back to the synthetic literal 'slack_agent_master' when ctx.id is absent (slackAgent.ts:65-66, repeated at :74 — presence pinned below). In a real DO instantiation ctx.id always exists, so the fallback fires only in in-process/test construction, but it is exactly the synthetic-identity shape G14 retires; S16 removing it must update this cell.",
+        "S13 (#2412) retired the synthetic fallback this cell cited: sessionKey() throws when ctx.id is absent instead of returning the retired master literal, and getSlackService no longer re-asserts it (absence pinned below; behavioral pin in tests/mesh_channels_s13_2412.test.ts). The cell stays a GAP for the G14 remainder: the class holds no registry identity record and no per-agent mesh credential — Slack ingress still authenticates with the app-level signing secret and bot token.",
       ),
       state: IMPL(
-        "SQLite via getOrm() over this.ctx.storage.sql (slackAgent.ts:89-90). Caveat: exercised only if the class is ever instantiated as a DO — in production it never has been (see connections).",
+        "SQLite via getOrm() over this.ctx.storage.sql — schema ensured by the store's designated initializer classes, not this class (the #2345 R-7 composition pin: this file deliberately carries no initializeSchema); the S13 suite (#2412) exercises the boot/ORM paths over a fresh store through the converged ingress. The class is instantiated in production via its A2A door and the G1 chat door (see routing).",
       ),
       connections: NA(
-        "Its own signature-gated onRequest ingress (:143) is a parallel implementation nothing calls; production Slack ingress terminates on OrchestratorAgent instances named slack_<teamId> via server.ts forwarders (registry channel posture MIXED).",
+        "No connection surface of its own: its signature-gated onRequest ingress delegates Slack payloads to the shared channel handler (src/agents/routes/tradingIntegrations.ts) — since S13 (#2412) it is the same implementation the production server.ts forwarders terminate in on OrchestratorAgent instances named slack_<teamId>, not a parallel one (registry channel posture FORWARDER).",
       ),
       scheduling: NA("No scheduling role: it registers no schedules and owns no scheduled work; anything time-based reaches it from callers recorded elsewhere in this row."),
-      recovery: GAP(
-        "S13 (G10 channel completeness)",
-        "Never instantiated in production, so its boot/ORM paths are unproven; S13's ingress work is the first instantiation and owns exercising and pinning its recovery behavior.",
+      recovery: IMPL(
+        "S13 (#2412) exercised the boot/ORM paths with a behavioral pin (tests/mesh_channels_s13_2412.test.ts): a previewed draft in the instance store is executed by one SlackAgent incarnation through the converged ingress, and a fresh incarnation over the SAME store honors the recorded outcome — a second approval is answered by the shared engine's already-executed refusal and the broker placement runs exactly once. The class holds no in-flight work of its own between requests: every request rebuilds its service from env + durable storage, so instance replacement loses nothing.",
+        "The simulation is instance replacement over the same durable store in the node:sqlite harness, not live workerd eviction (the S12 residual, fleet-wide).",
       ),
       "sdk-state": IMPL(
         "State goes through ctx.storage.sql directly (getOrm, slackAgent.ts:89-90) — the same ctx.storage posture as the fleet; the SDK setState API is unused (fleet pin below).",
@@ -726,8 +726,9 @@ describe("identity pins — round 1 (#2339)", () => {
     expect(src.split('actor: "system"').length - 1).toBe(1);
   });
 
-  it("SlackAgent still carries the slack_agent_master fallback its identity cell records as a GAP (S16 removes it and updates the cell)", () => {
-    expect(agentSource("SlackAgent")).toContain("slack_agent_master");
+  it("SlackAgent's synthetic master fallback is retired (S13, #2412) — the literal is absent from the class and sessionKey fails closed", () => {
+    expect(agentSource("SlackAgent")).not.toContain("slack_agent_master");
+    expect(agentSource("SlackAgent")).toContain("refusing to invent a session identity");
   });
 
   it("TickerAgent's shared instance name is the one server.ts addresses", () => {
