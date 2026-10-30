@@ -10,9 +10,9 @@
  *   a service dispatch (a stale service-login string resolves as an
  *   owner login, system-written payloads only, and still cannot present
  *   any user's brokerage token).
- * - The shared-orchestrator address ("default_trader") is never an
- *   identity. It is an instance address, and resolving it as a login
- *   would let shared-instance work borrow a principal it does not have.
+ * - The shared-orchestrator address is never an identity. It is an
+ *   instance address, and resolving it as a login would let
+ *   shared-instance work borrow a principal it does not have.
  * - Platform tier: a live platform-scope MEMBER binding for the service
  *   id. This is deliberately a membership check, not a PDP authorize()
  *   call: authorize() grants platform-scope permissions only to
