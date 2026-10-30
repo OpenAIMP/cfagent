@@ -32,6 +32,7 @@ import {
   getStoredTokens,
   isTokenExpiredEt,
   renewETradeAccessToken,
+  type ETradeTokenIdentity,
 } from "../security/etradeOAuth";
 import { codedMessage } from "../outcomes/outcomeAspects";
 import { deliverScreenerToSlackA2A } from "./screenerSlackDelivery";
@@ -50,11 +51,16 @@ export interface AuthEpisodeStore {
 export interface ETradeAuthPreflightDeps {
   getTokens: (
     userLogin: string,
-    environment?: string
+    environment?: string,
+    /** Issue #2440: the run-as login's session identity. Absent →
+     *  today's login-scoped + unscoped lookup, unchanged. */
+    identity?: ETradeTokenIdentity
   ) => Promise<{ storedAt: string } | null>;
   renew: (
     userLogin: string,
-    environment?: string
+    environment?: string,
+    /** Issue #2440: forwarded to the identity-aware renewal. */
+    identity?: ETradeTokenIdentity
   ) => Promise<unknown | null>;
   isExpired: (storedAtIso: string, nowMs: number) => boolean;
   now: () => number;
@@ -101,9 +107,14 @@ export function etradeAuthEpisodeKey(userLogin: string, nowMs: number): string {
 export async function preflightETradeAuth(
   deps: ETradeAuthPreflightDeps,
   userLogin: string,
-  environment?: string
+  environment?: string,
+  /** Issue #2440: the run-as login's session identity, threaded to
+   *  the token lookup and renewal so tokens stored under
+   *  internal-id or alias-login keys resolve exactly as the panel
+   *  seam resolves them. Absent → today's behavior, unchanged. */
+  identity?: ETradeTokenIdentity
 ): Promise<ETradeAuthPreflightResult> {
-  const tokens = await deps.getTokens(userLogin, environment);
+  const tokens = await deps.getTokens(userLogin, environment, identity);
   if (!tokens) {
     if (deps.isProduction?.(environment)) {
       return {
@@ -117,7 +128,7 @@ export async function preflightETradeAuth(
   if (!deps.isExpired(tokens.storedAt, deps.now())) {
     return { status: "ok", renewed: false };
   }
-  const renewed = await deps.renew(userLogin, environment);
+  const renewed = await deps.renew(userLogin, environment, identity);
   if (renewed) return { status: "ok", renewed: true };
   return {
     status: "blocked",
@@ -126,13 +137,15 @@ export async function preflightETradeAuth(
   };
 }
 
-/** Production deps bound to the real OAuth store (etradeOAuth.ts). */
+/** Production deps bound to the real OAuth store (etradeOAuth.ts).
+ *  Issue #2440: identity forwards to the identity-aware seam, so the
+ *  guard resolves the same keys the panel seam resolves. */
 export function bindETradeAuthPreflightDeps(env: Env): ETradeAuthPreflightDeps {
   return {
-    getTokens: (userLogin, environment) =>
-      getStoredTokens(env, userLogin, environment),
-    renew: (userLogin, environment) =>
-      renewETradeAccessToken(env, userLogin, environment),
+    getTokens: (userLogin, environment, identity) =>
+      getStoredTokens(env, userLogin, environment, identity),
+    renew: (userLogin, environment, identity) =>
+      renewETradeAccessToken(env, userLogin, environment, identity),
     isExpired: (storedAtIso, nowMs) => isTokenExpiredEt(storedAtIso, nowMs),
     now: () => Date.now(),
     isProduction: (environment) =>
@@ -200,6 +213,12 @@ export interface GuardScheduledETradeAuthOptions {
   env: Env;
   userLogin: string;
   environment?: string;
+  /** Issue #2440: the run-as login's session identity, resolved by
+   *  the caller from a login it already trusts (the schedule's
+   *  owner). Absent → today's login-scoped + unscoped lookup,
+   *  unchanged. Unknown logins resolve to an empty identity and
+   *  fail closed, never to another login's token. */
+  identity?: ETradeTokenIdentity;
   /** Episode dedup store (host DO storage). Absent → alerts fire on
    *  every blocked run (degraded, never silent). */
   store?: AuthEpisodeStore;
@@ -236,7 +255,7 @@ export async function guardScheduledETradeAuth(
 ): Promise<GuardScheduledETradeAuthResult> {
   try {
     const deps = opts.deps ?? bindETradeAuthPreflightDeps(opts.env);
-    const pre = await preflightETradeAuth(deps, opts.userLogin, opts.environment);
+    const pre = await preflightETradeAuth(deps, opts.userLogin, opts.environment, opts.identity);
     if (pre.status !== "blocked") return { blocked: false };
     const blockedMessage = (alerted: boolean): string =>
       pre.reason === "no-session"
