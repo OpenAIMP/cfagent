@@ -3,9 +3,9 @@
  * of the canonical-report store + usage-event ports (test
  * doubles for the conformance suite). Semantics mirror the
  * DO adapters: insert-or-throw on the id primary key AND on
- * the generation UNIQUE index (the as-found global scope of
- * that index — tenant-scoped dedupe lookup, global unique
- * backstop), owner scoping on the reads that carry it,
+ * the generation UNIQUE index (tenant-scoped since #2398 —
+ * (user_login, generation_id), matching the tenant-scoped
+ * dedupe lookup), owner scoping on the reads that carry it,
  * newest-first report orderings / oldest-first backfill
  * (insertion order breaks timestamp ties, matching the DO's
  * rowid order for equal keys), and the backfill pointer
@@ -75,8 +75,13 @@ export class InMemoryCanonicalReportStore
     }
     if (row.generationId !== null) {
       for (const r of this.rows.values()) {
-        if (r.generation_id === row.generationId) {
-          throw new Error(`UNIQUE constraint failed: mas_reports.generation_id`);
+        if (
+          r.generation_id === row.generationId &&
+          r.user_login === row.owner
+        ) {
+          throw new Error(
+            `UNIQUE constraint failed: mas_reports.user_login, mas_reports.generation_id`
+          );
         }
       }
     }

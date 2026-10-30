@@ -38,6 +38,7 @@ class LegacyMasReportsSql extends MockSqlStorage {
     unique: boolean;
     table: string;
     column: string;
+    columns: string[];
   }> = [];
 
   constructor() {
@@ -77,24 +78,35 @@ class LegacyMasReportsSql extends MockSqlStorage {
       return [];
     }
 
-    // CREATE [UNIQUE] INDEX <name> ON <tbl> (<col>) — fail like real
-    // SQLite when the indexed column does not exist (issue #389).
+    // CREATE [UNIQUE] INDEX <name> ON <tbl> (<col>, ...) — fail
+    // like real SQLite when ANY indexed column does not exist
+    // (issue #389). ADAPTED for #2398 (§7): the generation index
+    // is composite now — (user_login, generation_id) — so the
+    // double parses the full column list instead of only the
+    // first token, exactly as real SQLite does; the recorded
+    // entry carries every column.
     const idxMatch = q.match(
       /CREATE\s+(UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)\s+ON\s+(\w+)\s*\(([\w\s,]+)\)/i
     );
     if (idxMatch) {
       const schema = (this as unknown as { schema: SchemaMap }).schema;
       const cols = schema.get(idxMatch[3]) || [];
-      const col = idxMatch[4].trim().split(/\s+/)[0];
-      if (!cols.some((c) => c.name === col)) {
-        throw new Error(`no such column: ${col} at offset 0: SQLITE_ERROR`);
+      const columns = idxMatch[4]
+        .split(",")
+        .map((s) => s.trim().split(/\s+/)[0])
+        .filter(Boolean);
+      for (const col of columns) {
+        if (!cols.some((c) => c.name === col)) {
+          throw new Error(`no such column: ${col} at offset 0: SQLITE_ERROR`);
+        }
       }
       if (!this.createdIndexes.some((i) => i.name === idxMatch[2])) {
         this.createdIndexes.push({
           name: idxMatch[2],
           unique: !!idxMatch[1],
           table: idxMatch[3],
-          column: col,
+          column: columns[0],
+          columns,
         });
       }
       return [];
@@ -123,7 +135,10 @@ describe("mas_reports migration (issue #389)", () => {
     );
     expect(uniqueIdx).toBeDefined();
     expect(uniqueIdx?.unique).toBe(true);
-    expect(uniqueIdx?.column).toBe("generation_id");
+    // Issue #2398: the index is tenant-scoped — its columns are
+    // the (user_login, generation_id) pair, not generation_id
+    // alone (the pre-#2398 global shape this assertion pinned).
+    expect(uniqueIdx?.columns).toEqual(["user_login", "generation_id"]);
 
     // Pre-existing row survives the migration.
     const legacy = orm.reports.findById("rep_legacy_1");

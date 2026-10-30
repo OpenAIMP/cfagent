@@ -7,7 +7,9 @@
  * seam module keeps the fan-out contract (#2347), the
  * outcome computation, and the never-throws discipline; this
  * store holds the SQL, including the table's DDL (its ONE
- * home now) with the #876 additive column reconciliation.
+ * home now) with the #876 additive column reconciliation
+ * and the #2398 tenant-scoping of the generation index
+ * (shape reconciliation in ensureSchema, below).
  *
  * One class serves both roles (write / read are roles over
  * one table in one instance; the composition root hands the
@@ -89,18 +91,59 @@ export class DoSqliteCanonicalReportStore
     this.sql.exec(
       `CREATE INDEX IF NOT EXISTS idx_mas_reports_user ON ${TABLE} (user_login)`
     );
+    // Issue #2398: the dedupe index is TENANT-scoped —
+    // UNIQUE (user_login, generation_id) — matching the
+    // write port's dedupe lookup, which scopes on the same
+    // pair. A generation id is a tenant-local idempotency
+    // key: the pre-#2398 GLOBAL UNIQUE (generation_id) made a
+    // second tenant's INSERT for an already-used generation
+    // id throw,
+    // so the seam lost that tenant's report to a
+    // REPORT_FANOUT_FAILED null even though the row was never
+    // theirs. Reconcile the index shape here (its ONE home):
+    // an existing index of this name whose columns are not
+    // exactly (user_login, generation_id) is the pre-#2398
+    // global shape and is dropped, then rebuilt tenant-scoped
+    // by the guarded CREATE below. DROP-then-CREATE is the
+    // crash-safe order under a single canonical name: both
+    // statements touch the index only (no row moves), ensure
+    // runs at the head of every store path so an interrupted
+    // swap self-heals on the next call, and a table left
+    // momentarily index-less still dedupes through the seam's
+    // SELECT-then-INSERT check (the #876 degraded mode).
+    const generationIndexCols = (
+      Array.from(
+        this.sql.exec(`PRAGMA index_info(idx_mas_reports_generation)`)
+      ) as Array<{ seqno?: unknown; name?: unknown }>
+    )
+      .slice()
+      .sort((a, b) => Number(a.seqno ?? 0) - Number(b.seqno ?? 0))
+      .map((c) => String(c?.name ?? ""));
+    if (
+      generationIndexCols.length > 0 &&
+      generationIndexCols.join(",") !== "user_login,generation_id"
+    ) {
+      try {
+        this.sql.exec(`DROP INDEX idx_mas_reports_generation`);
+      } catch (err) {
+        console.error(
+          `[scheduledReports] ensureScheduledReportsTable: DROP INDEX idx_mas_reports_generation (pre-#2398 global shape) failed; continuing: ${err instanceof Error ? err.message : String(err)}`,
+          err
+        );
+      }
+    }
     // Issue #876: the dedupe index is guarded — creating a UNIQUE
-    // index over a column that already holds duplicate non-null
+    // index over pairs that already hold duplicate non-null
     // values throws; unguarded, that aborted ensure (and therefore
     // EVERY report write for the DO) forever. The duplicates are
     // logged loudly (never deleted here) and the ensure completes.
     try {
       this.sql.exec(
-        `CREATE UNIQUE INDEX IF NOT EXISTS idx_mas_reports_generation ON ${TABLE} (generation_id)`
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_mas_reports_generation ON ${TABLE} (user_login, generation_id)`
       );
     } catch (err) {
       console.error(
-        `[scheduledReports] ensureScheduledReportsTable: CREATE UNIQUE INDEX idx_mas_reports_generation failed (duplicate generation_id values already stored?); continuing without it: ${err instanceof Error ? err.message : String(err)}`,
+        `[scheduledReports] ensureScheduledReportsTable: CREATE UNIQUE INDEX idx_mas_reports_generation failed (duplicate (user_login, generation_id) values already stored?); continuing without it: ${err instanceof Error ? err.message : String(err)}`,
         err
       );
     }
