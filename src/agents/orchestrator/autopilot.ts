@@ -8,6 +8,7 @@
  */
 
 import type { AgentContext } from "agents";
+import { createOrchestratorTablePorts, type OrchestratorTablePorts } from "../../data/createOrchestratorTablePorts";
 import type { DatabaseORM } from "../../orm";
 import type { AgentName, Env } from "../../types";
 import { getValidTokens } from "../../security/etradeOAuth";
@@ -45,13 +46,14 @@ export function marketDateKey(now: Date = new Date()): string {
   return now.toISOString().slice(0, 10);
 }
 
+/** The family's ports over the context's sql handle (#2359). */
+function ports(ctx: AutopilotContext): OrchestratorTablePorts {
+  return createOrchestratorTablePorts(ctx.ensureTables() as never);
+}
+
 export function readAutopilotStateRaw(ctx: AutopilotContext): Record<string, any> {
   try {
-    const sql = ctx.ensureTables();
-    const rows = Array.from(
-      sql.exec("SELECT value FROM mas_autopilot WHERE key = ?", ctx.autopilotStateKey)
-    ) as Array<{ value: string }>;
-    const raw = rows[0]?.value;
+    const raw = ports(ctx).autopilot.getValue(ctx.autopilotStateKey);
     return raw ? (JSON.parse(raw) as Record<string, any>) : {};
   } catch {
     return {};
@@ -78,9 +80,7 @@ export function writeAutopilotState(ctx: AutopilotContext, patch: Record<string,
   const current = getAutopilotState(ctx, );
   const next = { ...current, ...patch, updatedAt: new Date().toISOString() };
   try {
-    const sql = ctx.ensureTables();
-    sql.exec(
-      "INSERT OR REPLACE INTO mas_autopilot (key, value, updated_at) VALUES (?, ?, ?)",
+    ports(ctx).autopilot.putValue(
       ctx.autopilotStateKey,
       JSON.stringify(next),
       next.updatedAt
@@ -178,31 +178,29 @@ export async function evaluateAndRecordAutopilotVerdict(ctx: AutopilotContext, p
   }
 
   try {
-    const sql = ctx.ensureTables();
-    sql.exec(
-      "INSERT INTO mas_policy_verdicts (id, session_id, symbol, action, quantity, notional, mode, dry_run, passed, execution_allowed, requires_approval, binding_rule, detail, limits_json, projections_json, findings_json, signature, signing_key_id, proposer_did, authorizer_did, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      verdict.verdictId,
-      params.sessionId,
-      verdict.intents.symbol,
-      verdict.intents.action,
-      verdict.intents.quantity,
-      verdict.intents.notional,
-      verdict.mode,
-      verdict.dryRun ? 1 : 0,
-      verdict.passed ? 1 : 0,
-      verdict.executionAllowed ? 1 : 0,
-      verdict.requiresApproval ? 1 : 0,
-      verdict.bindingRule,
-      verdict.detail,
-      JSON.stringify(verdict.limits),
-      JSON.stringify(verdict.projections),
-      JSON.stringify(verdict.findings),
-      attestation.signature,
-      attestation.keyId,
-      attestation.proposerDid,
-      attestation.authorizerDid,
-      verdict.evaluatedAt
-    );
+    ports(ctx).verdicts.insertVerdict({
+      id: verdict.verdictId,
+      sessionId: params.sessionId,
+      symbol: verdict.intents.symbol,
+      action: verdict.intents.action,
+      quantity: verdict.intents.quantity,
+      notional: verdict.intents.notional,
+      mode: verdict.mode,
+      dryRun: verdict.dryRun,
+      passed: verdict.passed,
+      executionAllowed: verdict.executionAllowed,
+      requiresApproval: verdict.requiresApproval,
+      bindingRule: verdict.bindingRule,
+      detail: verdict.detail,
+      limitsJson: JSON.stringify(verdict.limits),
+      projectionsJson: JSON.stringify(verdict.projections),
+      findingsJson: JSON.stringify(verdict.findings),
+      signature: attestation.signature,
+      signingKeyId: attestation.keyId,
+      proposerDid: attestation.proposerDid,
+      authorizerDid: attestation.authorizerDid,
+      createdAt: verdict.evaluatedAt,
+    });
   } catch (err) {
     console.warn("[OrchestratorAgent] Autopilot: failed to persist verdict:", err);
   }

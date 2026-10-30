@@ -1,0 +1,305 @@
+/**
+ * Issue #2359 (#1976 step 4d) — the DO-SQLite implementation
+ * of the canonical-report store ports: every mas_reports
+ * statement of src/services/scheduledReports.ts and the
+ * backfill read of src/services/reportSemanticIndex.ts,
+ * moved into the data layer statement-for-statement. The
+ * seam module keeps the fan-out contract (#2347), the
+ * outcome computation, and the never-throws discipline; this
+ * store holds the SQL, including the table's DDL (its ONE
+ * home now) with the #876 additive column reconciliation.
+ *
+ * One class serves both roles (write / read are roles over
+ * one table in one instance; the composition root hands the
+ * same store out under each).
+ */
+import type {
+  CanonicalReportReadPort,
+  CanonicalReportStoredContent,
+  CanonicalReportStoredRow,
+  CanonicalReportStoreSqlExecutor,
+  CanonicalReportWritePort,
+  InsertCanonicalReportRow,
+} from "./canonicalReportStorePorts";
+
+const TABLE = "mas_reports";
+const HIT_COLUMNS =
+  "id, run_id, title, source, summary, body, created_at, body_r2_key, fanout_outcome";
+
+/** Add a column to the table when it is missing (additive migration). */
+function ensureColumn(
+  sql: CanonicalReportStoreSqlExecutor,
+  column: string,
+  type: string
+): void {
+  const cols = Array.from(
+    sql.exec(`PRAGMA table_info(${TABLE})`)
+  ) as Array<{ name?: unknown }>;
+  const names = cols.map((c) => String(c?.name ?? ""));
+  if (!names.includes(column)) {
+    sql.exec(`ALTER TABLE ${TABLE} ADD COLUMN ${column} ${type}`);
+  }
+}
+
+export class DoSqliteCanonicalReportStore
+  implements CanonicalReportWritePort, CanonicalReportReadPort
+{
+  constructor(private readonly sql: CanonicalReportStoreSqlExecutor) {}
+
+  // ------------------------------------------------------------------
+  // Write role
+  // ------------------------------------------------------------------
+
+  ensureSchema(): void {
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS ${TABLE} (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    source TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    body TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    generation_id TEXT
+  )`);
+    // Issue #876: reconcile EVERY expected column additively, not
+    // just the newest ones (see the legacy ensure's note: column
+    // order in CREATE TABLE is unchanged — reconciliation only
+    // appends what is missing, with the plain TEXT type).
+    ensureColumn(this.sql, "id", "TEXT");
+    ensureColumn(this.sql, "run_id", "TEXT");
+    ensureColumn(this.sql, "title", "TEXT");
+    ensureColumn(this.sql, "source", "TEXT");
+    ensureColumn(this.sql, "summary", "TEXT");
+    ensureColumn(this.sql, "body", "TEXT");
+    ensureColumn(this.sql, "created_at", "TEXT");
+    // Additive migration for tables created before issue #308.
+    ensureColumn(this.sql, "generation_id", "TEXT");
+    // #584 (EP-003): tenant scoping. Legacy rows predate the
+    // column and are NOT backfilled to a synthetic owner.
+    ensureColumn(this.sql, "user_login", "TEXT");
+    // Issue #338: R2-vs-DO storage split for report bodies.
+    ensureColumn(this.sql, "body_r2_key", "TEXT");
+    // Issue #2347: the recorded fan-out outcome (JSON). NULL on
+    // rows stored before the contract landed.
+    ensureColumn(this.sql, "fanout_outcome", "TEXT");
+
+    this.sql.exec(
+      `CREATE INDEX IF NOT EXISTS idx_mas_reports_created ON ${TABLE} (created_at DESC)`
+    );
+    this.sql.exec(
+      `CREATE INDEX IF NOT EXISTS idx_mas_reports_user ON ${TABLE} (user_login)`
+    );
+    // Issue #876: the dedupe index is guarded — creating a UNIQUE
+    // index over a column that already holds duplicate non-null
+    // values throws; unguarded, that aborted ensure (and therefore
+    // EVERY report write for the DO) forever. The duplicates are
+    // logged loudly (never deleted here) and the ensure completes.
+    try {
+      this.sql.exec(
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_mas_reports_generation ON ${TABLE} (generation_id)`
+      );
+    } catch (err) {
+      console.error(
+        `[scheduledReports] ensureScheduledReportsTable: CREATE UNIQUE INDEX idx_mas_reports_generation failed (duplicate generation_id values already stored?); continuing without it: ${err instanceof Error ? err.message : String(err)}`,
+        err
+      );
+    }
+  }
+
+  findIdByGeneration(generationId: string, owner: string): string {
+    const existing = Array.from(
+      this.sql.exec(
+        `SELECT id FROM ${TABLE} WHERE generation_id = ? AND user_login = ? LIMIT 1`,
+        generationId,
+        owner
+      )
+    ) as Array<{ id?: unknown }>;
+    return existing[0] ? String(existing[0].id ?? "") : "";
+  }
+
+  findStoredContent(id: string): CanonicalReportStoredContent | null {
+    const rows = Array.from(
+      this.sql.exec(
+        `SELECT title, source, summary, body, body_r2_key FROM ${TABLE} WHERE id = ? LIMIT 1`,
+        id
+      )
+    ) as Array<Record<string, unknown>>;
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      title: typeof row.title === "string" ? row.title : "",
+      source: typeof row.source === "string" ? row.source : "",
+      summary: typeof row.summary === "string" ? row.summary : "",
+      body: typeof row.body === "string" ? row.body : "",
+      bodyR2Key: typeof row.body_r2_key === "string" ? row.body_r2_key : null,
+    };
+  }
+
+  insertRow(row: InsertCanonicalReportRow): void {
+    // The one INSERT both store seams share (single line —
+    // MockSqlStorage's INSERT regex has no dotAll flag). Issue
+    // #338: when bodyR2Key is set the body column stores "" and
+    // the pointer names the R2 object; the seam passes the
+    // already-resolved body value.
+    this.sql.exec(
+      `INSERT INTO ${TABLE} (id, run_id, title, source, summary, body, created_at, generation_id, user_login, body_r2_key, fanout_outcome) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      row.id,
+      row.runId,
+      row.title,
+      row.source,
+      row.summary,
+      row.body,
+      row.createdAt,
+      row.generationId,
+      row.owner,
+      row.bodyR2Key,
+      row.fanoutOutcomeJson
+    );
+  }
+
+  updateFanoutOutcome(reportId: string, fanoutOutcomeJson: string): void {
+    this.sql.exec(
+      `UPDATE ${TABLE} SET fanout_outcome = ? WHERE id = ?`,
+      fanoutOutcomeJson,
+      reportId
+    );
+  }
+
+  getFanoutOutcomeRaw(reportId: string): string | null {
+    const rows = Array.from(
+      this.sql.exec(
+        `SELECT fanout_outcome FROM ${TABLE} WHERE id = ? LIMIT 1`,
+        reportId
+      )
+    ) as Array<Record<string, unknown>>;
+    const raw = rows[0]?.fanout_outcome;
+    return typeof raw === "string" ? raw : null;
+  }
+
+  deleteRow(reportId: string): void {
+    this.sql.exec(`DELETE FROM ${TABLE} WHERE id = ?`, reportId);
+  }
+
+  backfillBodyPointer(reportId: string, bodyR2Key: string): void {
+    this.sql.exec(
+      `UPDATE ${TABLE} SET body_r2_key = ?, body = '' WHERE id = ? AND body_r2_key IS NULL`,
+      bodyR2Key,
+      reportId
+    );
+  }
+
+  // ------------------------------------------------------------------
+  // Read role
+  // ------------------------------------------------------------------
+
+  getRowById(reportId: string): CanonicalReportStoredRow | null {
+    const rows = Array.from(
+      this.sql.exec(
+        `SELECT ${HIT_COLUMNS} FROM ${TABLE} WHERE id = ? LIMIT 1`,
+        reportId
+      )
+    ) as unknown as CanonicalReportStoredRow[];
+    return rows[0] ?? null;
+  }
+
+  getRowByIdForOwner(
+    reportId: string,
+    owner: string | undefined
+  ): CanonicalReportStoredRow | null {
+    let q = `SELECT ${HIT_COLUMNS} FROM ${TABLE} WHERE id = ?`;
+    const params: unknown[] = [reportId];
+    if (owner) {
+      q += ` AND user_login = ?`;
+      params.push(owner);
+    }
+    q += ` LIMIT 1`;
+    const rows = Array.from(this.sql.exec(q, ...params)) as unknown as CanonicalReportStoredRow[];
+    return rows[0] ?? null;
+  }
+
+  searchRows(
+    tokens: string[],
+    owner: string | undefined,
+    limit: number
+  ): CanonicalReportStoredRow[] {
+    const clause = tokens
+      .map(
+        () =>
+          `(LOWER(title) LIKE ? OR LOWER(summary) LIKE ? OR LOWER(body) LIKE ?)`
+      )
+      .join(" OR ");
+    const params: unknown[] = [];
+    for (const t of tokens) {
+      const like = `%${t}%`;
+      params.push(like, like, like);
+    }
+    const ownerClause = owner ? `user_login = ? AND ` : "";
+    const ownerParams: unknown[] = owner ? [owner] : [];
+    return Array.from(
+      this.sql.exec(
+        `SELECT ${HIT_COLUMNS} FROM ${TABLE} WHERE ${ownerClause}(${clause}) ORDER BY created_at DESC LIMIT ?`,
+        ...ownerParams,
+        ...params,
+        limit
+      )
+    ) as unknown as CanonicalReportStoredRow[];
+  }
+
+  listRows(
+    owner: string | undefined,
+    sourceFilter: string | undefined,
+    limit: number
+  ): CanonicalReportStoredRow[] {
+    let q = `SELECT ${HIT_COLUMNS} FROM ${TABLE}`;
+    const params: unknown[] = [];
+    const wheres: string[] = [];
+    if (owner) {
+      wheres.push(`user_login = ?`);
+      params.push(owner);
+    }
+    if (sourceFilter) {
+      wheres.push(`source = ?`);
+      params.push(sourceFilter);
+    }
+    if (wheres.length > 0) q += ` WHERE ` + wheres.join(" AND ");
+    q += ` ORDER BY created_at DESC LIMIT ?`;
+    params.push(limit);
+    return Array.from(
+      this.sql.exec(q, ...params)
+    ) as unknown as CanonicalReportStoredRow[];
+  }
+
+  findIdByRunId(runId: string): string | null {
+    const rows = Array.from(
+      this.sql.exec(`SELECT id FROM ${TABLE} WHERE run_id = ?`, runId)
+    ) as Array<{ id?: unknown }>;
+    return rows[0] ? String(rows[0].id ?? "") : null;
+  }
+
+  listIndexBackfillRows(
+    limit: number,
+    offset: number
+  ): Array<{
+    id: string;
+    title: string;
+    source: string;
+    summary: string;
+    body: string;
+    body_r2_key: string | null;
+  }> {
+    return Array.from(
+      this.sql.exec(
+        `SELECT id, title, source, summary, body, body_r2_key FROM ${TABLE} ORDER BY created_at ASC LIMIT ? OFFSET ?`,
+        limit,
+        offset
+      )
+    ) as Array<{
+      id: string;
+      title: string;
+      source: string;
+      summary: string;
+      body: string;
+      body_r2_key: string | null;
+    }>;
+  }
+}

@@ -72,7 +72,15 @@ describe("step-4a family census (#2358)", () => {
   });
 
   it("orchestrator.ts drops exactly its mas_async_jobs DDL third (19 -> 17)", () => {
-    expect(countIn("src/agents/orchestrator.ts")).toBe(17);
+    // #2359 (#1976 step 4d) pin update: step 4d moved the
+    // four orchestrator-owned tables' DDL and the remaining
+    // bypass statements behind the data layer, so the class
+    // file's count drops again — 17 -> 4 (the ADR-out legacy
+    // ai-chat lift + the G-7 mas_settings CREATE remain). This
+    // pin's 4a-specific claim (the async-jobs third left in
+    // 4a) is subsumed; the exact current count is pinned by
+    // the 4d family census as well.
+    expect(countIn("src/agents/orchestrator.ts")).toBe(4);
   });
 
   it("the family's statements live in the data layer at exact counts", () => {

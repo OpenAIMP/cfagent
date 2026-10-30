@@ -321,11 +321,24 @@ describe("orchestrator class inventory (#992 standing gate)", () => {
     expect(src("agents/orchestrator/asyncJobs.ts")).toContain(
       ".queue",
     );
+    // #2359 (#1976 step 4d) pin update: the extracted modules
+    // now serve their tables through the data layer's
+    // orchestrator-table ports instead of holding the INSERT
+    // statements — the markers' intent (these modules own
+    // their tables' composition for the class) is unchanged;
+    // the statements moved behind the ports (same pattern as
+    // the #2358 update above).
     expect(src("agents/orchestrator/autopilot.ts")).toContain(
-      "INSERT INTO mas_policy_verdicts",
+      "createOrchestratorTablePorts(",
+    );
+    expect(src("agents/orchestrator/autopilot.ts")).toContain(
+      ".verdicts",
     );
     expect(src("agents/orchestrator/reportDispatch.ts")).toContain(
-      "INSERT INTO mas_report_confirmations",
+      "createOrchestratorTablePorts(",
+    );
+    expect(src("agents/orchestrator/reportDispatch.ts")).toContain(
+      ".confirmations",
     );
     // #2337 (#1976 step 2) pin update: the extracted module now
     // composes the discovery-run / IV stores through the data
