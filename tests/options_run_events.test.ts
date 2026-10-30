@@ -63,22 +63,22 @@ describe("options.completed → ScreenerRunOutcome", () => {
       completedEvent({
         pdfKey: undefined,
         pdfStatus: "failed",
-        pdfError: "[REPORT_001] renderer unavailable",
+        pdfError: "[FAILURE_REPORT_PDF_GENERATION] renderer unavailable",
         xlsxKey: undefined,
         xlsxStatus: "failed",
-        xlsxError: "[REPORT_002] xlsx renderer unavailable",
+        xlsxError: "[FAILURE_REPORT_XLSX_GENERATION] xlsx renderer unavailable",
         csvKey: undefined,
         csvStatus: "skipped",
-        csvError: "[REPORT_001] no rows",
+        csvError: "[FAILURE_REPORT_PDF_GENERATION] no rows",
         reportUrl: undefined,
       }) as any,
     );
     expect(outcome.pdfStatus).toBe("failed");
     expect(outcome.pdfKeys).toEqual([]);
     expect(outcome.xlsxStatus).toBe("failed");
-    expect(outcome.xlsxError).toContain("REPORT_002");
+    expect(outcome.xlsxError).toContain("FAILURE_REPORT_XLSX_GENERATION");
     expect(outcome.csvStatus).toBe("skipped");
-    expect(outcome.csvError).toContain("REPORT_001");
+    expect(outcome.csvError).toContain("FAILURE_REPORT_PDF_GENERATION");
     expect(outcome.reportUrl).toBeUndefined();
   });
 });

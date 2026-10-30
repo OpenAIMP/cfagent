@@ -18,7 +18,7 @@ vi.mock("../src/services/etradeAuthPreflight", async (importOriginal) => {
     ...orig,
     guardScheduledETradeAuth: vi.fn(async () => ({
       blocked: true as const,
-      error: "[AUTH_003] test blocked",
+      error: "[FAILURE_AUTH_NO_SESSION] test blocked",
       alerted: true as const,
     })),
   };

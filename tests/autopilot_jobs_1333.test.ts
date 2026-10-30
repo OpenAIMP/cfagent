@@ -18,7 +18,7 @@ describe("GET /autopilot/jobs (#1333)", () => {
       kind: "options",
       trigger: "scheduled",
       status: "failed",
-      codedError: "[AUTH_003] E*TRADE connection missing",
+      codedError: "[FAILURE_AUTH_NO_SESSION] E*TRADE connection missing",
       origin: "job-tree",
       createdAt: "2026-10-24T04:58:00.000Z",
     });
@@ -50,7 +50,7 @@ describe("GET /autopilot/jobs (#1333)", () => {
     const data = (await res!.json()) as any;
     expect(data.count).toBe(2);
     expect(data.jobs[0].id).toBe("goal-zero");
-    expect(data.jobs[1].codedError).toContain("[AUTH_003]");
+    expect(data.jobs[1].codedError).toContain("[FAILURE_AUTH_NO_SESSION]");
   });
 
   it("honors the limit parameter", async () => {

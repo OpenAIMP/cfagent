@@ -4,7 +4,7 @@
  * An AOP aspect in the established shape of this directory: a
  * higher-order wrapper around a call (context object + wrapped
  * function, cf. withAspects in loggingAspect.ts and the #817
- * wrappers in src/errors/errorAspects.ts), with every outcome —
+ * wrappers in src/outcomes/outcomeAspects.ts), with every outcome —
  * commit, rollback, cannot-honour — emitted from the catalog
  * (src/aspects/errorCodes.ts, DATA_FOUNDATION_CATALOG) per the
  * #1969 rule. No inline outcome strings exist at call sites.

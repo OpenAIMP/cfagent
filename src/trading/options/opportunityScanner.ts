@@ -492,7 +492,7 @@ export interface OpportunityScanResult {
    *  publishes as a *qualified partial* (the options mirror of the
    *  stock #462 doctrine): never presented as a complete scan, and
    *  never a failure while something evaluated. Zero evaluated is
-   *  turned into a coded failure by the scheduled gate (SCREEN_003). */
+   *  turned into a coded failure by the scheduled gate (FAILURE_SCREEN_NO_CONTRACTS_EVALUATED). */
   partial?: OptionsPartialQualification;
 }
 

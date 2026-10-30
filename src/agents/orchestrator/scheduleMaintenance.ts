@@ -46,7 +46,7 @@ export async function getScreenerExecutionContext(ctx: ScheduleMaintenanceContex
  * schedule (panel-verified). The saved execution context is the fallback
  * for legacy schedules whose payloads carry no login. Previously the
  * saved context won, so a stale context (a login with no stored token)
- * blocked scheduled runs with AUTH_003 while manual runs under the
+ * blocked scheduled runs with FAILURE_AUTH_NO_SESSION while manual runs under the
  * session login passed the guard. Callers resolve environment the same
  * way (payload first, saved context second): the payload owns the
  * schedule's environment too, and the context remains the legacy

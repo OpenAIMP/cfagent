@@ -23,7 +23,7 @@ import {
   formatTraceBlock,
   type ScreenerTrace,
 } from "./screenerTrace";
-import { codedMessage } from "../errors/errorAspects";
+import { codedMessage } from "../outcomes/outcomeAspects";
 import {
   absoluteReportUrl,
   optionsReportUrl,
@@ -500,7 +500,7 @@ export function formatLifecycleNotification(
       return `✅ Screen completed\n${formatFollowupDeliveryText(outcome)}`;
     case "failed": {
       // Issue #1252 (#1173 R4): run failures carry the catalog code
-      // (SCREEN_001) in the notification, as in the job record.
+      // (FAILURE_SCREEN_RUN_FAILED) in the notification, as in the job record.
       // Issue #2248 (AOP P1): the code renders FROM the catalog via
       // codedMessage — not a hand-built literal — so the failure
       // email (notify subject = first line) and the Slack failed leg
@@ -508,7 +508,7 @@ export function formatLifecycleNotification(
       // preserved: the trace block still appends when carried.
       const traceBlock = formatTraceBlock(outcome.trace);
       const detail = `${kindLabel}${scopeText}${outcome.error ? ` — ${outcome.error}` : ""}`;
-      return `❌ ${codedMessage("SCREEN_001", detail)}${traceBlock ? `\n${traceBlock}` : ""}`;
+      return `❌ ${codedMessage("FAILURE_SCREEN_RUN_FAILED", detail)}${traceBlock ? `\n${traceBlock}` : ""}`;
     }
     case "delivered":
       return `📬 Report delivered${detail ? ` ${detail}` : ""} — ${kindLabel}${scopeText}${outcome.reportUrl ? `\n📄 Report: ${outcome.reportUrl}` : ""}`;

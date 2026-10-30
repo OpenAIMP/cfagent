@@ -84,7 +84,7 @@ function goalService(opts: {
   const service = new ScheduledTasksService(mockEnv, mockOrm, "test_trader");
   const audit = vi.fn(() => {});
   const guard = vi.fn(async () => (opts.blocked
-    ? { blocked: true as const, error: "⚠️ [AUTH_003] E*TRADE connection missing — scheduled screen is blocked." }
+    ? { blocked: true as const, error: "⚠️ [FAILURE_AUTH_NO_SESSION] E*TRADE connection missing — scheduled screen is blocked." }
     : { blocked: false as const }));
   const runGoalScreen = vi.fn(async (req: any) => {
     // Faithful stub of the agent contract: the agent echoes the

@@ -94,7 +94,7 @@ describe("ScreenerAgent CSV artifact (#2062)", () => {
     expect(run.csvStatus).toBe("failed");
     expect(run.csvKey).toBeUndefined();
     expect(run.csvError).toContain("blob store down");
-    expect(run.csvError).toContain("REPORT_004");
+    expect(run.csvError).toContain("FAILURE_REPORT_CSV_GENERATION");
   });
 
   it("records a blob-store failure on the XLSX leg from the catalog (#2262)", async () => {
@@ -115,6 +115,6 @@ describe("ScreenerAgent CSV artifact (#2062)", () => {
     expect(run.xlsxStatus).toBe("failed");
     expect(run.xlsxKey).toBeUndefined();
     expect(run.xlsxError).toContain("r2 unavailable");
-    expect(run.xlsxError).toContain("REPORT_002");
+    expect(run.xlsxError).toContain("FAILURE_REPORT_XLSX_GENERATION");
   });
 });

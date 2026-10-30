@@ -1,4 +1,9 @@
 /**
+ * @deprecated Superseded by src/outcomes/outcomeAspects.ts and
+ * src/outcomes/outcomeCatalog.json (issue #2381). Frozen: no new
+ * features, no new consumers — retained only so pre-rename history
+ * stays readable. Do not import this file; use the outcome resolver.
+ *
  * Issue #817: aspect-oriented cross-cutting concerns.
  *
  * Three aspects that wrap business logic:
@@ -10,7 +15,7 @@
  * Business messages go to UI. Technical details go to logs only.
  */
 
-import catalog from "./errorCatalog.json";
+import catalog from "./errorCatalog.deprecated.json";
 
 export interface ErrorCatalogEntry {
   code: string;

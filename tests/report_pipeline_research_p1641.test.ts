@@ -71,6 +71,6 @@ describe("unified pipeline serves research runs (#1641 §5)", () => {
     const out = await generateReportStage({} as any, INPUT as any);
     expect(out.pdfStatus).toBe("failed");
     expect(out.pdfKey).toBe("");
-    expect(out.pdfError ?? "").toMatch(/^\[REPORT_/);
+    expect(out.pdfError ?? "").toMatch(/^\[FAILURE_REPORT_PDF_GENERATION\]/);
   });
 });

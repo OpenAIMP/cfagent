@@ -103,7 +103,7 @@ describe("generateAndStoreResearchReport (#2167)", () => {
     vi.mocked(generateReportStage).mockResolvedValue({
       pdfKey: "",
       pdfStatus: "failed",
-      pdfError: "[REPORT_001] PDF failed",
+      pdfError: "[FAILURE_REPORT_PDF_GENERATION] PDF failed",
       generationId: "g",
     });
     const agent = {
@@ -122,11 +122,11 @@ describe("generateAndStoreResearchReport (#2167)", () => {
     });
 
     expect(result.artifacts.pdfStatus).toBe("failed");
-    expect(result.artifacts.pdfError).toContain("REPORT_001");
+    expect(result.artifacts.pdfError).toContain("FAILURE_REPORT_PDF_GENERATION");
     expect(result.artifacts.xlsxKey).toBe("report:xlsx:research:def");
     const body = JSON.parse(String(listScheduledReports(sql as any, { userLogin: "tester" })[0].body));
     expect(body.pdfStatus).toBe("failed");
-    expect(body.pdfError).toContain("REPORT_001");
+    expect(body.pdfError).toContain("FAILURE_REPORT_PDF_GENERATION");
     expect(body.xlsxKey).toBe("report:xlsx:research:def");
   });
 
@@ -154,9 +154,9 @@ describe("generateAndStoreResearchReport (#2167)", () => {
     expect(rows).toHaveLength(1);
     const body = JSON.parse(String(rows[0].body));
     expect(body.pdfStatus).toBe("failed");
-    expect(body.pdfError).toContain("REPORT_001");
-    expect(body.xlsxError).toContain("REPORT_002");
+    expect(body.pdfError).toContain("FAILURE_REPORT_PDF_GENERATION");
+    expect(body.xlsxError).toContain("FAILURE_REPORT_XLSX_GENERATION");
     expect(body.xlsxError).toContain("blob store down");
-    expect(body.csvError).toContain("REPORT_004");
+    expect(body.csvError).toContain("FAILURE_REPORT_CSV_GENERATION");
   });
 });
