@@ -15,6 +15,7 @@ import { DatabaseORM } from "../src/orm";
 import { MockSqlStorage } from "./mock-sql";
 import { McpToolFactory } from "../src/mcp/commands";
 import { ETradeService } from "../src/services/etrade";
+import { ETradeRestClient } from "../src/trading/etrade/client";
 import { ETradeBrowserService } from "../src/services/browserAgent";
 import { DynamicMarketScreener } from "../src/trading/screener";
 import { handleEtradeBrokerRoutes } from "../src/agents/routes/etradeBroker";
@@ -54,6 +55,37 @@ function setup() {
 async function previewDraft(mcpContext: any, symbol = "PLTR") {
   const previewCmd = McpToolFactory.getTool("etrade_preview_order");
   return previewCmd.execute({ symbol, orderAction: "BUY", quantity: 10 }, mcpContext);
+}
+
+/**
+ * §7 adaptation (#2389): approval now settles through the broker
+ * client's placeOrder — the platform no longer settles locally. Tests
+ * in this file whose subject is the execute GATE (not the broker)
+ * stub that placement seam to return a broker-confirmed result, the
+ * same level the "remote placement" test below stubs for
+ * placeOrderRemote.
+ */
+function stubBrokerPlacement() {
+  return vi.spyOn(ETradeRestClient.prototype, "placeOrder").mockImplementation(async (params: any) => ({
+    success: true,
+    orderId: params.orderId,
+    executionId: "et_order_1726",
+    brokerOrderRef: "et_order_1726",
+    authorizerDid: params.userLogin,
+    status: "executed",
+    symbol: params.symbol,
+    action: params.action,
+    quantity: params.quantity,
+    executionPrice: 10,
+    totalSettled: 10 * params.quantity,
+    didAttestation: {
+      proposerDid: "did:agent:openaimp:trading",
+      authorizerDid: params.userLogin,
+      signature: ["sig", "0xbroker1726"].join("_"),
+    },
+    message: "E*TRADE Execution Confirmed: Broker Order ID et_order_1726",
+    timestamp: new Date().toISOString(),
+  }) as any);
 }
 
 describe("#1726 switch resolution (run > session > user > env > built-in)", () => {
@@ -106,12 +138,17 @@ describe("#1726 E04 MCP execute adopts the REST HITL gate", () => {
   });
 
   it("rejects re-execution of an executed draft with the REST 400 previewed message and status", async () => {
-    const draft = await previewDraft(ctx.mcpContext);
-    const execCmd = McpToolFactory.getTool("etrade_execute_order");
-    await execCmd.execute({ orderId: draft.orderId, decision: "approved" }, ctx.mcpContext);
-    const err = await execCmd.execute({ orderId: draft.orderId, decision: "approved" }, ctx.mcpContext).catch((e: any) => e);
-    expect(err.message).toContain("Only 'previewed' drafts may be executed");
-    expect(err.status).toBe(400);
+    const placeSpy = stubBrokerPlacement();
+    try {
+      const draft = await previewDraft(ctx.mcpContext);
+      const execCmd = McpToolFactory.getTool("etrade_execute_order");
+      await execCmd.execute({ orderId: draft.orderId, decision: "approved" }, ctx.mcpContext);
+      const err = await execCmd.execute({ orderId: draft.orderId, decision: "approved" }, ctx.mcpContext).catch((e: any) => e);
+      expect(err.message).toContain("Only 'previewed' drafts may be executed");
+      expect(err.status).toBe(400);
+    } finally {
+      placeSpy.mockRestore();
+    }
   });
 
   it("rejects a rejected decision on an unknown draft with 404 (gate runs before rejection)", async () => {
@@ -121,15 +158,20 @@ describe("#1726 E04 MCP execute adopts the REST HITL gate", () => {
   });
 
   it("approved execution audits a payload hash and keeps the legacy result shape", async () => {
-    const draft = await previewDraft(ctx.mcpContext);
-    const execCmd = McpToolFactory.getTool("etrade_execute_order");
-    const executed = await execCmd.execute({ orderId: draft.orderId, decision: "approved" }, ctx.mcpContext);
-    expect(executed.success).toBe(true);
-    expect(executed.status).toBe("executed");
-    const audit = ctx.auditMock.mock.calls.find((c: any[]) => c[0] === "etrade.order_executed");
-    expect(audit).toBeDefined();
-    expect(typeof audit[2].payloadHash).toBe("string");
-    expect(audit[2].payloadHash.length).toBeGreaterThan(0);
+    const placeSpy = stubBrokerPlacement();
+    try {
+      const draft = await previewDraft(ctx.mcpContext);
+      const execCmd = McpToolFactory.getTool("etrade_execute_order");
+      const executed = await execCmd.execute({ orderId: draft.orderId, decision: "approved" }, ctx.mcpContext);
+      expect(executed.success).toBe(true);
+      expect(executed.status).toBe("executed");
+      const audit = ctx.auditMock.mock.calls.find((c: any[]) => c[0] === "etrade.order_executed");
+      expect(audit).toBeDefined();
+      expect(typeof audit[2].payloadHash).toBe("string");
+      expect(audit[2].payloadHash.length).toBeGreaterThan(0);
+    } finally {
+      placeSpy.mockRestore();
+    }
   });
 
   it("rejection marks the draft rejected and audits order_rejected", async () => {

@@ -441,11 +441,11 @@ export class ETradeService {
   /**
    * Execute an authorized trade order after explicit human confirmation (HITL enforcement)
    */
-  executeOrder(
+  async executeOrder(
     orderOrDraft: string | ETradeOrderDraft,
     userLogin: string,
     decision: "approved" | "rejected" = "approved"
-  ): ETradeOrderExecutionResult {
+  ): Promise<ETradeOrderExecutionResult> {
     const orderId = typeof orderOrDraft === "string" ? orderOrDraft : orderOrDraft.orderId;
     const authorizerDid = userLogin.startsWith("did:") ? userLogin : `did:user:github:${userLogin}`;
 
@@ -453,7 +453,9 @@ export class ETradeService {
       throw new Error(`HITL Violation: Autonomous trade execution is strictly forbidden. Orders require human authorization.`);
     }
 
-    return this.platform.executeOrder(orderId, authorizerDid, decision) as any;
+    // #2389: the platform's executeOrder is async now that approval
+    // places through the real broker client.
+    return this.platform.executeOrder(orderId, authorizerDid, decision);
   }
 
   /**

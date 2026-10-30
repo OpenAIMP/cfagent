@@ -20,6 +20,37 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { ETradeRestClient } from "../src/trading/etrade/client";
+
+/**
+ * §7 adaptation (#2389): approvals now settle through the broker
+ * client's placeOrder — the platform no longer settles locally. The
+ * signed-link test below stubs that placement seam with a
+ * broker-confirmed result; the channel enforcement under test is
+ * exercised for real (restored by the file's restoreAllMocks).
+ */
+function stubBrokerPlacement() {
+  return vi.spyOn(ETradeRestClient.prototype, "placeOrder").mockImplementation(async (params: any) => ({
+    success: true,
+    orderId: params.orderId,
+    executionId: "et_order_intake",
+    brokerOrderRef: "et_order_intake",
+    authorizerDid: params.userLogin,
+    status: "executed",
+    symbol: params.symbol,
+    action: params.action,
+    quantity: params.quantity,
+    executionPrice: params.limitPrice ?? 100,
+    totalSettled: (params.limitPrice ?? 100) * params.quantity,
+    didAttestation: {
+      proposerDid: "did:agent:openaimp:trading",
+      authorizerDid: params.userLogin,
+      signature: ["sig", "0xbrokerintake"].join("_"),
+    },
+    message: "E*TRADE Execution Confirmed: Broker Order ID et_order_intake",
+    timestamp: new Date().toISOString(),
+  }) as any);
+}
 
 // --- NLQ seam mock ---------------------------------------------------------
 // The channel services import executeNaturalLanguageQuery + planNLQ from
@@ -434,6 +465,7 @@ describe("channel service enforcement (#1262 Phase 1)", () => {
   });
 
   it("email: a trade-tier principal approves via a signed link; a bare APPROVE is refused (Phase 5)", async () => {
+    stubBrokerPlacement();
     seedPreviewedTrade("ord_trade_tier_approve");
     const principal: ChannelPrincipal = {
       userLogin: "boss-login",

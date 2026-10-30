@@ -215,7 +215,7 @@ export async function completeEtradeOrderExecution(args: {
       ctx.incrementAutopilotOrdersToday();
     }
   } else {
-    result = etrade.executeOrder(orderId, userDid, decision);
+    result = await etrade.executeOrder(orderId, userDid, decision);
   }
 
   // Cancel the scheduled expiration timer since the order has been executed

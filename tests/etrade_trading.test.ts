@@ -160,7 +160,15 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
       expect(saved?.status).toBe("previewed");
     });
 
-    it("executes confirmed order draft after explicit human authorization", () => {
+    it("approval without broker credentials fails honestly and leaves the draft previewed", async () => {
+      // §7 adaptation (#2389): this test previously asserted the
+      // platform's local fabrication — approval stamped the draft
+      // executed with an invented reference in an environment with no
+      // broker credentials at all. Approval now places through the
+      // real broker client; with no credentials configured the honest
+      // outcome is a failure and the draft stays previewed. The
+      // broker-confirmed success direction is pinned in
+      // tests/autopilot_execution_honesty_2389.test.ts.
       const draft = etrade.previewOrder({
         sessionId,
         symbol: "MSFT",
@@ -169,21 +177,20 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
         orderType: "MARKET",
       });
 
-      const execResult = etrade.executeOrder(draft.orderId, userDid, "approved");
-      expect(execResult.success).toBe(true);
-      expect(execResult.status).toBe("executed");
+      const execResult = await etrade.executeOrder(draft.orderId, userDid, "approved");
+      expect(execResult.success).toBe(false);
+      expect(execResult.status).toBe("failed");
       expect(execResult.orderId).toBe(draft.orderId);
       expect(execResult.authorizerDid).toBe(userDid);
-      expect(execResult.executionId).toBeDefined();
+      expect(execResult.executionId).toBe("");
 
-      // Verify database update
+      // Verify no database update claimed an execution
       const updated = orm.trades.findById(draft.orderId);
-      expect(updated?.status).toBe("executed");
-      expect(updated?.authorizerDid).toBe(userDid);
-      expect(updated?.orderRef).toBe(execResult.executionId);
+      expect(updated?.status).toBe("previewed");
+      expect(updated?.orderRef ?? "").not.toMatch(/^et_ref_/);
     });
 
-    it("rejects an order draft when human authorizer declines", () => {
+    it("rejects an order draft when human authorizer declines", async () => {
       const draft = etrade.previewOrder({
         sessionId,
         symbol: "TSLA",
@@ -191,7 +198,8 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
         quantity: 10,
       });
 
-      const execResult = etrade.executeOrder(draft.orderId, userDid, "rejected");
+      // #2389: executeOrder is async now (await added; behaviour unchanged).
+      const execResult = await etrade.executeOrder(draft.orderId, userDid, "rejected");
       expect(execResult.success).toBe(false);
       expect(execResult.status).toBe("rejected");
 
@@ -204,9 +212,19 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
       expect(initial.account.accountId).toBeDefined();
       expect(initial.positions).toEqual([]);
 
-      // Execute confirmed trade to verify dynamic position calculation without hardcoding
+      // Record a broker-confirmed execution on the draft, exactly as
+      // the platform persists it after a successful placement
+      // (§7 adaptation, #2389: approval no longer settles locally in
+      // an environment with no broker credentials — positions derive
+      // from executed records, and that derivation is this test's
+      // subject).
       const draft = etrade.previewOrder({ sessionId, symbol: "NVDA", orderAction: "BUY", quantity: 15 });
-      etrade.executeOrder(draft.orderId, userDid, "approved");
+      orm.trades.update(draft.orderId, {
+        status: "executed",
+        orderRef: "et_order_2389_pos",
+        authorizerDid: userDid,
+        updatedAt: new Date().toISOString(),
+      });
 
       const portfolio = etrade.getPositions();
       expect(portfolio.account.totalAccountValue).toBeGreaterThan(0);
@@ -287,7 +305,11 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
       expect(preview.safetyNotice).toContain("HUMAN APPROVAL REQUIRED");
     });
 
-    it("etrade_execute_order: executes previewed draft upon human confirmation", async () => {
+    it("etrade_execute_order: approval without broker credentials fails honestly", async () => {
+      // §7 adaptation (#2389): this test previously asserted the
+      // fabricated success the platform produced on approval. The MCP
+      // context env carries no broker credentials, so the honest
+      // outcome is a failed result and the draft is never stamped.
       // First preview
       const previewCmd = McpToolFactory.getTool("etrade_preview_order");
       const draft = await previewCmd.execute(
@@ -302,9 +324,10 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
         mcpContext
       );
 
-      expect(executed.success).toBe(true);
-      expect(executed.status).toBe("executed");
+      expect(executed.success).toBe(false);
+      expect(executed.status).toBe("failed");
       expect(executed.orderId).toBe(draft.orderId);
+      expect(orm.trades.findById(draft.orderId)?.status).toBe("previewed");
     });
 
     it("etrade_get_positions: returns broker account holdings", async () => {
@@ -367,9 +390,18 @@ describe("E*TRADE Agentic Trading Hub & Screening Engine", () => {
     });
 
     it("NLQ classifies 'show my portfolio positions' and returns holdings", async () => {
-      // Execute trade draft first
+      // Record a broker-confirmed execution on the draft first
+      // (§7 adaptation, #2389: approval no longer settles locally —
+      // the executed record is seeded the way the platform persists
+      // it after a real placement; the NLQ positions read is the
+      // subject under test).
       const draft = etrade.previewOrder({ sessionId, symbol: "MSFT", orderAction: "BUY", quantity: 10 });
-      etrade.executeOrder(draft.orderId, userDid, "approved");
+      orm.trades.update(draft.orderId, {
+        status: "executed",
+        orderRef: "et_order_2389_nlq",
+        authorizerDid: userDid,
+        updatedAt: new Date().toISOString(),
+      });
 
       const plan = await planNLQ(mockEnv, "show my portfolio positions");
       expect(plan.domain).toBe("trading");

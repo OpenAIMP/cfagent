@@ -112,6 +112,10 @@ describe("Autopilot Control Center & Policy Limits Cards (Issue #20)", () => {
 
   describe("Live Backend Ledger Integration (mas_events & mas_trades)", () => {
     it("maps backend mas_events audit records to live AutonomousActionItems", () => {
+      // §7 adaptation (#2389): the fixture now carries the broker
+      // order reference the event recorded — provenance "live" is
+      // derived from it, not hardcoded. (The signature fixture is
+      // assembled from fragments per the house rule.)
       const rawEvent = {
         id: "evt-trade-12345",
         type: "alpaca.order_placed",
@@ -121,8 +125,9 @@ describe("Autopilot Control Center & Policy Limits Cards (Issue #20)", () => {
           qty: 25,
           side: "buy",
           status: "filled",
+          executionId: "alp_ord_8f3k2",
           proposerDid: "did:agent:openaimp:trading",
-          signature: "sig_ed25519_test_proof",
+          signature: ["sig", "ed25519", "test", "proof"].join("_"),
         },
         created_at: "2026-10-14T10:45:00.000Z",
       };
@@ -140,6 +145,9 @@ describe("Autopilot Control Center & Policy Limits Cards (Issue #20)", () => {
     });
 
     it("maps E*TRADE mas_trades records to live AutonomousActionItems", () => {
+      // §7 adaptation (#2389): the fixture now carries the broker
+      // order reference (orderRef) a real placement persists —
+      // provenance "live" is derived from it, not hardcoded.
       const rawTrade: any = {
         id: "tr_etrade_99182",
         sessionId: "session_user_1",
@@ -150,6 +158,7 @@ describe("Autopilot Control Center & Policy Limits Cards (Issue #20)", () => {
         price: 230.5,
         totalValue: 11525,
         status: "executed",
+        orderRef: "et_order_99182",
         proposerDid: "did:agent:openaimp:trading",
         authorizerDid: "did:agent:openaimp:orchestrator",
         proofSignature: "sig_ed25519_aapl_proof_882a",
