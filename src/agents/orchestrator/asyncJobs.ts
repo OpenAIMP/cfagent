@@ -35,6 +35,7 @@ import { recordScreeningActivity } from "../../services/screeningActivity";
 import { recordJobOutcome } from "../../services/jobOutcomes";
 import type { NLQSchedulingPort, NLQStockScreenPort } from "../nlq";
 import { codedMessage } from "../../outcomes/outcomeAspects";
+import { recordBlockingAudit } from "../../security/auditChain";
 import {
   enforceServiceDispatch,
   resolveAsyncJobIdentity,
@@ -968,6 +969,20 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
         }
         const delivery = await ctx.followupDeliveryPort().deliver({ channel, userLogin, outcome, artifacts });
         if (!delivery.ok) throw new Error(codedMessage("FAILURE_DELIVERY_CHANNEL_FAILED", delivery.error || `Delivery via ${channel} failed.`));
+        // Issue #2178 (Q7 S2): the delivery claim is consequential —
+        // audit it through the blocking helper before the job can
+        // complete as sent. A throwing store propagates to the
+        // executor's catch, which marks the job failed: the recipient
+        // may already hold the artifact, but the system never reports
+        // an unrecorded delivery as success.
+        recordBlockingAudit(ctx.getOrm().events, {
+          id: crypto.randomUUID(),
+          sessionId: userLogin,
+          type: "followup.delivered",
+          agent: "orchestrator",
+          payload: { jobId, channel, userLogin, detail: delivery.detail },
+          createdAt: new Date().toISOString(),
+        });
         result = { status: "sent", channel, detail: delivery.detail };
       }
     } else if (job.capability === "followup.notify") {
