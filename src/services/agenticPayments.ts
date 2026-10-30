@@ -928,6 +928,14 @@ export class ETradeAgenticPaymentService {
         // surface in another identity's wallet status.
         if (tx.sessionId !== this.sessionId) continue;
         if (tx.gateway === "x402" || tx.gateway === "mpp") {
+          // Issue #2396 (Agent Mesh S11 / G3): a row recorded with
+          // status "simulated" is a record that a simulation happened
+          // (the retired NLQ paid leg booked such rows into this
+          // ledger) — it is not earnings or spend, and it must not move
+          // the wallet's totals, count, or derived balance. The rows
+          // themselves stay in the ledger, labelled simulated, and
+          // remain visible via micropayments_list with that status.
+          if (tx.status === "simulated") continue;
           count++;
           if (tx.action === "agentic_payment" || tx.action === "charge") {
             totalEarned += tx.amount;

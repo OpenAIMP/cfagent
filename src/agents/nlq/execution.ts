@@ -9,7 +9,6 @@ import { ETradeAgenticPaymentService, TRADING_PAID_SERVICES } from "../../servic
 import { ETradeBrowserService } from "../../services/browserAgent";
 import { ETradeService } from "../../services/etrade";
 import { createComparisonRunner } from "../../services/comparisonNlqRunner";
-import { MarketDataResearchService } from "../../services/marketDataResearch";
 import { getPlatformCapabilitiesDeskSummary } from "../../services/platformKnowledge";
 import { UnifiedOptionsService, ETradeSlackTradingService, describeFlowProvenance, getDynamicLiveFlowItems, isNonLivePricingQuoteStatus, nonLivePricingNotice } from "../../trading";
 import { runOptionsStrategyAction, type OptionsStrategyIntent } from "../nlqOptionsStrategy";
@@ -247,6 +246,47 @@ function stockScreenEnvelopeFromServiceRun(
   };
 }
 
+/**
+ * Issue #2396 (Agent Mesh S11 / #2225 G3): the refusal for the NLQ paid
+ * actions (paid_scan / paid_research), shared by both executors.
+ *
+ * A paid action may only be served against a VERIFIED x402 payment, and
+ * this executor cannot collect or verify one: the NLQ plan schema
+ * (agenticPaymentsData) carries no payment-proof field, and the payment
+ * service holds no signing key — the only proof it can produce is the
+ * simulated one real verifiers reject. The previous behavior ran the
+ * premium service for free and recorded a self-minted receipt in the
+ * payments ledger (labelled "simulated" since #122, but still a receipt
+ * for a payment that never happened). The verified rail already exists:
+ * the premium endpoint the tier names answers 402, the payer's wallet
+ * pays, the claim is verified on-chain, and only then is a verified
+ * receipt recorded from the settlement (src/agents/routes/premium.ts).
+ * So the paid actions refuse here — nothing executed, nothing recorded —
+ * the same disposition channels apply to these actions (#183,
+ * src/trading/channels/intake.ts).
+ */
+function nlqPaidActionRefusal(
+  plan: NLQPlan,
+  serviceLabel: string,
+  tier: { priceUSD: number; resource: string },
+  executedAt: string
+): NLQQueryResult {
+  return {
+    plan,
+    domain: "agentic_payments",
+    targetTable: "agentic_payments",
+    count: 0,
+    status: "error",
+    summary:
+      `${serviceLabel} ($${tier.priceUSD.toFixed(2)} USDC) requires a verified x402 payment, ` +
+      `and no payment can be collected from this request — nothing was executed and nothing was recorded. ` +
+      `To use it, open ${tier.resource} in the signed-in app: you pay $${tier.priceUSD.toFixed(2)} USDC from your wallet there, ` +
+      `the payment is verified, and only then does the service run.`,
+    rows: [],
+    executedAt,
+  };
+}
+
 /** Issue #257: the original synchronous executor (renamed); the exported
  *  executeNLQQuery below wraps it with the mas_events audit write. */
 function executeNLQQueryCore(
@@ -320,6 +360,16 @@ function executeNLQQueryCore(
   if (plan.domain === "agentic_payments") {
     const paymentService = new ETradeAgenticPaymentService(orm, env, sessionId);
     const action = plan.agenticPaymentsData?.action || "wallet_status";
+
+    if (action === "paid_scan" || action === "paid_research") {
+      // Issue #2396: paid actions refuse on every executor (see
+      // nlqPaidActionRefusal). Without this branch the plan fell
+      // through to the conversation-history default below and answered
+      // a paid request with chat records.
+      return action === "paid_scan"
+        ? nlqPaidActionRefusal(plan, "Paid Options Screener", TRADING_PAID_SERVICES.OPTIONS_SCREENER, executedAt)
+        : nlqPaidActionRefusal(plan, "Paid Market Research", TRADING_PAID_SERVICES.MARKET_RESEARCH, executedAt);
+    }
 
     if (action === "wallet_status") {
       // Issue #122: delegate to the payment service (single source of truth)
@@ -2005,11 +2055,9 @@ async function executeNLQQueryAsyncCore(
   }
 
   if (plan.domain === "agentic_payments") {
-    const paymentService = new ETradeAgenticPaymentService(orm, env, sessionId);
     const action = plan.agenticPaymentsData?.action || "wallet_status";
 
     if (action === "paid_scan") {
-      const sym = plan.agenticPaymentsData?.symbol;
       // Issue #1185: a paid action requires the verified payer/session
       // login — never the session id or a synthetic identity.
       const login = userLogin;
@@ -2025,74 +2073,12 @@ async function executeNLQQueryAsyncCore(
           executedAt,
         };
       }
-      // Issue #959: the paid scan's literal filter validates through
-      // the ONE shared options-filter schema like every other screen.
-      const parsedPaidFilter = parseOptionScreenerFilter({
-        underlyingSymbols: sym ? [sym] : undefined,
-        maxUnderlyings: plan.agenticPaymentsData?.maxUnderlyings,
-        contractType: plan.agenticPaymentsData?.contractType,
-      });
-      if (!parsedPaidFilter.ok) {
-        return {
-          plan,
-          domain: "agentic_payments",
-          targetTable: "agentic_payments",
-          count: 0,
-          status: "error",
-          summary: `Paid options scan: ${parsedPaidFilter.error}`,
-          rows: [],
-          executedAt,
-        };
-      }
-      // Issue #982: the paid scan executes through UnifiedOptionsService
-      // like every other options screen (no persistence here — this
-      // path persists none today; the premium ROUTE persists its own).
-      const paidServiceResponse = await nlqUnifiedOptionsService(orm, env, login).execute({
-        action: "screen",
-        channel: "chat",
-        filter: parsedPaidFilter.value,
-        symbols: parsedPaidFilter.value.underlyingSymbols,
-        limit: parsedPaidFilter.value.limit,
-      });
-      const res = paidServiceResponse.data as OptionScreenResult;
-
-      const tier = TRADING_PAID_SERVICES.OPTIONS_SCREENER;
-      // Issue #122: no payment is collected or verified on this path — the
-      // receipt is a simulated local record and must say so (never
-      // status "verified", never a fabricated txHash).
-      const receipt: any = {
-        receiptId: `rcpt_${Date.now()}`,
-        protocol: "x402",
-        resource: tier.resource,
-        amount: tier.priceUSD,
-        currency: "USDC",
-        network: env?.X402_NETWORK || "base-sepolia",
-        payer: login,
-        recipient: env?.X402_RECIPIENT_ADDRESS || "0x71C8363837918a211797E3c76A8B3C4258759550",
-        status: "simulated",
-        simulated: true,
-        timestamp: executedAt,
-        note: "Simulated local payment record for an NLQ paid-service invocation: no payment was collected or verified.",
-      };
-      await paymentService.recordPaymentTransaction(receipt, "inbound");
-
-      return {
-        plan,
-        domain: "agentic_payments",
-        targetTable: "etrade_premium_options",
-        count: res.contracts.length,
-        summary: res.validationError || `Paid Options Screener ($${tier.priceUSD.toFixed(2)} USDC): Scanned ${res.totalUnderlyingsScanned} dynamic underlying(s). Found ${res.contracts.length} contracts. ${res.quoteQuality?.staleContractsReturned || 0} returned contracts are marked stale. Receipt: ${receipt.receiptId}. Payment was SIMULATED (local record only — no real payment was collected or verified).`,
-        rows: res.contracts.slice(0, 10).map((c) => ({
-          contract: c.osiKey || c.displaySymbol || c.symbol,
-          strike: `$${c.strikePrice.toFixed(2)}`,
-          type: c.optionType,
-          delta: c.delta?.toFixed(2) || "N/A",
-          iv: c.impliedVolatility ? `${(c.impliedVolatility * 100).toFixed(1)}%` : "N/A",
-          dte: c.daysToExpiration,
-          lastPrice: `$${c.lastPrice.toFixed(2)}`,
-        })),
-        executedAt,
-      };
+      // Issue #2396 (G3): with identity established, the paid action
+      // itself is refused — this executor cannot collect or verify the
+      // x402 payment the tier requires (see nlqPaidActionRefusal). The
+      // scan no longer runs unpaid and no simulated receipt is minted
+      // or recorded.
+      return nlqPaidActionRefusal(plan, "Paid Options Screener", TRADING_PAID_SERVICES.OPTIONS_SCREENER, executedAt);
     }
 
     if (action === "paid_research") {
@@ -2111,57 +2097,12 @@ async function executeNLQQueryAsyncCore(
           executedAt,
         };
       }
-      const sym = plan.agenticPaymentsData?.symbol || plan.terms || "NVDA";
-      const marketDataResearch = new MarketDataResearchService(env);
-      const report = await marketDataResearch.generateResearchReport(sym);
-
-      const tier = TRADING_PAID_SERVICES.MARKET_RESEARCH;
-      // Issue #122: same rule as paid_scan — a simulated local record, never
-      // a "verified" receipt with a fabricated txHash.
-      const receipt: any = {
-        receiptId: `rcpt_${Date.now()}`,
-        protocol: "x402",
-        resource: tier.resource,
-        amount: tier.priceUSD,
-        currency: "USDC",
-        network: env?.X402_NETWORK || "base-sepolia",
-        payer: userLogin,
-        recipient: env?.X402_RECIPIENT_ADDRESS || "0x71C8363837918a211797E3c76A8B3C4258759550",
-        status: "simulated",
-        simulated: true,
-        timestamp: executedAt,
-        note: "Simulated local payment record for an NLQ paid-service invocation: no payment was collected or verified.",
-      };
-      await paymentService.recordPaymentTransaction(receipt, "inbound");
-
-      const companyName = report.quote.companyName || report.fundamentals.companyName || report.symbol;
-      const targetPrice = report.fundamentals.targetMeanPrice ? `$${report.fundamentals.targetMeanPrice.toFixed(2)}` : "N/A";
-      const currentPrice = `$${report.quote.price.toFixed(2)}`;
-
-      return {
-        plan,
-        domain: "agentic_payments",
-        targetTable: "etrade_premium_research",
-        count: 1,
-        // Issue #117: a paid report built on non-live inputs must say so —
-        // the buyer is told what the data actually is.
-        // Issue #122: and the "payment" is a simulated local record — the
-        // summary must say no real payment was collected or verified.
-        summary: `Paid Market Research ($${tier.priceUSD.toFixed(2)} USDC): Generated valuation report for ${sym}. Rating: ${report.analystRating}. Target: ${targetPrice}. Receipt: ${receipt.receiptId}. Payment was SIMULATED (local record only — no real payment was collected or verified).${report.provenance !== "live" ? ` Data provenance: ${report.provenance} — this report is based on non-live market data, and its target is a profile estimate, not analyst consensus.` : ""}`,
-        rows: [
-          {
-            symbol: report.symbol,
-            companyName,
-            analystRating: report.analystRating,
-            targetPrice,
-            currentPrice,
-            receiptId: receipt.receiptId,
-            paymentSimulated: true,
-            provenance: report.provenance,
-          },
-        ],
-        executedAt,
-      };
+      // Issue #2396 (G3): same disposition as paid_scan — the paid
+      // action is refused because no verified x402 payment can be
+      // collected on this path (see nlqPaidActionRefusal). The report
+      // no longer generates unpaid and no simulated receipt is minted
+      // or recorded.
+      return nlqPaidActionRefusal(plan, "Paid Market Research", TRADING_PAID_SERVICES.MARKET_RESEARCH, executedAt);
     }
   }
 
