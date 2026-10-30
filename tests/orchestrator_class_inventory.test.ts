@@ -209,9 +209,17 @@ const ORCH = "agents/orchestrator.ts";
  *  the dispatch logic itself lives in that module, the class
  *  gains no new logic surface) — measured 2,641 lines /
  *  123,727 B on the branch tree, so budget bytes rise to
- *  123_900; lines keep 2670. */
-const BUDGET_LINES = 2670;
-const BUDGET_BYTES = 123_900;
+ *  123_900; lines keep 2670.
+ *  Agent Mesh S17 (#2428) adds the turn's mesh-trace mint (two
+ *  imports + the turnTraceparent() lazy mint on the turn stash
+ *  + one resolver line in each of chatTurnHelpersContext and
+ *  nlqPortsContext; the recording/assembly logic lives in
+ *  data/createMeshTracePorts.ts + observability/meshTrace.ts,
+ *  the class gains no logic surface) — measured 2,693 lines /
+ *  125,930 B on the branch tree, so budget lines rise to 2700
+ *  and bytes rise to 126_100. */
+const BUDGET_LINES = 2700;
+const BUDGET_BYTES = 126_100;
 
 const count = (haystack: string, needle: string) =>
   haystack.split(needle).length - 1;

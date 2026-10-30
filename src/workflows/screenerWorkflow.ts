@@ -29,6 +29,8 @@ import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers";
 import type { DefaultProgress } from "agents/workflows";
 import type { Env } from "../types";
 import { createShardJobAdapter } from "../data/createShardJobPorts";
+import { meshTraceStoreForEnv } from "../data/createMeshTracePorts";
+import { recordWorkflowTraceHop } from "../observability/meshTrace";
 import { resolveScreenerAgentName } from "../agents/screenerAgentName";
 import type {
   ScreenerAgent,
@@ -223,6 +225,19 @@ function buildDeps(env: Env, command: WorkflowJobCommand): ScreenerWorkflowDeps 
       }
     },
     nowMs: () => Date.now(),
+    // Issue #2428 (Agent Mesh S17): step hops for this run,
+    // recorded from the command's traceparent into the
+    // env-resolved hop store. A command without a traceparent
+    // records nothing (recordWorkflowTraceHop's contract);
+    // a store failure is swallowed here — tracing degrades,
+    // the run does not.
+    traceHop: async (cmd, event) => {
+      try {
+        await recordWorkflowTraceHop(meshTraceStoreForEnv(env), cmd, event);
+      } catch {
+        // Best-effort by design (the #1743 degradation rule).
+      }
+    },
   };
 }
 

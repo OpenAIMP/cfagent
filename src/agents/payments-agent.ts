@@ -151,6 +151,14 @@ export class PaymentsAgent extends PortThink {
      * for non-A2A callers, where no edge attribution exists.
      */
     caller?: string;
+    /**
+     * Issue #2428 (Agent Mesh S17): the W3C trace id of the
+     * caller's mesh trace, threaded by the dispatch from
+     * handleA2A's traceparent argument. Recorded with the
+     * payment's ledger write beside the caller, so the write
+     * joins the trace. Absent for untraced callers.
+     */
+    traceId?: string;
   }): Promise<PaymentRecord> {
     const guard = await this.getGuard(req.agentId);
     const paymentReq = {
@@ -184,6 +192,7 @@ export class PaymentsAgent extends PortThink {
       payer: proof?.payer,
       proofSignature: proof?.signature,
       ...(req.caller ? { caller: req.caller } : {}),
+      ...(req.traceId ? { traceId: req.traceId } : {}),
     });
     if (duplicate) {
       throw new Error("duplicate idempotency key");
@@ -276,6 +285,7 @@ export class PaymentsAgent extends PortThink {
     body: unknown,
     origin: string,
     attribution?: A2AAttribution,
+    traceparent?: string,
   ): Promise<PaymentsA2AOutcome> {
     void origin; // reserved for per-origin policy (cfpay parity); unused in v1
     const data = await dispatchPaymentsA2A(this.env, body, {
@@ -286,6 +296,10 @@ export class PaymentsAgent extends PortThink {
         processPaidRequest: (req) => this.processPaidRequest(req),
       },
       ...(attribution ? { attribution } : {}),
+      // Issue #2428 (Agent Mesh S17): the edge's mesh trace,
+      // threaded beside the attribution so a payments.process
+      // records its ledger write under the caller's trace.
+      ...(traceparent ? { traceparent } : {}),
     });
     return paymentsA2AOutcome(data);
   }

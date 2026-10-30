@@ -136,6 +136,19 @@ export interface McpToolContext {
    * fail closed.
    */
   actingLogin?: () => string | undefined;
+  /**
+   * #2428 (Agent Mesh S17): resolver for the current mesh
+   * trace's W3C traceparent, populated ONLY by a server-side
+   * context owner — the chat turn (minted on the turn stash)
+   * and the async-job executor (from the traceparent the turn
+   * adapter stamped into the job payload at queue time), under
+   * exactly the S5 actingLogin discipline. It is a resolver,
+   * not a value, and it is never populated from tool arguments
+   * or caller headers. Unset means the call runs outside a
+   * traced turn: trace recording for the call is skipped (a
+   * recorded break in the registry spine), never fabricated.
+   */
+  traceparent?: () => string | undefined;
   audit: (type: string, agent: any, payload: Record<string, unknown>) => void;
   facade?: IMcpSystemFacade;
   submitJob?: (job: AsyncJobSubmission) => Promise<{
