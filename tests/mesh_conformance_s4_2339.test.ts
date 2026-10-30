@@ -25,8 +25,14 @@
  * suite already pins the runtime behavior — S3's identity suite
  * (tests/mesh_identity_sweep_s3_2327.test.ts) for the research /
  * orchestrator / payments identity cells — this suite pins the
- * citation, not a copy of the checks. Eviction/resume behavior is
- * NOT proven anywhere yet: that is the recovery GAP, owned by S12.
+ * citation, not a copy of the checks. Eviction/resume behavior
+ * is proven where S12's pins land
+ * (tests/mesh_g6_workflow_conformance_2409.test.ts): the
+ * recovery cells for OrchestratorAgent and TradingAgent are
+ * IMPLEMENTED on that evidence, while ResearchAgent and
+ * ScreenerAgent remain GAPs — re-dispositioned to the programme
+ * backlog by #2409 with the evidence boundary named in their
+ * cells.
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync, existsSync } from "node:fs";
@@ -132,9 +138,9 @@ const MATRIX: MatrixRow[] = [
       scheduling: IMPL(
         "Heavy self-scheduling for per-login machinery: the port schedule facets delegate to this.schedule/this.scheduleEvery (orchestrator.ts:448-495), ScheduledTasksService runs on the instance, and worker-cron forwards (research tick, sweeps) land here.",
       ),
-      recovery: GAP(
-        "S12 (G6 workflow + agent conformance)",
-        "onStart (:703) runs real recovery mechanisms — queued async-job recovery, legacy schedule reconciliation, stale-task sweep arming — wired and pinned as source facts by tests/orchestrator_class_inventory.test.ts, but no eviction/resume conformance pin exists for any agent; S12 owns the proof.",
+      recovery: IMPL(
+        "onStart (:703) runs real recovery mechanisms — queued async-job recovery, legacy schedule reconciliation, stale-task sweep arming — wired and pinned as source facts by tests/orchestrator_class_inventory.test.ts. S12 (#2409) added the behavioral proof for the load-bearing mechanism: tests/mesh_g6_workflow_conformance_2409.test.ts drives recoverQueuedAsyncJobs from a FRESH context over the same durable store (instance replacement at the module seam, node:sqlite) — each queued job is re-armed exactly once with the idempotent schedule identity, a deferred job keeps its remaining delay (C3 #1277), terminal jobs are untouched, and a second recovery pass re-arms identically (recovery is itself replay-safe); the same suite exercises C3's stageChain retry (retryAsyncJob) across the replacement — retryOf + stage/chain identity carried, the original stays failed, a double retry is refused.",
+        "Simulation scope: instance replacement at the module seam over the surviving store, not live workerd eviction. Legacy schedule reconciliation and stale-task sweep arming remain source-fact pinned only.",
       ),
       "sdk-state": SDK_STATE_DIVERGENT,
       sessions: IMPL(
@@ -168,8 +174,8 @@ const MATRIX: MatrixRow[] = [
         "No scheduling role of its own: its daily run is fired by the worker cron through the orchestrator's scheduled-tick route (identity-gated post-S3), and the file contains no schedule calls.",
       ),
       recovery: GAP(
-        "S12 (G6 workflow + agent conformance)",
-        "No onStart; reads are read-through from storage (getLatest returns null honestly), so eviction loses nothing durable — but an interrupted run leaves no resumable record and no eviction/resume pin exists.",
+        "Programme backlog (re-dispositioned by #2409 — no resumable record exists to pin; closing needs a design decision)",
+        "No onStart; reads are read-through from storage (getLatest returns null honestly), so eviction loses nothing durable — but an interrupted run leaves no resumable record. S12 (#2409) disposition: the cell STAYS a GAP — no workflow runs this agent's work and there is no resumable record to pin against; closing it needs a design decision (a resumable run record), not a conformance pin.",
       ),
       "sdk-state": SDK_STATE_DIVERGENT,
       sessions: IMPL(
@@ -198,9 +204,9 @@ const MATRIX: MatrixRow[] = [
       scheduling: NA(
         "None in the agent: its durable timing lives in TradingTradeWorkflow's 24h waitForEvent, not in any schedule of its own.",
       ),
-      recovery: GAP(
-        "S12 (G6 workflow + agent conformance)",
-        "No onStart; drafts/proposals are storage-backed and re-validated at settle time by the shared core, so the wait survives in the workflow — but no eviction/resume pin covers the agent.",
+      recovery: IMPL(
+        "No onStart; the recovery story is the workflow's, and S12 (#2409) pinned it against the REAL agent (tests/mesh_g6_workflow_conformance_2409.test.ts): a proposal drafts into the agent's own storage through the door; the TradingTradeWorkflow approval wait survives instance replacement (abandoned-wait model — the incarnation is discarded parked, the decision is journaled, a fresh incarnation's wait returns it) and the resumed incarnation settles through the agent's executeApprovedOrder exactly once; a commit-window replay of the settle step (execution landed, step memo lost) is refused by the shared settle core's claim-then-execute against the already-executed draft — one execution, an honest errored terminal state read back through the status door.",
+        "Simulation scope: eviction is modeled at the flow/step seam (journaling step fake: instance restart + step-journal replay), not live workerd eviction. The settle refusal's error surface is genericized by the core's error classification.",
       ),
       "sdk-state": SDK_STATE_DIVERGENT,
       sessions: GAP(
@@ -260,8 +266,8 @@ const MATRIX: MatrixRow[] = [
         "None of its own; fired by the orchestrator, server routes, ScheduledAgent goal chains, and workflow shards.",
       ),
       recovery: GAP(
-        "S12 (G6 workflow + agent conformance)",
-        "Runs are recorded in its task ledger and a concurrent-run lock reports the first run's age — an honest in-progress state, not a resume; no eviction/resume pin exists.",
+        "Programme backlog (workflow layer proven by #2409; agent-level resume of an interrupted screen unowned)",
+        "Runs are recorded in its task ledger and a concurrent-run lock reports the first run's age — an honest in-progress state, not a resume. S12 (#2409) proved the WORKFLOW layer above the agent (tests/mesh_g6_workflow_conformance_2409.test.ts: shard + parent eviction/resume, canonical-store convergence under replay, honest qualified partials) and the ledger suite pins the agent's records (tests/screener-task-ledger.test.ts: dedupe, lifecycle, stale sweep) — but the agent itself restarts an interrupted screen rather than resuming it, and no eviction/resume pin covers the agent class, so the cell stays GAP for the agent-level claim.",
       ),
       "sdk-state": SDK_STATE_DIVERGENT,
       sessions: NA("portHooks unset; no turn path, no transcript."),

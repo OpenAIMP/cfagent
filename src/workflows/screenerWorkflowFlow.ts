@@ -597,29 +597,53 @@ export async function runShardFlow(
     ...(result.csvKey ? { csvKey: result.csvKey } : {}),
     trigger: command.trigger,
   };
-  let stored = false;
-  let storeError: string | undefined;
-  let reportId: string | undefined;
-  await step.do("store-shard", async () => {
-    try {
-      const storedId = await deps.storeReport(payload, command.userLogin);
-      if (typeof storedId === "string") reportId = storedId;
-      stored = true;
-    } catch (err) {
-      storeError = err instanceof Error ? err.message : String(err);
-    }
-  });
+  // Issue #2409 (G6): the store/deliver outcomes are RETURNED
+  // by their step callbacks, never set on closure variables.
+  // Durable step replay returns the journaled result WITHOUT
+  // re-executing the callback, so closure state set inside a
+  // callback is lost on resume — the shard would report
+  // stored/delivered false (and project that lie, degrading
+  // the parent collation) for side effects that already
+  // landed. Return values are what the journal replays.
+  const storeOutcome = await step.do(
+    "store-shard",
+    async (): Promise<{ stored: boolean; reportId?: string; storeError?: string }> => {
+      try {
+        const storedId = await deps.storeReport(payload, command.userLogin);
+        return {
+          stored: true,
+          ...(typeof storedId === "string" ? { reportId: storedId } : {}),
+        };
+      } catch (err) {
+        return {
+          stored: false,
+          storeError: err instanceof Error ? err.message : String(err),
+        };
+      }
+    },
+  );
+  const stored = storeOutcome.stored;
+  const reportId = storeOutcome.reportId;
+  const storeError = storeOutcome.storeError;
   let delivered = false;
   let deliverError: string | undefined;
   if (command.deliver) {
-    await step.do("deliver-shard", async () => {
-      try {
-        await deps.deliverOutcome(payload, command.userLogin);
-        delivered = true;
-      } catch (err) {
-        deliverError = err instanceof Error ? err.message : String(err);
-      }
-    });
+    const delivery = await step.do(
+      "deliver-shard",
+      async (): Promise<{ delivered: boolean; deliverError?: string }> => {
+        try {
+          await deps.deliverOutcome(payload, command.userLogin);
+          return { delivered: true };
+        } catch (err) {
+          return {
+            delivered: false,
+            deliverError: err instanceof Error ? err.message : String(err),
+          };
+        }
+      },
+    );
+    delivered = delivery.delivered;
+    deliverError = delivery.deliverError;
   }
   const summary = shardSummaryFromResult(shardId, result);
   const rowResult = {

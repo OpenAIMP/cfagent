@@ -108,30 +108,33 @@ recovery column reads as it does.
 | `state` | 10 | 4 | 0 |
 | `connections` | 3 | 11 | 0 |
 | `scheduling` | 3 | 11 | 0 |
-| `recovery` | 0 | 9 | 5 |
+| `recovery` | 2 | 9 | 3 |
 | `sdk-state` | 7 | 7 | 0 |
 | `sessions` | 3 | 10 | 1 |
 | `routing` | 14 | 0 | 0 |
 | `websockets` | 2 | 12 | 0 |
 | `sdk-scheduling` | 2 | 12 | 0 |
 | `fibers` | 0 | 2 | 12 |
-| Total | 55 | 80 | 19 |
+| Total | 57 | 80 | 17 |
 
 154 cells (14 roster entries × 11 aspects), zero unclassified. The
-two honest headlines: **recovery has no IMPLEMENTED cell** — no agent
-has an eviction/resume conformance pin yet (S12 owns the proof) —
-and **fibers is a GAP for every PortThink agent**, judged against the
-real SDK primitive.
+two honest headlines: **recovery has its first IMPLEMENTED cells** —
+S12 (#2409) proved OrchestratorAgent's queued-job recovery and
+TradingAgent's workflow-mediated recovery with behavioral pins
+(instance replacement + step-journal replay at the flow seam; not
+live workerd eviction), while three recovery GAPs remain
+(ResearchAgent and ScreenerAgent re-dispositioned to the programme
+backlog by #2409 with the evidence boundary named in their cells;
+SlackAgent owned by S13) — and **fibers is a GAP for every
+PortThink agent**, judged against the real SDK primitive.
 
 ## 4. GAP register
 
 | Agent | Aspect | Owning slice |
 |---|---|---|
-| OrchestratorAgent | `recovery` | S12 (G6 conformance) |
-| ResearchAgent | `recovery` | S12 (G6 conformance) |
-| TradingAgent | `recovery` | S12 (G6 conformance) |
+| ResearchAgent | `recovery` | Programme backlog (re-dispositioned by #2409 — no resumable record exists to pin; closing needs a design decision) |
 | TradingAgent | `sessions` | Programme backlog (re-dispositioned by #2375 — S9 landed the door caller, not a turn) |
-| ScreenerAgent | `recovery` | S12 (G6 conformance) |
+| ScreenerAgent | `recovery` | Programme backlog (workflow layer proven by #2409; agent-level resume of an interrupted screen unowned) |
 | SlackAgent | `identity` | S16 (G14 identity records + mesh credentials) |
 | SlackAgent | `recovery` | S13 (G10 channel completeness — first instantiation) |
 | All 12 PortThink agents | `fibers` | Programme backlog (no slice yet) |
@@ -153,7 +156,7 @@ AiSearchAgent's unthreaded session login for turn-tool/RPC callers
 | `state` | IMPLEMENTED | Instance-local durable state: ctx.storage KV plus the SQLite mas_* tables (mas_messages/mas_events/mas_memory/mas_transactions) in the instance's own storage. |
 | `connections` | IMPLEMENTED | The fleet's chat surface: routeAgentRequest (src/server.ts:488) with session gates, reached by the client's useAgent; the class also serves DO fetch forwards (its onRequest and mounted routes). |
 | `scheduling` | IMPLEMENTED | Heavy self-scheduling for per-login machinery: the port schedule facets delegate to this.schedule/this.scheduleEvery (orchestrator.ts:448-495), ScheduledTasksService runs on the instance, and worker-cron forwards (research tick, sweeps) land here. |
-| `recovery` | GAP | onStart (:703) runs real recovery mechanisms — queued async-job recovery, legacy schedule reconciliation, stale-task sweep arming — wired and pinned as source facts by tests/orchestrator_class_inventory.test.ts, but no eviction/resume conformance pin exists for any agent; S12 owns the proof. Owner: S12 (G6 workflow + agent conformance). |
+| `recovery` | IMPLEMENTED | onStart (:703) runs real recovery mechanisms — queued async-job recovery, legacy schedule reconciliation, stale-task sweep arming — wired and pinned as source facts by tests/orchestrator_class_inventory.test.ts. S12 (#2409) added the behavioral proof for the load-bearing mechanism: tests/mesh_g6_workflow_conformance_2409.test.ts drives recoverQueuedAsyncJobs from a FRESH context over the same durable store (instance replacement at the module seam, node:sqlite) — each queued job is re-armed exactly once with the idempotent schedule identity, a deferred job keeps its remaining delay (C3 #1277), terminal jobs are untouched, and a second recovery pass re-arms identically (recovery is itself replay-safe); the same suite exercises C3's stageChain retry (retryAsyncJob) across the replacement — retryOf + stage/chain identity carried, the original stays failed, a double retry is refused. Residual: the simulation is instance replacement at the module seam over the surviving store, not live workerd eviction; legacy schedule reconciliation and stale-task sweep arming remain source-fact pinned only. |
 | `sdk-state` | IMPLEMENTED | Deliberate divergence, classified explicitly per the reference set (#2225 comment 6491152513): durable state is held through the actor-port state facet (createCfActorState over ctx.storage, src/actors/cfAgentsAdapter.ts:29-40) and Think's own storage use; the SDK setState API is unused (fleet pin: zero this.setState in agent sources). |
 | `sessions` | IMPLEMENTED | Dual store (src/actors/thinkAdapter.ts:69-75): the port's flat ActorSessionStore transcript and Think's tree session are separate stores in the same DO, and a turn writes to both; mas_messages is the durable SQL message log on top. |
 | `routing` | IMPLEMENTED | Bindings SEARCH_AGENT + ORCHESTRATOR_AGENT (registry-pinned against wrangler.jsonc); routeAgentRequest name search-agent (the class rename is S2, owner-sequenced behind #2326); A2A surfaces orchestrator/search/tasks/memory plus dispatch-only nlq (registry MESH_SURFACES). |
@@ -169,7 +172,7 @@ AiSearchAgent's unthreaded session login for turn-tool/RPC callers
 | `state` | IMPLEMENTED | Instance-local: ctx.storage KV (research:latest, research:history) plus SQLite via ctx.storage.sql; report PDFs via the report blob store. |
 | `connections` | NOT-APPLICABLE | No connection surface terminates on this class: no client connects and it defines no onConnect. Work arrives by DO stub RPC and agent-as-a-tool dispatch, recorded under routing. |
 | `scheduling` | NOT-APPLICABLE | No scheduling role of its own: its daily run is fired by the worker cron through the orchestrator's scheduled-tick route (identity-gated post-S3), and the file contains no schedule calls. |
-| `recovery` | GAP | No onStart; reads are read-through from storage (getLatest returns null honestly), so eviction loses nothing durable — but an interrupted run leaves no resumable record and no eviction/resume pin exists. Owner: S12 (G6 workflow + agent conformance). |
+| `recovery` | GAP | No onStart; reads are read-through from storage (getLatest returns null honestly), so eviction loses nothing durable — but an interrupted run leaves no resumable record. S12 (#2409) disposition: the cell STAYS a GAP — no workflow runs this agent's work and there is no resumable record to pin against; closing it needs a design decision (a resumable run record), not a conformance pin. Owner: programme backlog (re-dispositioned by #2409). |
 | `sdk-state` | IMPLEMENTED | Deliberate divergence, classified explicitly per the reference set (#2225 comment 6491152513): durable state is held through the actor-port state facet (createCfActorState over ctx.storage, src/actors/cfAgentsAdapter.ts:29-40) and Think's own storage use; the SDK setState API is unused (fleet pin: zero this.setState in agent sources). |
 | `sessions` | IMPLEMENTED | Turn-capable: portHooks are set in the constructor (:194) as identity pass-throughs of its own getModel/getSystemPrompt/getTools. Turns are driven remotely by the orchestrator (runAgentTool dispatch); the transcript lives in its own instance's port session store. Non-chat: no user-facing session continuity. |
 | `routing` | IMPLEMENTED | Binding RESEARCH_AGENT; stub callers are the orchestrator and server.ts; A2A surface research (registry). |
@@ -185,7 +188,7 @@ AiSearchAgent's unthreaded session login for turn-tool/RPC callers
 | `state` | IMPLEMENTED | ctx.storage KV facade plus SQLite ORM over ctx.storage.sql in-instance; config resolved per call from env. |
 | `connections` | NOT-APPLICABLE | No client connects and no connection surface exists; reachable via A2A dispatch and via stub RPC — since #2349 the orchestrator's chat turn is a production stub caller through the G1 door (proposals + reads, src/agents/orchestrator/meshDoors.ts), and since #2375 also through the approval door's workflow operations (start/decide). |
 | `scheduling` | NOT-APPLICABLE | None in the agent: its durable timing lives in TradingTradeWorkflow's 24h waitForEvent, not in any schedule of its own. |
-| `recovery` | GAP | No onStart; drafts/proposals are storage-backed and re-validated at settle time by the shared core, so the wait survives in the workflow — but no eviction/resume pin covers the agent. Owner: S12 (G6 workflow + agent conformance). |
+| `recovery` | IMPLEMENTED | No onStart; the recovery story is the workflow's, and S12 (#2409) pinned it against the REAL agent (tests/mesh_g6_workflow_conformance_2409.test.ts): a proposal drafts into the agent's own storage through the door; the TradingTradeWorkflow approval wait survives instance replacement (abandoned-wait model — the incarnation is discarded parked, the decision is journaled, a fresh incarnation's wait returns it) and the resumed incarnation settles through the agent's executeApprovedOrder exactly once; a commit-window replay of the settle step (execution landed, step memo lost) is refused by the shared settle core's claim-then-execute against the already-executed draft — one execution, an honest errored terminal state read back through the status door. Residual: eviction is modeled at the flow/step seam (journaling step fake: instance restart + step-journal replay), not live workerd eviction; the settle refusal's error surface is genericized by the core's error classification. |
 | `sdk-state` | IMPLEMENTED | Deliberate divergence, classified explicitly per the reference set (#2225 comment 6491152513): durable state is held through the actor-port state facet (createCfActorState over ctx.storage, src/actors/cfAgentsAdapter.ts:29-40) and Think's own storage use; the SDK setState API is unused (fleet pin: zero this.setState in agent sources). |
 | `sessions` | GAP | The mechanism is wired: portHooks are set lazily via tradingTurnHooks(). #2375 (S9/G4) made the chat turn the first production caller of this class's door surface — proposal → approval-workflow start → decision → settle — but that path is typed RPC from the orchestrator's turn and drives no turn ON this class, so no transcript has ever accumulated and claiming IMPLEMENTED would overclaim; NOT-APPLICABLE is barred because the hooks are set (the portHooks coherence pin). Re-dispositioned by #2375: the GAP stays; conversion needs a slice that drives a real turn on this class. |
 | `routing` | IMPLEMENTED | Binding TRADING_AGENT; A2A surface trading — handleA2A at :1236 dispatching to dispatchTradingA2A, pinned by tests/trading_agent.test.ts. The orchestrator's G1 chat door (#2349, src/agents/orchestrator/meshDoors.ts) is the first production stub caller: proposals and reads, addressed per-user via tradingAgentName. Since #2375 (S9/G4) the door also carries the approval door's workflow operations — startTradeApproval starts TradingTradeWorkflow, decideTradeApproval delivers the decision with the authorizer derived server-side — while executeApprovedOrder stays workflow-called only (the settle step), never door-called. |
@@ -217,7 +220,7 @@ AiSearchAgent's unthreaded session login for turn-tool/RPC callers
 | `state` | IMPLEMENTED | Instance-local ctx.storage plus SQLite: the task ledger, run history, latest results, and provider config tables. |
 | `connections` | NOT-APPLICABLE | RPC-only in practice; no client, no connection surface. |
 | `scheduling` | NOT-APPLICABLE | None of its own; fired by the orchestrator, server routes, ScheduledAgent goal chains, and workflow shards. |
-| `recovery` | GAP | Runs are recorded in its task ledger and a concurrent-run lock reports the first run's age — an honest in-progress state, not a resume; no eviction/resume pin exists. Owner: S12 (G6 workflow + agent conformance). |
+| `recovery` | GAP | Runs are recorded in its task ledger and a concurrent-run lock reports the first run's age — an honest in-progress state, not a resume. S12 (#2409) proved the WORKFLOW layer above the agent (tests/mesh_g6_workflow_conformance_2409.test.ts: shard + parent eviction/resume, canonical-store convergence under replay, honest qualified partials) and the ledger suite pins the agent's records (tests/screener-task-ledger.test.ts: dedupe, lifecycle, stale sweep) — but the agent itself restarts an interrupted screen rather than resuming it, and no eviction/resume pin covers the agent class, so the cell stays GAP for the agent-level claim. Owner: programme backlog (workflow layer proven by #2409; agent-level resume unowned). |
 | `sdk-state` | IMPLEMENTED | Deliberate divergence, classified explicitly per the reference set (#2225 comment 6491152513): durable state is held through the actor-port state facet (createCfActorState over ctx.storage, src/actors/cfAgentsAdapter.ts:29-40) and Think's own storage use; the SDK setState API is unused (fleet pin: zero this.setState in agent sources). |
 | `sessions` | NOT-APPLICABLE | portHooks unset; no turn path, no transcript. |
 | `routing` | IMPLEMENTED | Binding SCREENER_AGENT; A2A surface screener (registry); stub callers: orchestrator, the screener workflow's shard runner, server routes. |
@@ -378,8 +381,12 @@ aspects, plus the fleet censuses (lifecycle hooks, scheduler calls,
 fiber primitives, `this.setState`) that the remaining aspects rest
 on. Later rounds should add, in owning-slice order:
 
-- Behavioral eviction/resume pins per agent and workflow — S12,
-  converting the recovery GAPs one by one.
+- Behavioral eviction/resume pins per agent and workflow — S12
+  (#2409) landed them for the three workflows and dispositioned
+  the four S12-owned recovery cells: OrchestratorAgent and
+  TradingAgent converted to IMPLEMENTED; ResearchAgent and
+  ScreenerAgent stay GAP, re-dispositioned to the programme
+  backlog with the evidence boundary named in their cells.
 - A first-turn proof for TradingAgent — re-dispositioned by #2375:
   S9 landed the first production door caller (chat trade via the
   approval door + TradingTradeWorkflow) but drives no turn on the
