@@ -20,7 +20,7 @@
  * preserved EXACTLY) and the paused-schedule port's clear().
  */
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   createAsyncJobPorts,
@@ -351,23 +351,39 @@ for (const [name, make] of ADAPTERS) {
 
 describe("conformance 4a: job-outcome maintenance surface (the watermark pin)", () => {
   it("DO-SQLite: countRows/clearRows clear outcomes and preserve the pruned_at watermark exactly", () => {
-    const storage = new SqliteTestStorage();
-    const ports = createEvidenceSatellitePorts(storage as never);
-    ports.jobOutcomes.record({ id: "o1", kind: "stock", trigger: "manual", status: "completed", origin: "test" });
-    ports.jobOutcomes.record({ id: "o2", kind: "options", trigger: "scheduled", status: "failed", origin: "test" });
-    expect(ports.jobOutcomes.countRows()).toBe(2);
-    const t0 = Date.parse("2026-10-29T12:00:00.000Z");
-    expect(ports.jobOutcomes.maybePrune(t0)).toBe(true);
-    const before = (storage.sqlite
-      .prepare("SELECT v FROM mas_job_outcomes_meta WHERE k = 'pruned_at'")
-      .get() as { v: string }).v;
-    ports.jobOutcomes.clearRows();
-    expect(ports.jobOutcomes.countRows()).toBe(0);
-    expect(ports.jobOutcomes.list()).toEqual([]);
-    const after = (storage.sqlite
-      .prepare("SELECT v FROM mas_job_outcomes_meta WHERE k = 'pruned_at'")
-      .get() as { v: string }).v;
-    expect(after).toBe(before);
+    // Clock pin (#2451): list() self-prunes via maybePrune() on the
+    // real clock, so with wall-clock time free-running the 24h prune
+    // guard flips once real-now passes seed + 24h and the prune
+    // rewrites the watermark this test pins. Freeze the clock at the
+    // seed instant to seed, then advance it one hour — still inside
+    // the prune interval, so list()'s internal maybePrune stays
+    // suppressed on any wall-clock date, but any delete/rewrite of
+    // the watermark would stamp t0 + 1h and fail the exact-equality
+    // assertion below, exactly as a real-clock rewrite did before.
+    vi.useFakeTimers();
+    try {
+      const t0 = Date.parse("2026-10-29T12:00:00.000Z");
+      vi.setSystemTime(t0);
+      const storage = new SqliteTestStorage();
+      const ports = createEvidenceSatellitePorts(storage as never);
+      ports.jobOutcomes.record({ id: "o1", kind: "stock", trigger: "manual", status: "completed", origin: "test" });
+      ports.jobOutcomes.record({ id: "o2", kind: "options", trigger: "scheduled", status: "failed", origin: "test" });
+      expect(ports.jobOutcomes.countRows()).toBe(2);
+      expect(ports.jobOutcomes.maybePrune(t0)).toBe(true);
+      vi.setSystemTime(t0 + 60 * 60 * 1000);
+      const before = (storage.sqlite
+        .prepare("SELECT v FROM mas_job_outcomes_meta WHERE k = 'pruned_at'")
+        .get() as { v: string }).v;
+      ports.jobOutcomes.clearRows();
+      expect(ports.jobOutcomes.countRows()).toBe(0);
+      expect(ports.jobOutcomes.list()).toEqual([]);
+      const after = (storage.sqlite
+        .prepare("SELECT v FROM mas_job_outcomes_meta WHERE k = 'pruned_at'")
+        .get() as { v: string }).v;
+      expect(after).toBe(before);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("in-memory: clearRows empties outcomes and preserves the prune watermark", () => {

@@ -1,0 +1,2 @@
+### Fixed
+- Baseline repair (#2451): pinned the clock in the `async_jobs_step4a_conformance_2358` DO-SQLite watermark test (vitest fake timers frozen at the seed instant), so the 24h prune guard can no longer flip with wall-clock time and rewrite the `pruned_at` watermark mid-test. Main's Tests (shard 2/4) was red on every run from 2026-10-30T12:00:00Z; the assertion and the adapter are unchanged.
