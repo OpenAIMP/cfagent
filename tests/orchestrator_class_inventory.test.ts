@@ -190,9 +190,15 @@ const ORCH = "agents/orchestrator.ts";
  *  acting identity through (the door logic itself lives in
  *  orchestrator/meshDoors.ts; the class gains no logic) —
  *  measured 2,650 lines / 122,177 B on the branch tree, so the
- *  budgets keep 2660 / 122_500, which still cover the tree. */
+ *  budgets keep 2660 / 122_500, which still cover the tree.
+ *  Agent Mesh S8 (#2369) adds two fields to the NLQ ports
+ *  context — env + ensureTables, which the chat screen's
+ *  workflow start and mas_reports read-back read through
+ *  orchestrator/nlqPorts.ts (the class gains no logic) —
+ *  measured 2,654 lines / 122,537 B on the branch tree, so
+ *  budget bytes rise to 122_700; lines keep 2660. */
 const BUDGET_LINES = 2660;
-const BUDGET_BYTES = 122_500;
+const BUDGET_BYTES = 122_700;
 
 const count = (haystack: string, needle: string) =>
   haystack.split(needle).length - 1;

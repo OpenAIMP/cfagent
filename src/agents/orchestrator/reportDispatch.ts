@@ -259,6 +259,15 @@ export async function persistScreenerReportCanonical(ctx: ReportDispatchContext,
   matchedCount: number;
   opportunities: unknown[];
   allStocks: unknown[];
+  /**
+   * Issue #2369: the run's narrative fields, carried so the
+   * canonical body is a complete read-back source (the chat
+   * workflow path reads its results back from this body).
+   * Additive: older readers ignore them.
+   */
+  discoveryMessage?: string;
+  filterSummary?: string;
+  rejections?: Array<{ symbol: string; reason: string }>;
   pdfKey?: string;
   /** Issue #2062: the workbook/CSV artifacts this run recorded. */
   xlsxKey?: string;
@@ -305,6 +314,12 @@ export async function persistScreenerReportCanonical(ctx: ReportDispatchContext,
         matchedCount: result.matchedCount,
         opportunities: result.opportunities,
         allStocks: result.allStocks,
+        // Issue #2369: narrative fields ride the body so a
+        // read-back (chat workflow path) loses nothing the
+        // direct path had in hand.
+        discoveryMessage: result.discoveryMessage,
+        filterSummary: result.filterSummary,
+        rejections: result.rejections,
         pdfKey: result.pdfKey,
         xlsxKey: result.xlsxKey,
         xlsxStatus: result.xlsxStatus,
