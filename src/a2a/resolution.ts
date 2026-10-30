@@ -39,6 +39,8 @@
  *   travels in the request, not the instance name (SURVEY §1.6).
  * - browser is stateless and slack's helpers are env-driven: both
  *   keep URL-name parity, like payments.
+ * - sandbox (#2421, the #2253 follow-up) is stateless/env-driven
+ *   too: URL-name parity, binding SANDBOX_AGENT.
  *
  * OPERATION_CATALOG is deliberately NOT touched: adding entries
  * there changes planner behavior (SURVEY §2). This map is A2A's
@@ -87,6 +89,7 @@ export const A2A_RESOLUTIONS: Readonly<Record<string, A2AResolution>> = {
   "report-asset": { binding: "REPORT_ASSET_AGENT", instanceName: "default" },
   browser: { binding: "BROWSER_AGENT" },
   slack: { binding: "SLACK_AGENT" },
+  sandbox: { binding: "SANDBOX_AGENT" },
 };
 
 /** Resolve an A2A agent name, or undefined when A2A does not serve it. */

@@ -39,13 +39,20 @@
  * registration. Its doors are the domain methods below plus the
  * HTTP onRequest surface, mirroring BrowserAgent.
  *
- * OUT of scope (follow-ups): an A2A door/card for this agent (the
- * #2223 pattern), rewiring run_sandbox_command through the agent,
- * and the containers configuration itself (owner step, above).
+ * OUT of scope (follow-ups): rewiring run_sandbox_command through
+ * the agent, and the containers configuration itself (owner step,
+ * above). The A2A door/card recorded here as a follow-up landed in
+ * #2421 (Agent Mesh S15): handleA2A below, dispatch in
+ * ./sandboxA2aDispatch.ts, on the shared A2A edge gate.
  */
 
 import { PortThink } from "../actors/thinkAdapter";
 import { ETradeSandboxService } from "../services/sandboxAgent";
+import {
+  dispatchSandboxA2A,
+  sandboxA2AOutcome,
+  type SandboxA2AOutcome,
+} from "./sandboxA2aDispatch";
 import type {
   SandboxExecutionRequest,
   SandboxExecutionResult,
@@ -171,5 +178,28 @@ export class SandboxAgent extends PortThink {
     }
 
     return Response.json({ error: `Not Found: ${path}` }, { status: 404 });
+  }
+
+  /**
+   * Issue #2421 (Agent Mesh S15): A2A door, cfpay signature — the
+   * edge dispatcher (src/a2a) resolves the "sandbox" name to this
+   * class (stateless/env-driven, so the bare name is the instance,
+   * browser parity) and calls this with the parsed body + origin
+   * (a Request cannot cross the DO RPC boundary). Thin delegation
+   * to the dispatch module (./sandboxA2aDispatch); results are the
+   * service's own — in this deployment the honest not-executed
+   * shape. The deliberately unset portHooks do not block this
+   * door: it calls the real methods directly, never a turn.
+   * Returns the collected { text, data } outcome.
+   */
+  async handleA2A(body: unknown, origin: string): Promise<SandboxA2AOutcome> {
+    void origin; // reserved for per-origin policy (cfpay parity); unused in v1
+    const data = await dispatchSandboxA2A(this.env, body, {
+      executor: {
+        sandboxStatus: () => this.sandboxStatus(),
+        runCommand: (request) => this.runCommand(request),
+      },
+    });
+    return sandboxA2AOutcome(data);
   }
 }

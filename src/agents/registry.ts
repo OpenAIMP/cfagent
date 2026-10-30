@@ -241,7 +241,7 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     sourceFile: "src/agents/sandbox-agent.ts",
     role: "Sandbox command agent (#2253): delegates execution to ETradeSandboxService.",
     notes:
-      "Landed after the mesh survey base (migration v13). No container backend is configured, so runs honestly return executed:false; an A2A surface for this class is a recorded follow-up, not part of this slice.",
+      "Landed after the mesh survey base (migration v13). No container backend is configured, so runs honestly return executed:false. The A2A surface recorded as a follow-up landed in S15 (#2421): card + resolution + src/agents/sandboxA2aDispatch.ts (sandbox.status, sandbox.run_command) on the shared A2A edge gate — per-agent credential replacement is S16's, and this surface is in its inventory. Chat/MCP still reach the sandbox capability by constructing the service directly, not through this class (the #2253 wiring follow-up; see the census).",
   },
   {
     className: "SessionStore",
@@ -283,6 +283,7 @@ export const MESH_SURFACES: MeshSurfaceEntry[] = [
   { name: "report-asset", ownerClass: "ReportAssetAgent", card: true, dispatch: true },
   { name: "browser", ownerClass: "BrowserAgent", card: true, dispatch: true },
   { name: "slack", ownerClass: "SlackAgent", card: true, dispatch: true },
+  { name: "sandbox", ownerClass: "SandboxAgent", card: true, dispatch: true },
 ];
 
 // ---------------------------------------------------------------------------
@@ -764,9 +765,704 @@ export const MESH_WORKFLOWS: MeshWorkflowEntry[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Recorded non-renames (survey §5) — collisions that are documented,
-// not resolved by renaming.
+// Capability × door census (S15, #2421, programme G12) — for every
+// fleet class, its reach through each of the five doors: exposed
+// (with the operations where they are enumerable, and the gate the
+// door applies) or not-exposed (with the reason — the honest
+// negative is a deliverable, not a gap).
+//
+// Derivation, per door: A2A from AGENT_CARDS + A2A_RESOLUTIONS +
+// the per-agent dispatch constants + the classes' handleA2A
+// wiring; chat-turn from the mesh-door command registry
+// (src/mcp/meshDoorCommands.ts) and the turn's own paths; MCP from
+// the catalog's class-addressing commands; HTTP from the route
+// records above; agent-as-a-tool from the runAgentTool call sites
+// in src/. tests/mesh_every_door_s15_2421.test.ts pins the census
+// against those sources. Consumers: S16 takes the A2A column as
+// its per-agent credential inventory; S18's golden tasks exercise
+// this exposure; S20 renders it.
 // ---------------------------------------------------------------------------
+
+export interface MeshCapabilityDoorEntry {
+  className: string;
+  door: MeshDoorEntry["id"];
+  status: "exposed" | "not-exposed";
+  /**
+   * The enumerable operation/command names this door serves for
+   * the class. Empty where the reach is not an enumerable op set
+   * (route families, workflow steps, a broadcast protocol) — the
+   * notes carry the shape instead.
+   */
+  operations: string[];
+  /** The gate this door applies to the capability. Exposed only. */
+  gate?: string;
+  /** Why this door does not serve the class. Not-exposed only. */
+  reason?: string;
+  notes?: string;
+}
+
+const A2A_EDGE_GATE =
+  "A2A_API_TOKEN bearer at the edge, fail-closed (503 when unconfigured, 401 on a missing/wrong token, before agent resolution) — src/a2a/index.ts. The shared-token pattern; per-agent replacement is S16's.";
+const NO_ACTING_LOGIN_CARRIER =
+  "The mesh-door commands fail closed for external MCP callers: no actingLogin carrier exists on that surface (#2341), so identity-bearing doors cannot be served there — external callers use the A2A door.";
+
+export const MESH_CAPABILITY_DOORS: MeshCapabilityDoorEntry[] = [
+  // -- OrchestratorAgent -------------------------------------------------
+  {
+    className: "OrchestratorAgent",
+    door: "chat-turn",
+    status: "exposed",
+    operations: [],
+    gate: "Session auth at connect; MCP permission scopes (#1744) enforced at the turn adapter.",
+    notes:
+      "The turn host class: every catalog command is assembled into its turn in-process (src/agents/mcpAdapter.ts); its outbound reach to the fleet is the G1 mesh doors (src/agents/orchestrator/meshDoors.ts).",
+  },
+  {
+    className: "OrchestratorAgent",
+    door: "http-routes",
+    status: "exposed",
+    operations: [],
+    gate: "Per-route session/API authentication.",
+    notes:
+      "Worker routes terminate on this class: the DO route handlers under src/agents/routes/* plus the route families server.ts dispatches to the shared/per-login instances.",
+  },
+  {
+    className: "OrchestratorAgent",
+    door: "mcp",
+    status: "not-exposed",
+    operations: [],
+    reason:
+      "The external MCP server executes the shared command catalog against service ports under a system principal; no command addresses an OrchestratorAgent instance. The class's own invocation surfaces are the chat turn, its routes, and A2A.",
+  },
+  {
+    className: "OrchestratorAgent",
+    door: "a2a",
+    status: "exposed",
+    operations: [
+      "search.query",
+      "payments.draft",
+      "payments.confirm",
+      "tasks.create",
+      "memory.remember",
+      "memory.recall",
+      "nlq.execute",
+    ],
+    gate: A2A_EDGE_GATE,
+    notes:
+      "Five surface names (orchestrator/search/tasks/memory/nlq) land on the shared instance; handleA2A delegates to src/agents/orchestrator/a2aDispatch.ts — wiring restored by #2421 after #2178 removed it (the dispatch had survived uncalled). payments.draft moves no funds (status awaiting_confirmation); payments.confirm is the human-approval second step — the capability's own gate travels with the exposure.",
+  },
+  {
+    className: "OrchestratorAgent",
+    door: "agent-as-a-tool",
+    status: "not-exposed",
+    operations: [],
+    reason:
+      "It is the parent that runs agent-as-a-tool delegations (runAgentTool); a class does not run itself as its own facet.",
+  },
+  // -- ResearchAgent ------------------------------------------------------
+  {
+    className: "ResearchAgent",
+    door: "chat-turn",
+    status: "exposed",
+    operations: [],
+    gate: "The orchestrator turn's session identity; the publish path fails closed without an explicit login (#2327).",
+    notes:
+      "Reached from the turn through the orchestrator's research publish path (runResearchAndPublish: stub reads + the facet run recorded on the agent-as-a-tool door), not through mesh-door commands.",
+  },
+  {
+    className: "ResearchAgent",
+    door: "http-routes",
+    status: "exposed",
+    operations: [],
+    gate: "Session-authenticated research routes.",
+    notes: "server.ts research routes and the orchestrator call the stub (RESEARCH_AGENT).",
+  },
+  {
+    className: "ResearchAgent",
+    door: "mcp",
+    status: "not-exposed",
+    operations: [],
+    reason:
+      "No MCP command addresses this class; market_data_research is a market-data service command, not a ResearchAgent invocation. Research runs start from the turn, the routes, or A2A.",
+  },
+  {
+    className: "ResearchAgent",
+    door: "a2a",
+    status: "exposed",
+    operations: [
+      "research.run",
+      "research.discovery",
+      "research.latest",
+      "research.history",
+      "research.track_record",
+      "research.evaluate",
+      "research.config",
+    ],
+    gate: A2A_EDGE_GATE,
+    notes:
+      "Resolution lands on research:<service-login> and fails closed with no service identity configured — runs are attributed to the service identity, never a synthetic one.",
+  },
+  {
+    className: "ResearchAgent",
+    door: "agent-as-a-tool",
+    status: "exposed",
+    operations: ["runAgentTool"],
+    gate: "Runs inside the parent turn's identity and instance boundary; the facet input carries the acting login explicitly (no ambient identity).",
+    notes:
+      "The fleet's one facet delegation: the orchestrator runs this class's deterministic pipeline tool via the SDK's runAgentTool (src/agents/orchestrator/researchPublish.ts), with the direct pipeline as its recorded fallback.",
+  },
+  // -- TradingAgent -------------------------------------------------------
+  {
+    className: "TradingAgent",
+    door: "chat-turn",
+    status: "exposed",
+    operations: [
+      "propose_stock_trade",
+      "propose_options_trade",
+      "get_trading_accounts",
+      "get_trading_positions",
+      "get_trading_quote",
+      "start_trade_approval",
+      "decide_trade_approval",
+      "get_trade_approval_status",
+    ],
+    gate: "Acting-login carrier required (fail-closed without one). Proposals are preview-only; execution runs only through the approval door's TradingTradeWorkflow (#2375) — the synchronous settle (executeApprovedOrder) is never a door operation.",
+    notes: "Addressed to the acting user's own instance via tradingAgentName (src/agents/orchestrator/meshDoors.ts).",
+  },
+  {
+    className: "TradingAgent",
+    door: "http-routes",
+    status: "exposed",
+    operations: [],
+    gate: "Session-authenticated trading routes; order execution through the shared approval engine (#1262).",
+    notes: "Trading routes and the DO route handlers reach the class's services (executeService) per login.",
+  },
+  {
+    className: "TradingAgent",
+    door: "mcp",
+    status: "not-exposed",
+    operations: [],
+    reason:
+      "The etrade_* commands drive the E*TRADE services, not this class; and the mesh-door trade commands cannot be served externally — " +
+      NO_ACTING_LOGIN_CARRIER,
+  },
+  {
+    className: "TradingAgent",
+    door: "a2a",
+    status: "exposed",
+    operations: [
+      "trading.screen_stocks",
+      "trading.screen_options",
+      "trading.trade_stock",
+      "trading.trade_options",
+    ],
+    gate: A2A_EDGE_GATE,
+    notes:
+      "Resolution lands on the service instance \"trading\". The trade_* operations run the class's approval-gated service path (#2223) — exposure through this door does not bypass the approval door.",
+  },
+  {
+    className: "TradingAgent",
+    door: "agent-as-a-tool",
+    status: "not-exposed",
+    operations: [],
+    reason:
+      "No facet tool surface is defined on this class, and a model-driven turn on it would sit beside the approval door instead of through it. The chat reach is the typed G1/G4 door.",
+  },
+  // -- PaymentsAgent ------------------------------------------------------
+  {
+    className: "PaymentsAgent",
+    door: "chat-turn",
+    status: "exposed",
+    operations: ["check_payment_budget", "get_payments_overview"],
+    gate: "Acting-login carrier required (fail-closed without one); checks are attributed to AGENTIC_SPEND_AGENT_ID with the acting login carried as requester (#2341).",
+    notes:
+      "processPaidRequest is deliberately NOT on this door: the chat paid-request flow is PaymentWorkflow with a budget check first (#2378), never the raw paid request.",
+  },
+  {
+    className: "PaymentsAgent",
+    door: "http-routes",
+    status: "not-exposed",
+    operations: [],
+    reason:
+      "Payment HTTP routes and webhooks terminate on OrchestratorAgent (the payments ledger's owner); this class is reached by stub callers (the orchestrator's budget paths, ScheduledAgent) and by A2A.",
+  },
+  {
+    className: "PaymentsAgent",
+    door: "mcp",
+    status: "not-exposed",
+    operations: [],
+    reason:
+      "draft_payment / confirm_payment_draft act on the orchestrator's MAS ledger, not this class; and the mesh-door payment commands cannot be served externally — " +
+      NO_ACTING_LOGIN_CARRIER,
+  },
+  {
+    className: "PaymentsAgent",
+    door: "a2a",
+    status: "exposed",
+    operations: [
+      "payments.budget_check",
+      "payments.today_spent",
+      "payments.list",
+      "payments.process",
+    ],
+    gate: A2A_EDGE_GATE,
+    notes:
+      "payments.process runs the agent's own gates — budget guard, facilitator verification, idempotency — unchanged; the door adds no path around them.",
+  },
+  {
+    className: "PaymentsAgent",
+    door: "agent-as-a-tool",
+    status: "not-exposed",
+    operations: [],
+    reason:
+      "No facet tool surface is defined on this class; a conversational payments turn would sit beside the budget-guard-first discipline. Chat reach is the typed door plus the PaymentWorkflow path (#2378).",
+  },
+  // -- ScreenerAgent ------------------------------------------------------
+  {
+    className: "ScreenerAgent",
+    door: "chat-turn",
+    status: "exposed",
+    operations: [],
+    gate: "The acting login is threaded through the NLQ stock-screen port and fails closed before any workflow start (#2369).",
+    notes:
+      "Reached as ScreenerScreenWorkflow execute steps (runScreen / runGoalScreen) since S8, with the NLQ port's direct ScreenerAgent call as the recorded fallback — not through mesh-door commands.",
+  },
+  {
+    className: "ScreenerAgent",
+    door: "http-routes",
+    status: "exposed",
+    operations: [],
+    gate: "Session-authenticated screening routes.",
+    notes: "Stub callers: server routes, the orchestrator, and the screener workflow's shard runner.",
+  },
+  {
+    className: "ScreenerAgent",
+    door: "mcp",
+    status: "not-exposed",
+    operations: [],
+    reason:
+      "etrade_market_scan and paid_options_screener drive screening services and workflows, not this class's instance surface; no catalog command addresses the class.",
+  },
+  {
+    className: "ScreenerAgent",
+    door: "a2a",
+    status: "exposed",
+    operations: [
+      "screener.run_screen",
+      "screener.run_goal_screen",
+      "screener.latest",
+      "screener.history",
+      "screener.list_tasks",
+    ],
+    gate: A2A_EDGE_GATE,
+    notes:
+      "Resolution requires a configured service identity and lands on the \"default\" service instance; with none configured the door fails closed rather than starting a virgin instance.",
+  },
+  {
+    className: "ScreenerAgent",
+    door: "agent-as-a-tool",
+    status: "not-exposed",
+    operations: [],
+    reason:
+      "No facet tool surface is defined on this class; screens execute as workflow steps and stub RPC, not as a model facet run.",
+  },
+  // -- ScheduledAgent -----------------------------------------------------
+  {
+    className: "ScheduledAgent",
+    door: "chat-turn",
+    status: "exposed",
+    operations: ["list_scheduled_goals", "trigger_scheduled_goal"],
+    gate: "Acting-login carrier required (fail-closed without one). The door mirrors the shared operator catalogue's authority; add/remove/enable stay on the session-gated routes (#2341).",
+    notes: "Addressed to the singleton \"default\" instance — the live catalogue cron fires.",
+  },
+  {
+    className: "ScheduledAgent",
+    door: "http-routes",
+    status: "exposed",
+    operations: [],
+    gate: "Session-gated /api/schedule/* routes.",
+    notes: "The catalogue's management surface (add/remove/enable) lives on this door.",
+  },
+  {
+    className: "ScheduledAgent",
+    door: "mcp",
+    status: "not-exposed",
+    operations: [],
+    reason:
+      "The mesh-door schedule commands cannot be served externally — " + NO_ACTING_LOGIN_CARRIER,
+  },
+  {
+    className: "ScheduledAgent",
+    door: "a2a",
+    status: "exposed",
+    operations: [
+      "scheduled.list_goals",
+      "scheduled.tick_history",
+      "scheduled.add_goal",
+      "scheduled.remove_goal",
+      "scheduled.set_goal_enabled",
+      "scheduled.trigger_goal",
+    ],
+    gate: A2A_EDGE_GATE,
+    notes:
+      "Resolution pins the live \"default\" instance — any other instance would seed a virgin catalogue and serve plausible wrong state. Catalogue mutation authority on this door is the bearer credential, the door's enforcement point (#2223, unchanged by this slice). Cron firing itself (onCron) is deliberately not an A2A operation.",
+  },
+  {
+    className: "ScheduledAgent",
+    door: "agent-as-a-tool",
+    status: "not-exposed",
+    operations: [],
+    reason:
+      "No facet tool surface is defined on this class; the catalogue is data + methods reached via the chat door, the routes, and A2A.",
+  },
+  // -- ReportAssetAgent ---------------------------------------------------
+  {
+    className: "ReportAssetAgent",
+    door: "chat-turn",
+    status: "exposed",
+    operations: ["list_report_assets", "get_report_asset"],
+    gate: "Acting-login carrier required (fail-closed without one); addressed to the acting user's own instance (assets:<login>).",
+    notes: "Generation stays with the report pipeline and the A2A door; the chat door is the read side (#2349).",
+  },
+  {
+    className: "ReportAssetAgent",
+    door: "http-routes",
+    status: "not-exposed",
+    operations: [],
+    reason:
+      "No HTTP route terminates on this class: report serving reads the canonical mas_reports/R2 store. The class is reached by stub callers (the report pipeline, ScreenerAgent, the G1 chat door) and by A2A.",
+  },
+  {
+    className: "ReportAssetAgent",
+    door: "mcp",
+    status: "not-exposed",
+    operations: [],
+    reason:
+      "agentdb.reports.list reads the D1 read projection, not this class; and the mesh-door asset commands cannot be served externally — " +
+      NO_ACTING_LOGIN_CARRIER,
+  },
+  {
+    className: "ReportAssetAgent",
+    door: "a2a",
+    status: "exposed",
+    operations: ["report_asset.generate", "report_asset.get", "report_asset.list"],
+    gate: A2A_EDGE_GATE,
+    notes:
+      "Generation is scoped to the configured service identity and fails closed without one; get is key-addressed. list (added by #2421, parity with the chat door's list since #2349) enumerates the service instance's asset metadata — bytes never ride a listing.",
+  },
+  {
+    className: "ReportAssetAgent",
+    door: "agent-as-a-tool",
+    status: "not-exposed",
+    operations: [],
+    reason:
+      "Method-shaped storage surface with no facet definition; reached via the chat door and A2A.",
+  },
+  // -- BrowserAgent -------------------------------------------------------
+  {
+    className: "BrowserAgent",
+    door: "chat-turn",
+    status: "exposed",
+    operations: [
+      "browser_snap_transaction",
+      "browser_capture_page",
+      "browser_scrape_tables",
+    ],
+    gate: "Acting-login carrier required (fail-closed without one). No caller-supplied webhookUrl on any door — delivery targets are env configuration only (#2351, the #2223 precedent).",
+    notes: "Addressed to the fixed instance \"browser\" (the class is stateless/env-driven); results propagate verbatim, degraded labels included.",
+  },
+  {
+    className: "BrowserAgent",
+    door: "http-routes",
+    status: "exposed",
+    operations: [],
+    gate: "SDK agent routing to the class's onRequest surface.",
+    notes:
+      "onRequest mirrors the A2A operations; production callers are the A2A dispatcher and the G1 chat door.",
+  },
+  {
+    className: "BrowserAgent",
+    door: "mcp",
+    status: "not-exposed",
+    operations: [],
+    reason:
+      "browser_inspect_page / browser_screenshot drive ETradeBrowserService directly, not this class; and the mesh-door browser commands cannot be served externally — " +
+      NO_ACTING_LOGIN_CARRIER,
+  },
+  {
+    className: "BrowserAgent",
+    door: "a2a",
+    status: "exposed",
+    operations: [
+      "browser.snap_transaction",
+      "browser.capture_page",
+      "browser.scrape_tables",
+    ],
+    gate: A2A_EDGE_GATE,
+    notes:
+      "The door never accepts or forwards a caller-supplied webhookUrl — delivery targets are env configuration only (the #2223 precedent, held on every door since #2351).",
+  },
+  {
+    className: "BrowserAgent",
+    door: "agent-as-a-tool",
+    status: "not-exposed",
+    operations: [],
+    reason:
+      "Stateless method surface with deliberately unset port hooks; no facet definition exists to delegate.",
+  },
+  // -- SlackAgent ---------------------------------------------------------
+  {
+    className: "SlackAgent",
+    door: "chat-turn",
+    status: "exposed",
+    operations: ["slack_send_pre_trade_approval", "slack_dispatch_transaction_snap"],
+    gate: "Acting-login carrier required (fail-closed without one). The approval-ticket operation posts the HITL gate — it approves and executes nothing. No caller-supplied webhookUrl.",
+    notes: "Addressed to the fixed instance \"slack\"; only the class's two outbound helpers are on this door (#2351).",
+  },
+  {
+    className: "SlackAgent",
+    door: "http-routes",
+    status: "exposed",
+    operations: [],
+    gate: "Slack signing secret via gateSlackRequest — mandatory (unconfigured → 503, bad signature → 401, 5-minute replay window).",
+    notes:
+      "Since S13 (#2412) the SDK-routed /agents/slack-agent/* ingress runs the one shared channel handler on this class; production ingress primarily terminates on per-team OrchestratorAgent instances running the same handler (see MESH_CHANNELS).",
+  },
+  {
+    className: "SlackAgent",
+    door: "mcp",
+    status: "not-exposed",
+    operations: [],
+    reason:
+      "Slack ingress is a channel (MESH_CHANNELS), not an MCP surface; and the mesh-door slack commands cannot be served externally — " +
+      NO_ACTING_LOGIN_CARRIER,
+  },
+  {
+    className: "SlackAgent",
+    door: "a2a",
+    status: "exposed",
+    operations: ["slack.send_pre_trade_approval", "slack.dispatch_transaction_snap"],
+    gate: A2A_EDGE_GATE,
+    notes:
+      "Outbound helpers only — Slack event/command ingress is NOT served on this door; it stays behind the signature-gated channel routes. The no-caller-supplied-webhookUrl rule holds here as on every door (#2351).",
+  },
+  {
+    className: "SlackAgent",
+    door: "agent-as-a-tool",
+    status: "not-exposed",
+    operations: [],
+    reason:
+      "The outbound helpers are method-shaped and ingress is channel-hosted; no facet definition exists to delegate.",
+  },
+  // -- AiSearchAgent ------------------------------------------------------
+  {
+    className: "AiSearchAgent",
+    door: "chat-turn",
+    status: "exposed",
+    operations: ["ai_search_agent_search"],
+    gate: "Threads the turn's session login as callerLogin; report-type results are served only to their owner (#2250).",
+    notes:
+      "A catalog command, not a mesh-door command — the turn already had this typed reach before G1, so no second door was built (#2351).",
+  },
+  {
+    className: "AiSearchAgent",
+    door: "http-routes",
+    status: "not-exposed",
+    operations: [],
+    reason:
+      "Search HTTP routes drive the MAS/service paths (POST /search/mas, ETradeAISearchService); the class is reached via the catalog command (chat + MCP) and A2A.",
+  },
+  {
+    className: "AiSearchAgent",
+    door: "mcp",
+    status: "exposed",
+    operations: ["ai_search_agent_search"],
+    gate: "MCP permission scopes (#1744) at the factory/adapter; the command owner-checks report-type results against the caller login its context carries.",
+    notes: "The same catalog command serves the chat turn (in-process) and the external MCP surface — one registry, two enforcement points (registry MESH_DOORS).",
+  },
+  {
+    className: "AiSearchAgent",
+    door: "a2a",
+    status: "exposed",
+    operations: ["aisearch.search"],
+    gate: A2A_EDGE_GATE,
+    notes: "Three-path search (namespace binding / instance MCP / REST) with honest degradation labels (src/agents/aiSearchPaths.ts).",
+  },
+  {
+    className: "AiSearchAgent",
+    door: "agent-as-a-tool",
+    status: "not-exposed",
+    operations: [],
+    reason:
+      "Turn-capable class, but no facet delegation from the orchestrator exists, and adding one is a behavior change, not an exposure fix. Its doors are the catalog command (chat + MCP) and A2A.",
+  },
+  // -- TickerAgent --------------------------------------------------------
+  {
+    className: "TickerAgent",
+    door: "chat-turn",
+    status: "not-exposed",
+    operations: [],
+    reason:
+      "The tape is a client-facing broadcast; a chat turn holds no subscription to it. In-turn quote reads come from the market-data commands over the quote services.",
+  },
+  {
+    className: "TickerAgent",
+    door: "http-routes",
+    status: "exposed",
+    operations: [],
+    gate: "None by design — the tape is public (no auth and no audit, survey M10); that posture is the capability's own, recorded here rather than silently inherited.",
+    notes:
+      "The WebSocket route /api/market/quotes/ws (+ /api/market-data/ and /api/foss/ aliases) terminates on the single shared \"ticker\" instance: subscribe → snapshot, 5s ticks, per-connection state.",
+  },
+  {
+    className: "TickerAgent",
+    door: "mcp",
+    status: "not-exposed",
+    operations: [],
+    reason:
+      "No catalog command addresses this class; quote reads exist as market-data commands over the services.",
+  },
+  {
+    className: "TickerAgent",
+    door: "a2a",
+    status: "not-exposed",
+    operations: [],
+    reason:
+      "The capability is a streaming, per-connection WebSocket broadcast — A2A's authenticated request/response dispatch cannot carry it, and putting the bearer gate in front of a deliberately public tape would change the capability's gate rather than carry it. Quote reads are already served on the MCP and HTTP doors.",
+  },
+  {
+    className: "TickerAgent",
+    door: "agent-as-a-tool",
+    status: "not-exposed",
+    operations: [],
+    reason:
+      "No turn ever runs on this class (its turn facet is inert by design, #2230); there is no facet to delegate.",
+  },
+  // -- SandboxAgent -------------------------------------------------------
+  {
+    className: "SandboxAgent",
+    door: "chat-turn",
+    status: "not-exposed",
+    operations: [],
+    reason:
+      "run_sandbox_command reaches the sandbox capability by constructing ETradeSandboxService directly — this class is not wired to that command (the recorded #2253 follow-up). The capability's result is identical either way today, because the agent delegates to the same service construction; the gap is class wiring, not capability.",
+  },
+  {
+    className: "SandboxAgent",
+    door: "http-routes",
+    status: "exposed",
+    operations: [],
+    gate: "SDK agent routing to the class's onRequest surface.",
+    notes:
+      "onRequest serves /health (the status surface) and POST /run, mirroring BrowserAgent; production capability traffic still arrives via the MCP facade's direct service construction (see the chat-turn entry).",
+  },
+  {
+    className: "SandboxAgent",
+    door: "mcp",
+    status: "not-exposed",
+    operations: [],
+    reason:
+      "Same class-wiring gap as the chat turn: run_sandbox_command is in the catalog (cloudflare-agent-mcp-commands family) but constructs ETradeSandboxService directly; wiring it through this class is the recorded #2253 follow-up.",
+  },
+  {
+    className: "SandboxAgent",
+    door: "a2a",
+    status: "exposed",
+    operations: ["sandbox.status", "sandbox.run_command"],
+    gate: A2A_EDGE_GATE,
+    notes:
+      "Added by #2421 — the #2253/S1 recorded follow-up (dispatch: src/agents/sandboxA2aDispatch.ts). Credential posture for S16: this surface authenticates with the ONE shared A2A bearer token, like every A2A surface; it is in the census inventory S16 replaces with per-agent credentials. Results carry the service's degraded posture verbatim: with no container backend bound, run_command returns executed:false — never emulated, never fabricated. Input parity with the other doors: { command, timeoutMs } only; envVars/workingDir are accepted on no door and are not accepted here.",
+  },
+  {
+    className: "SandboxAgent",
+    door: "agent-as-a-tool",
+    status: "not-exposed",
+    operations: [],
+    reason:
+      "The class defines no chat behavior and no facet (deliberately unset port hooks, #2253); its doors are its methods, onRequest, and A2A.",
+  },
+  // -- SessionStore -------------------------------------------------------
+  {
+    className: "SessionStore",
+    door: "chat-turn",
+    status: "not-exposed",
+    operations: [],
+    reason:
+      "Credential/session store: no invocation surface on any door, by design — exposing session or broker-token storage to a turn would break the fleet's credential boundary.",
+  },
+  {
+    className: "SessionStore",
+    door: "http-routes",
+    status: "not-exposed",
+    operations: [],
+    reason:
+      "Reached by internal stub fetch from server/agent code only; no route terminates on it and none may.",
+  },
+  {
+    className: "SessionStore",
+    door: "mcp",
+    status: "not-exposed",
+    operations: [],
+    reason:
+      "The credential boundary again: no command surface over session/broker-token storage exists or may be added.",
+  },
+  {
+    className: "SessionStore",
+    door: "a2a",
+    status: "not-exposed",
+    operations: [],
+    reason:
+      "The credential boundary again: it publishes no card and no resolution, deliberately — A2A callers authenticate with credentials this store's contents must never become reachable through.",
+  },
+  {
+    className: "SessionStore",
+    door: "agent-as-a-tool",
+    status: "not-exposed",
+    operations: [],
+    reason:
+      "Not an agent and not a capability: it is the identity substrate the other classes stand on.",
+  },
+  // -- OptionsScannerMCP --------------------------------------------------
+  {
+    className: "OptionsScannerMCP",
+    door: "chat-turn",
+    status: "not-exposed",
+    operations: [],
+    reason:
+      "OUT of mesh scope per #2225 (no changes to this class in the programme); it is not part of the turn's tool registry.",
+  },
+  {
+    className: "OptionsScannerMCP",
+    door: "http-routes",
+    status: "not-exposed",
+    operations: [],
+    reason:
+      "No plain HTTP route surface distinct from its MCP transport. OUT of mesh scope per #2225.",
+  },
+  {
+    className: "OptionsScannerMCP",
+    door: "mcp",
+    status: "exposed",
+    operations: [],
+    gate: "x402 payment gate — the class's own paid surface.",
+    notes:
+      "The class IS an MCP server (the paid options scanner); its tool surface is its own and is recorded here for census completeness — OUT of mesh scope per #2225, unaltered by this slice.",
+  },
+  {
+    className: "OptionsScannerMCP",
+    door: "a2a",
+    status: "not-exposed",
+    operations: [],
+    reason: "It is an MCP server, not an A2A agent. OUT of mesh scope per #2225.",
+  },
+  {
+    className: "OptionsScannerMCP",
+    door: "agent-as-a-tool",
+    status: "not-exposed",
+    operations: [],
+    reason: "OUT of mesh scope per #2225; no facet relationship exists.",
+  },
+];
 
 export const MESH_NON_RENAMES: MeshNonRenameEntry[] = [
   {
@@ -794,6 +1490,7 @@ export const MESH_REGISTRY = {
   toolFamilies: MESH_TOOL_FAMILIES,
   doors: MESH_DOORS,
   workflows: MESH_WORKFLOWS,
+  capabilityDoors: MESH_CAPABILITY_DOORS,
   nonRenames: MESH_NON_RENAMES,
 } as const;
 
@@ -836,4 +1533,26 @@ export function getDoor(id: MeshDoorEntry["id"]): MeshDoorEntry | undefined {
 
 export function getWorkflowByBinding(binding: string): MeshWorkflowEntry | undefined {
   return MESH_WORKFLOWS.find((w) => w.binding === binding);
+}
+
+/** One census cell: a class's reach through one door (S15, #2421). */
+export function capabilityDoor(
+  className: string,
+  door: MeshDoorEntry["id"],
+): MeshCapabilityDoorEntry | undefined {
+  return MESH_CAPABILITY_DOORS.find(
+    (e) => e.className === className && e.door === door,
+  );
+}
+
+/** Every census cell for one class, in door order. */
+export function capabilityDoorsForClass(className: string): MeshCapabilityDoorEntry[] {
+  return MESH_CAPABILITY_DOORS.filter((e) => e.className === className);
+}
+
+/** The classes exposed on one door (S16's per-door inventory). */
+export function classesExposedOn(door: MeshDoorEntry["id"]): string[] {
+  return MESH_CAPABILITY_DOORS.filter(
+    (e) => e.door === door && e.status === "exposed",
+  ).map((e) => e.className);
 }

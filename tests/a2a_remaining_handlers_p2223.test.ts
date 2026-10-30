@@ -514,6 +514,12 @@ function makeReportAssetExecutor(overrides: Partial<ReportAssetA2AExecutor> = {}
       calls.push({ method: "getAsset", args: key });
       return { bytes: new Uint8Array([1, 2, 3, 250]), fileName: "screener.pdf" };
     },
+    listAssets: async (limit) => {
+      calls.push({ method: "listAssets", args: limit });
+      return [
+        { key: "report:pdf:screener:abc12345", fileName: "screener.pdf", storedAt: "2026-10-01T00:00:00.000Z" },
+      ];
+    },
     ...overrides,
   };
   return { executor, calls };
