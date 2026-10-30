@@ -24,6 +24,12 @@
  * fire/no-fire decision folding into the existing every-30-minutes tick exactly
  * once per weekday at/after 21:00 UTC, keyed by its OWN durable
  * marker. No new cron trigger (Workers cron ceiling).
+ *
+ * Issue #2357 (#1976 step 4b, ADR 0022 D-I step 4): the durable
+ * transparency record sits behind the reselection port (src/data/
+ * reselectionPorts.ts; DO adapter in doSqliteReselectionAdapter.ts,
+ * composed by createStrategyClusterPorts.ts). The pure policy
+ * (schedule guard, evidence, re-selection) stays here, unchanged.
  */
 
 import {
@@ -31,7 +37,26 @@ import {
   researchTickDateKey,
   type ResearchTickDecision,
 } from "./researchScheduleGuard";
-import type { RegimeAssessment } from "./researchPipeline";
+import { DoSqliteReselectionStore } from "../data/doSqliteReselectionAdapter";
+import type {
+  ReselectionActiveEntry,
+  ReselectionLogEntry,
+  ReselectionProposal,
+  ReselectionRegime,
+  ReselectionSqlExecutor,
+  ReselectionStore,
+  StrategyRegimeEvidence,
+} from "../data/reselectionPorts";
+
+export {
+  RESELECTION_GOVERNANCE,
+  type ReselectionActiveEntry,
+  type ReselectionLogEntry,
+  type ReselectionOutcome,
+  type ReselectionProposal,
+  type ReselectionRegime,
+  type StrategyRegimeEvidence,
+} from "../data/reselectionPorts";
 
 /* ------------------------------------------------------------------ */
 /* Schedule guard (same idiom, own durable marker)                     */
@@ -68,21 +93,6 @@ export function shouldFireStrategyBankTick(
 /* ------------------------------------------------------------------ */
 /* Evidence                                                            */
 /* ------------------------------------------------------------------ */
-
-export type ReselectionRegime = RegimeAssessment["regime"];
-
-export interface StrategyRegimeEvidence {
-  strategy: string;
-  regime: ReselectionRegime;
-  /** Ideas published under this strategy+regime. */
-  published: number;
-  /** Of those, how many have a recorded evaluation. */
-  evaluated: number;
-  /** Share of evaluated ideas with pnl > 0 (null when none evaluated). */
-  winRate: number | null;
-  /** Mean R multiple over evaluated ideas that carry one (null when none). */
-  avgRMultiple: number | null;
-}
 
 /**
  * Aggregate researchTrackRecord ideas into per-(strategy, regime)
@@ -155,9 +165,6 @@ export function buildStrategyRegimeEvidence(
 /* Re-selection                                                        */
 /* ------------------------------------------------------------------ */
 
-/** Recorded on every proposal so no consumer can mistake it for a promotion. */
-export const RESELECTION_GOVERNANCE = "proposal_only_not_promoted" as const;
-
 export interface ReselectionConfig {
   /** Minimum evaluated ideas before a strategy can hold a seat. */
   minEvaluated: number;
@@ -175,48 +182,6 @@ export const DEFAULT_RESELECTION_CONFIG: ReselectionConfig = {
   costCapUnits: 100,
   costPerStrategyUnits: 10,
 };
-
-export type ReselectionOutcome =
-  | "selected"
-  | "deselected"
-  | "insufficient_evidence"
-  | "eligible_over_cap"
-  | "not_evaluated_cost_cap";
-
-export interface ReselectionLogEntry {
-  strategy: string;
-  outcome: ReselectionOutcome;
-  /** True when recorded evidence shows this strategy losing (negative avg R or below-baseline win rate). */
-  loser: boolean;
-  evaluated: number;
-  winRate: number | null;
-  avgRMultiple: number | null;
-  score: number | null;
-  reason: string;
-}
-
-export interface ReselectionActiveEntry {
-  strategy: string;
-  score: number;
-  winRate: number;
-  avgRMultiple: number;
-  evaluated: number;
-  /** Current strategyWeights value, informational only — never written here. */
-  weight: number | null;
-}
-
-export interface ReselectionProposal {
-  regime: ReselectionRegime;
-  generatedAt: string;
-  governance: typeof RESELECTION_GOVERNANCE;
-  overallWinRate: number | null;
-  activeSet: ReselectionActiveEntry[];
-  /** Every strategy in the regime's evidence appears exactly once. */
-  log: ReselectionLogEntry[];
-  evaluatedCount: number;
-  costUnitsUsed: number;
-  costCapUnits: number;
-}
 
 const round4 = (v: number) => Math.round(v * 10000) / 10000;
 
@@ -339,7 +304,7 @@ export function reselectStrategyBank(input: {
   return {
     regime: input.regime,
     generatedAt: input.now.toISOString(),
-    governance: RESELECTION_GOVERNANCE,
+    governance: "proposal_only_not_promoted",
     overallWinRate: input.overallWinRate,
     activeSet,
     log,
@@ -353,14 +318,12 @@ export function reselectStrategyBank(input: {
 /* Durable transparency record (append-only, per tenant)               */
 /* ------------------------------------------------------------------ */
 
+function store(sql: ReselectionSqlExecutor): ReselectionStore {
+  return new DoSqliteReselectionStore(sql);
+}
+
 export function ensureStrategyBankProposalTable(sql: any): void {
-  sql.exec(`CREATE TABLE IF NOT EXISTS mas_strategy_bank_proposals (
-    id TEXT PRIMARY KEY,
-    user_login TEXT NOT NULL,
-    regime TEXT NOT NULL,
-    proposal_json TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-  )`);
+  store(sql).ensureTable();
 }
 
 /**
@@ -379,14 +342,7 @@ export function recordReselectionProposal(
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(36).slice(2)}`
   }`;
-  sql.exec(
-    `INSERT INTO mas_strategy_bank_proposals (id, user_login, regime, proposal_json, created_at) VALUES (?, ?, ?, ?, ?)`,
-    id,
-    userLogin,
-    proposal.regime,
-    JSON.stringify(proposal),
-    proposal.generatedAt
-  );
+  store(sql).insertProposal(id, userLogin, proposal);
   return id;
 }
 
@@ -395,18 +351,5 @@ export function listReselectionProposals(
   userLogin: string,
   limit = 20
 ): Array<{ id: string; regime: string; createdAt: string; proposal: ReselectionProposal }> {
-  ensureStrategyBankProposalTable(sql);
-  const rows = Array.from(
-    sql.exec(
-      `SELECT id, regime, proposal_json, created_at FROM mas_strategy_bank_proposals WHERE user_login = ? ORDER BY created_at DESC LIMIT ?`,
-      userLogin,
-      limit
-    )
-  ) as any[];
-  return rows.map((row) => ({
-    id: String(row.id),
-    regime: String(row.regime),
-    createdAt: String(row.created_at),
-    proposal: JSON.parse(String(row.proposal_json)) as ReselectionProposal,
-  }));
+  return store(sql).listProposals(userLogin, limit);
 }
