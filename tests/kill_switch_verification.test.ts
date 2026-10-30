@@ -96,8 +96,16 @@ describe("entry-point enumeration (#756)", () => {
     // isAdaptationHalted before applying (pinned by the
     // applyAdaptation enumeration above and phase5_rsi_loop.test.ts).
     // Any OTHER writer of a mas_strategy_weights* table fails here.
+    // §7 pin update (#2357, #1976 step 4b — disclosed): the v2
+    // service's store moved behind the strategy weights port; the
+    // port's DO adapter (data/doSqliteStrategyWeightsAdapter.ts)
+    // is now the writer of record, reached only through the
+    // service's apply paths. The pin's intent is unchanged — the
+    // weights family is the only writer — with the seam at the
+    // port, per the 3a ads-suite precedent.
     const weightsServices = new Set([
       "services/strategyWeightsV2.ts",
+      "data/doSqliteStrategyWeightsAdapter.ts",
     ]);
     const writers = prodFiles
       .filter((f) => !weightsServices.has(f.rel))

@@ -110,19 +110,14 @@ const STORAGE_ALLOW_LIST: Array<[string, number, string]> = [
   ["src/agents/orchestrator/asyncJobs.ts", 23, "#2358 step 4a"],
   ["src/agents/research-agent.ts", 21, "#2361 step 4e"],
   ["src/agents/orchestrator.ts", 19, "#2359 step 4d"],
-  ["src/services/championChallenger.ts", 15, "#2357 step 4b"],
-  ["src/services/strategyWeightsV2.ts", 12, "#2357 step 4b"],
-  ["src/services/strategyPolicyState.ts", 11, "#2357 step 4b"],
   ["src/agents/routes/payments.ts", 8, "#2360 step 4d-2"],
   ["src/agents/orchestrator/reportDispatch.ts", 7, "#2359 step 4d (confirmations) + G-7 (settings pair)"],
-  ["src/services/adaptationAudit.ts", 7, "#2357 step 4b"],
   ["src/services/learnings.ts", 7, "R-1 gated — NOT step 4c (two-host question open)"],
   ["src/agents/routes/maintenance.ts", 6, "#2358 step 4a (maintenance port)"],
   ["src/agents/routes/screenerPresets.ts", 4, "#2359 step 4d"],
   ["src/services/screeningFlags.ts", 4, "G-7 (mas_settings)"],
   ["src/agents/orchestrator/autopilot.ts", 3, "#2359 step 4d"],
   ["src/agents/routes/reports.ts", 3, "#2359 step 4d"],
-  ["src/services/strategyBankReselection.ts", 3, "#2357 step 4b"],
   ["src/security/sessionStore.ts", 2, "step 5 (SessionStore / kv_store)"],
   ["src/services/masRetentionIndexes.ts", 2, "#2362 step 4f"],
   ["src/actors/cfAgentsAdapter.ts", 1, "permanent — Agents-SDK shim (ADR-out)"],
@@ -173,6 +168,37 @@ const STEP4C_DATA_LAYER_FILES: Array<[string, number]> = [
   ["src/data/createEvidenceSatellitePorts.ts", 0],
 ];
 
+/** The step-4b families: zero above-layer sites remain. */
+const STEP4B_SERVICE_FILES = [
+  "src/services/championChallenger.ts",
+  "src/services/strategyWeightsV2.ts",
+  "src/services/strategyPolicyState.ts",
+  "src/services/adaptationAudit.ts",
+  "src/services/strategyBankReselection.ts",
+] as const;
+
+/** The step-4b statements live in the data layer, exactly.
+ *  (Adaptation's two mas_settings SELECTs are served by the
+ *  step-3a read-only settings adapter, counted there.) */
+const STEP4B_DATA_LAYER_FILES: Array<[string, number]> = [
+  ["src/data/doSqliteChallengerAdapter.ts", 15],
+  ["src/data/doSqliteStrategyWeightsAdapter.ts", 12],
+  ["src/data/doSqliteStrategyPolicyAdapter.ts", 11],
+  ["src/data/doSqliteAdaptationAuditAdapter.ts", 5],
+  ["src/data/doSqliteReselectionAdapter.ts", 3],
+  ["src/data/inMemoryChallengerAdapter.ts", 0],
+  ["src/data/inMemoryStrategyWeightsAdapter.ts", 0],
+  ["src/data/inMemoryStrategyPolicyAdapter.ts", 0],
+  ["src/data/inMemoryAdaptationAuditAdapter.ts", 0],
+  ["src/data/inMemoryReselectionAdapter.ts", 0],
+  ["src/data/challengerPorts.ts", 0],
+  ["src/data/strategyWeightsPorts.ts", 0],
+  ["src/data/strategyPolicyPorts.ts", 0],
+  ["src/data/adaptationAuditPorts.ts", 0],
+  ["src/data/reselectionPorts.ts", 0],
+  ["src/data/createStrategyClusterPorts.ts", 0],
+];
+
 describe("global D-D census: surface 1 — storage-shaped sites above the layer", () => {
   it("the above-layer population is exactly the shrink-only allow-list", () => {
     const actual = aboveLayerCounts(STORAGE_EXEC_PATTERN);
@@ -180,8 +206,10 @@ describe("global D-D census: surface 1 — storage-shaped sites above the layer"
     expect(actual).toEqual(expected);
     const total = [...actual.values()].reduce((a, b) => a + b, 0);
     // Base (7c985ca0) measured 240; step 4c retires exactly 48
-    // (the six families minus learnings' 7, which is R-1-gated).
-    expect(total).toBe(192);
+    // (the six families minus learnings' 7, which is R-1-gated)
+    // → 192; step 4b (#2357) retires the strategy cluster's 48
+    // → 144.
+    expect(total).toBe(144);
   });
 
   for (const file of STEP4C_SERVICE_FILES) {
@@ -191,6 +219,18 @@ describe("global D-D census: surface 1 — storage-shaped sites above the layer"
   }
 
   for (const [file, sites] of STEP4C_DATA_LAYER_FILES) {
+    it(`${file} holds exactly ${sites} storage-exec sites`, () => {
+      expect(countIn(STORAGE_EXEC_PATTERN, file)).toBe(sites);
+    });
+  }
+
+  for (const file of STEP4B_SERVICE_FILES) {
+    it(`${file} holds zero storage-exec sites (serves through its port)`, () => {
+      expect(countIn(STORAGE_EXEC_PATTERN, file)).toBe(0);
+    });
+  }
+
+  for (const [file, sites] of STEP4B_DATA_LAYER_FILES) {
     it(`${file} holds exactly ${sites} storage-exec sites`, () => {
       expect(countIn(STORAGE_EXEC_PATTERN, file)).toBe(sites);
     });
@@ -240,7 +280,7 @@ describe("global D-D census: surface 3 — prepare() outside the data layer", ()
 });
 
 // ---------------------------------------------------------------------------
-// By-table writer sets for ported tables (steps 1–3 + step 4c)
+// By-table writer sets for ported tables (steps 1–3 + step 4c + step 4b)
 // ---------------------------------------------------------------------------
 
 const PORTED_TABLES = [
@@ -259,6 +299,11 @@ const PORTED_TABLES = [
   "mas_goals", "mas_scenarios", "mas_outcomes", "mas_job_outcomes",
   "mas_job_outcomes_meta", "mas_strategy_reviews", "mas_outcome_tracking",
   "mas_comparison_arm_outcomes", "mas_screening_activity",
+  // step 4b (#2357)
+  "mas_challengers", "mas_challenger_approvals", "mas_challenger_promotions",
+  "mas_strategy_bank_active", "mas_strategy_weights_v2",
+  "mas_strategy_weight_versions", "mas_strategy_weight_caps",
+  "mas_strategy_gates", "mas_strategy_bank_proposals", "mas_adaptation_audit",
 ] as const;
 
 /**
@@ -337,6 +382,16 @@ const PORTED_TABLE_WRITERS: Record<string, { layer: string[]; bypass?: Record<st
   mas_outcome_tracking: { layer: ["src/data/doSqliteOutcomeTrackingAdapter.ts"] },
   mas_comparison_arm_outcomes: { layer: ["src/data/doSqliteComparisonLedgerAdapter.ts"] },
   mas_screening_activity: { layer: ["src/data/doSqliteScreeningActivityAdapter.ts"] },
+  mas_challengers: { layer: ["src/data/doSqliteChallengerAdapter.ts"] },
+  mas_challenger_approvals: { layer: ["src/data/doSqliteChallengerAdapter.ts"] },
+  mas_challenger_promotions: { layer: ["src/data/doSqliteChallengerAdapter.ts"] },
+  mas_strategy_bank_active: { layer: ["src/data/doSqliteChallengerAdapter.ts"] },
+  mas_strategy_weights_v2: { layer: ["src/data/doSqliteStrategyWeightsAdapter.ts"] },
+  mas_strategy_weight_versions: { layer: ["src/data/doSqliteStrategyWeightsAdapter.ts"] },
+  mas_strategy_weight_caps: { layer: ["src/data/doSqliteStrategyPolicyAdapter.ts"] },
+  mas_strategy_gates: { layer: ["src/data/doSqliteStrategyPolicyAdapter.ts"] },
+  mas_strategy_bank_proposals: { layer: ["src/data/doSqliteReselectionAdapter.ts"] },
+  mas_adaptation_audit: { layer: ["src/data/doSqliteAdaptationAuditAdapter.ts"] },
 };
 
 const WRITE_VERB =
@@ -401,8 +456,8 @@ describe("global D-D census: G-7 remainder — mas_settings", () => {
     const actual = SRC_FILES.filter((f) => re.test(STRIPPED.get(f)!)).sort();
     expect(actual).toEqual([
       "src/agents/orchestrator.ts",
+      "src/data/doSqliteStrategyWeightsAdapter.ts",
       "src/services/screeningFlags.ts",
-      "src/services/strategyWeightsV2.ts",
     ]);
   });
 });

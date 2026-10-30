@@ -15,39 +15,36 @@
  * runs the caller's apply callback only when allowed, and writes the
  * audit record either way — there is no supported apply-without-audit
  * path.
+ *
+ * Issue #2357 (#1976 step 4b, ADR 0022 D-I step 4): persistence
+ * sits behind the adaptation audit port (src/data/
+ * adaptationAuditPorts.ts; DO adapter in
+ * doSqliteAdaptationAuditAdapter.ts, composed by
+ * createStrategyClusterPorts.ts) and the budget/kill-switch
+ * settings READS sit behind the step-3a read-only settings port
+ * (settingsReadPorts.ts, gate G-7 — reads only; no writer is
+ * rewired). The budget policy and the applyAdaptation seam stay
+ * here, unchanged.
  */
 
-export interface AdaptationRecord {
-  actor: string;
-  subject: string;
-  parameter: string;
-  before: string;
-  after: string;
-  /** Numeric step size for drift accounting; null for non-numeric changes. */
-  delta: number | null;
-  rationale: string;
-  dataWindow: string;
-  createdAt?: string;
-}
+import { DoSqliteAdaptationAuditStore } from "../data/doSqliteAdaptationAuditAdapter";
+import { DoSqliteSettingsReadAdapter } from "../data/doSqliteOrmAdapters";
+import { DEFAULT_ADAPTATION_BUDGET } from "../data/adaptationAuditPorts";
+import type {
+  AdaptationAuditSqlExecutor,
+  AdaptationAuditStore,
+  AdaptationBudget,
+  AdaptationRecord,
+} from "../data/adaptationAuditPorts";
+import type { SettingsReadPort } from "../data/settingsReadPorts";
+import type { SqlStorage } from "../data/repositoryPorts";
 
-export interface AdaptationAuditRow extends Required<Omit<AdaptationRecord, "createdAt">> {
-  id: string;
-  status: "applied" | "blocked";
-  blockReason: string | null;
-  createdAt: string;
-}
-
-export interface AdaptationBudget {
-  maxPerPeriod: number;
-  periodDays: number;
-  maxCumulativeDrift: number;
-}
-
-export const DEFAULT_ADAPTATION_BUDGET: AdaptationBudget = {
-  maxPerPeriod: 4,
-  periodDays: 7,
-  maxCumulativeDrift: 0.5,
-};
+export { DEFAULT_ADAPTATION_BUDGET };
+export type {
+  AdaptationAuditRow,
+  AdaptationBudget,
+  AdaptationRecord,
+} from "../data/adaptationAuditPorts";
 
 const SETTING_KEYS = {
   maxPerPeriod: "adaptation.maxPerPeriod",
@@ -55,22 +52,16 @@ const SETTING_KEYS = {
   maxCumulativeDrift: "adaptation.maxCumulativeDrift",
 } as const;
 
+function auditStore(sql: AdaptationAuditSqlExecutor): AdaptationAuditStore {
+  return new DoSqliteAdaptationAuditStore(sql);
+}
+
+function settingsRead(sql: AdaptationAuditSqlExecutor): SettingsReadPort {
+  return new DoSqliteSettingsReadAdapter(sql as SqlStorage);
+}
+
 export function ensureAdaptationAuditTable(sql: any): void {
-  sql.exec(`CREATE TABLE IF NOT EXISTS mas_adaptation_audit (
-    id TEXT PRIMARY KEY,
-    actor TEXT NOT NULL,
-    subject TEXT NOT NULL,
-    parameter TEXT NOT NULL,
-    before_value TEXT NOT NULL,
-    after_value TEXT NOT NULL,
-    delta REAL,
-    rationale TEXT NOT NULL,
-    data_window TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'applied',
-    block_reason TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-  )`);
-  sql.exec(`CREATE INDEX IF NOT EXISTS idx_adaptation_audit_subject ON mas_adaptation_audit(subject, created_at)`);
+  auditStore(sql).ensureTable();
 }
 
 /**
@@ -81,12 +72,11 @@ export function ensureAdaptationAuditTable(sql: any): void {
 export function getAdaptationBudget(sql: any): AdaptationBudget {
   const budget = { ...DEFAULT_ADAPTATION_BUDGET };
   try {
+    const read = settingsRead(sql);
     for (const field of Object.keys(SETTING_KEYS) as Array<keyof AdaptationBudget>) {
-      const rows = Array.from(
-        sql.exec(`SELECT value FROM mas_settings WHERE key = ?`, SETTING_KEYS[field])
-      ) as any[];
-      if (rows.length > 0) {
-        const v = Number(rows[0].value);
+      const value = read.get(SETTING_KEYS[field]);
+      if (value !== null) {
+        const v = Number(value);
         if (Number.isFinite(v) && v > 0) budget[field] = v;
       }
     }
@@ -96,38 +86,9 @@ export function getAdaptationBudget(sql: any): AdaptationBudget {
   return budget;
 }
 
-function insertAuditRow(
-  sql: any,
-  rec: AdaptationRecord,
-  status: "applied" | "blocked",
-  blockReason: string | null,
-  now: Date
-): string {
-  ensureAdaptationAuditTable(sql);
-  const id = `adapt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  sql.exec(
-    `INSERT INTO mas_adaptation_audit
-     (id, actor, subject, parameter, before_value, after_value, delta, rationale, data_window, status, block_reason, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    id,
-    rec.actor,
-    rec.subject,
-    rec.parameter,
-    rec.before,
-    rec.after,
-    rec.delta,
-    rec.rationale,
-    rec.dataWindow,
-    status,
-    blockReason,
-    rec.createdAt ?? now.toISOString()
-  );
-  return id;
-}
-
 /** Append an applied adaptation to the audit trail. */
 export function recordAdaptation(sql: any, rec: AdaptationRecord, now: Date = new Date()): string {
-  return insertAuditRow(sql, rec, "applied", null, now);
+  return auditStore(sql).insert(rec, "applied", null, now);
 }
 
 /** Append a blocked attempt to the audit trail (audited, never counted). */
@@ -137,7 +98,7 @@ export function recordBlockedAdaptation(
   blockReason: string,
   now: Date = new Date()
 ): string {
-  return insertAuditRow(sql, rec, "blocked", blockReason, now);
+  return auditStore(sql).insert(rec, "blocked", blockReason, now);
 }
 
 /** Full audit history for a subject (or all subjects), newest first. */
@@ -145,35 +106,8 @@ export function listAdaptationAudit(
   sql: any,
   subject?: string,
   limit = 100
-): AdaptationAuditRow[] {
-  ensureAdaptationAuditTable(sql);
-  const lim = Math.max(1, Math.min(500, Math.floor(limit)));
-  const rows = (
-    subject
-      ? Array.from(
-          sql.exec(
-            `SELECT * FROM mas_adaptation_audit WHERE subject = ? ORDER BY created_at DESC LIMIT ${lim}`,
-            subject
-          )
-        )
-      : Array.from(
-          sql.exec(`SELECT * FROM mas_adaptation_audit ORDER BY created_at DESC LIMIT ${lim}`)
-        )
-  ) as any[];
-  return rows.map((r) => ({
-    id: r.id,
-    actor: r.actor,
-    subject: r.subject,
-    parameter: r.parameter,
-    before: r.before_value,
-    after: r.after_value,
-    delta: r.delta,
-    rationale: r.rationale,
-    dataWindow: r.data_window,
-    status: r.status,
-    blockReason: r.block_reason ?? null,
-    createdAt: r.created_at,
-  }));
+): import("../data/adaptationAuditPorts").AdaptationAuditRow[] {
+  return auditStore(sql).list(subject, limit);
 }
 
 /** Applied-adaptation usage for a subject inside the budget window. */
@@ -206,11 +140,9 @@ export const ADAPTATION_KILL_SWITCH_KEY = "adaptation.killSwitch";
  */
 export function isAdaptationHalted(sql: any): boolean {
   try {
-    const rows = Array.from(
-      sql.exec(`SELECT value FROM mas_settings WHERE key = ?`, ADAPTATION_KILL_SWITCH_KEY)
-    ) as any[];
-    if (rows.length === 0) return false;
-    const v = String(rows[0].value).trim().toLowerCase();
+    const value = settingsRead(sql).get(ADAPTATION_KILL_SWITCH_KEY);
+    if (value === null) return false;
+    const v = String(value).trim().toLowerCase();
     return v === "on" || v === "1" || v === "true";
   } catch (err) {
     console.error(
