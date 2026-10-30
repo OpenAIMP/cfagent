@@ -317,6 +317,10 @@ export const agentTenantSettings = sqliteTable("agent_tenant_settings", {
   tenantId: text("tenant_id").primaryKey(),
   adsEnabled: integer("ads_enabled").notNull(),
   updatedAtMs: integer("updated_at_ms").notNull(),
+  /** Issue #2481: per-tenant auto-refresh switch. Absent row = OFF. */
+  autoRefreshEnabled: integer("auto_refresh_enabled").notNull().default(0),
+  /** Issue #2481: auto-refresh cadence in seconds. Absent row = 15. */
+  autoRefreshIntervalS: integer("auto_refresh_interval_s").notNull().default(15),
 });
 
 /**
