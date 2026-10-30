@@ -265,7 +265,10 @@ export class ETradeThinkHarness {
 
     const overallConfidence = allPassed ? (warnings.length === 0 ? 0.98 : 0.85) : 0.35;
 
-    // Cryptographic attestation
+    // Attestation (issue #2426): keyed HMAC — a verifiable proof —
+    // when DID_ATTESTATION_KEY is threaded; otherwise an unkeyed
+    // content label. The step reasoning below names which one was
+    // generated; neither is called "cryptographic" unqualified.
     const attestation = await createDidAttestation({
       proposerDid: AGENT_DIDS.TRADING,
       action: "order_propose",
@@ -274,12 +277,12 @@ export class ETradeThinkHarness {
       currency: "USD",
       customer: input.userLogin || "trader",
       gateway: "etrade",
-    });
+    }, this.env?.DID_ATTESTATION_KEY);
 
     steps.push({
       phase: "attestation",
       status: "PASS",
-      reasoning: `Generated cryptographic attestation under ${AGENT_DIDS.TRADING}. Verification signature: ${attestation.signature.slice(0, 16)}...`,
+      reasoning: `Generated ${attestation.proofType === "HmacSha256Verification2026" ? "keyed HMAC attestation (verifiable)" : "unkeyed content-label attestation (not a cryptographic proof)"} under ${AGENT_DIDS.TRADING}. Attestation value: ${attestation.signature.slice(0, 16)}...`,
       metricName: "AgentAttestationSignature",
       metricValue: attestation.signature,
     });

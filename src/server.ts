@@ -1651,6 +1651,7 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       const sched = (env as any).SCHEDULED_AGENT.get(schedId) as unknown as {
         reconcileChainScheduleProjection(
           tenantId: string,
+          actor?: string,
         ): Promise<ReconcileReport>;
       };
       return handleReconcileChainsRoute({
@@ -1658,8 +1659,10 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         method: request.method,
         isPlatformAdmin,
         tenantId: resolveIaaaTenant(env),
-        runReconcile: ({ tenantId }) =>
-          sched.reconcileChainScheduleProjection(tenantId),
+        // Issue #2426: the operator's login rides to the agent so
+        // the reconcile audit row names its real actor.
+        runReconcile: ({ tenantId, actor }) =>
+          sched.reconcileChainScheduleProjection(tenantId, actor),
       });
     }
 

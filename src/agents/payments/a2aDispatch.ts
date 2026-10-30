@@ -41,6 +41,7 @@
 import { AGENT_ERROR_CATALOG, AgentErrorCode } from "../../aspects/errorCodes";
 import type { PaymentRecord } from "../../payments/ledger";
 import type { Env } from "../../types";
+import type { A2AAttribution } from "../../a2a/meshCredentials";
 
 /**
  * The operations this dispatch serves. This constant is the
@@ -115,6 +116,16 @@ export interface PaymentsProcessRequest {
   amountCents: number;
   idempotencyKey: string;
   paymentProof: string;
+  /**
+   * Two-part attribution, part 2 (issue #2426): the caller the A2A
+   * edge authenticated (its credential identity), threaded from the
+   * edge attribution by the class. Part 1 is agentId — the spending
+   * agent the caller names (required since #2327). The method
+   * records both in the audit record the payment already writes;
+   * absent when the dispatch runs outside the edge (in-process
+   * callers), where no edge-authenticated caller exists to record.
+   */
+  caller?: string;
 }
 
 /** The PaymentsAgent method surface the dispatch delegates to. */
@@ -132,6 +143,13 @@ export interface PaymentsA2ADeps {
    * dispatch fails honestly instead of fabricating a result.
    */
   executor?: PaymentsA2AExecutor;
+  /**
+   * The edge attribution for this call (issue #2426), injected by
+   * the class from handleA2A's third argument. Only the caller part
+   * is threaded onward (into payments.process's recorded audit
+   * attribution); the surface/credential parts stay at the edge.
+   */
+  attribution?: A2AAttribution;
 }
 
 /**
@@ -193,6 +211,7 @@ async function executeOperation(
   operation: PaymentsA2AOperation,
   args: Record<string, unknown>,
   executor: PaymentsA2AExecutor,
+  attribution?: A2AAttribution,
 ): Promise<unknown> {
   switch (operation) {
     case "payments.budget_check": {
@@ -229,6 +248,11 @@ async function executeOperation(
         amountCents: amountArg(args, operation),
         idempotencyKey: stringArg(args, "idempotencyKey", operation),
         paymentProof: stringArg(args, "paymentProof", operation),
+        // Two-part attribution (issue #2426): the edge-authenticated
+        // caller rides beside the caller-asserted agentId — never
+        // from the request body, which anyone holding a credential
+        // could forge.
+        ...(attribution ? { caller: attribution.caller } : {}),
       };
       // Faithful pass-through: the method validates against the
       // budget guard, verifies with the facilitator, and records
@@ -293,7 +317,7 @@ export async function dispatchPaymentsA2A(
       // injected executor there is no honest way to serve this.
       throw new Error("Payments executor is not configured for this dispatch context.");
     }
-    const result = await executeOperation(op, args, deps.executor);
+    const result = await executeOperation(op, args, deps.executor, deps.attribution);
     return { ok: true, operation, correlationId, result };
   } catch (err) {
     if (err instanceof PaymentsA2AInputError) {

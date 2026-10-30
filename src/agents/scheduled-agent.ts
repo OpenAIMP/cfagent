@@ -217,6 +217,21 @@ export interface ScheduledAgentCronOpts {
  * session, so no lifecycle boot is needed on that path — the
  * adapter-owned start() precondition applies to turns only.
  */
+/**
+ * Issue #2426 (G14) — the audit actor for ScheduledAgent's own
+ * maintenance acts when no acting principal is threaded into the
+ * call. The reconciliation below is executed BY this agent (an
+ * operator triggers it through the admin-gated route, which
+ * threads the operator's login as the actor — see
+ * reconcileChainScheduleProjection); a caller that supplies no
+ * actor is answered with the agent's own named identity, never the
+ * synthetic "system" literal this replaces: "system" named nobody,
+ * while this names the agent that performed the act, in the same
+ * named-service-identity pattern as NLQ_WEBHOOK_SERVICE_LOGIN
+ * (#2412).
+ */
+export const SCHEDULED_AGENT_AUDIT_ACTOR = "scheduled-agent";
+
 export class ScheduledAgent extends PortThink {
   private async getGoals(): Promise<ScheduledGoal[]> {
     const stored = await this.ctx.storage.get<ScheduledGoal[]>("goals");
@@ -906,15 +921,25 @@ export class ScheduledAgent extends PortThink {
    * it is called deliberately by an operator (via the
    * admin-gated POST /api/chains/reconcile route), never on
    * boot, deploy, or tick. Returns the report so the operator
-   * sees exactly what changed.
+   * sees exactly what changed. The route threads the operator's
+   * login as `actor` for the audit row (issue #2426); a caller
+   * that supplies none is recorded under SCHEDULED_AGENT_AUDIT_ACTOR.
    */
   async reconcileChainScheduleProjection(
     tenantId: string = "primary",
+    actor?: string,
   ): Promise<ReconcileReport> {
     const adapter = createChainScheduleAdapter(this.env);
     if (!adapter) {
       return { checked: 0, reconciled: 0, alreadyCurrent: 0, errors: [] };
     }
+    // Issue #2426: the audit row names its real actor — the
+    // operator the route threaded in, or this agent's own named
+    // identity when no actor was supplied (never "system").
+    const auditActor =
+      typeof actor === "string" && actor.trim().length > 0
+        ? actor.trim()
+        : SCHEDULED_AGENT_AUDIT_ACTOR;
     await ensureChainScheduleSchema(adapter.db);
     const records = await this.getSynthesized();
     const report = await reconcileChainSchedules({
@@ -934,7 +959,7 @@ export class ScheduledAgent extends PortThink {
       eventKind: "reconcile",
       subjectType: "chain",
       subjectId: tenantId,
-      actor: "system",
+      actor: auditActor,
       detailJson: JSON.stringify(report),
       occurredAtMs: Date.now(),
       provenanceWriter: "scheduled-agent:reconcileChainScheduleProjection",

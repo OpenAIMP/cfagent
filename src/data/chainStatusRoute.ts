@@ -119,6 +119,13 @@ export interface ReconcileChainsRouteDeps {
   tenantId: string;
   runReconcile: (input: {
     tenantId: string;
+    /**
+     * Issue #2426: the operator's login from the session, threaded
+     * to the agent so the reconciliation's audit row names its real
+     * actor. Absent when the session carries no login — the agent
+     * then records its own named identity.
+     */
+    actor?: string;
   }) => Promise<ReconcileReport>;
 }
 
@@ -150,7 +157,11 @@ export async function handleReconcileChainsRoute(
     );
   }
   try {
-    const report = await deps.runReconcile({ tenantId: deps.tenantId });
+    const actor = deps.session.githubLogin?.trim();
+    const report = await deps.runReconcile({
+      tenantId: deps.tenantId,
+      ...(actor ? { actor } : {}),
+    });
     return Response.json(report);
   } catch {
     return Response.json(

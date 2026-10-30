@@ -290,6 +290,7 @@ export async function handleAgenticPaymentsRoutes(
         idempotencyKey?: unknown;
         payer?: unknown;
         proofSignature?: unknown;
+        caller?: unknown;
         createdAt?: unknown;
       };
       const agentId = typeof body.agentId === "string" ? body.agentId.trim() : "";
@@ -327,6 +328,17 @@ export async function handleAgenticPaymentsRoutes(
         operation,
         amountCents: Math.floor(amountCents),
         idempotencyKey,
+        // Two-part attribution (issue #2426): beside the spending
+        // agentId (part 1 — the identity the caller named, required
+        // since #2327), the caller the A2A edge authenticated
+        // (part 2), when the payment arrived over that door. The
+        // caller value reaches this handler only through the
+        // PaymentsAgent ledger forward: the dispatch builds it from
+        // the edge attribution, never from the external request
+        // body, so it cannot be asserted by the caller.
+        ...(typeof body.caller === "string" && body.caller.length > 0
+          ? { caller: body.caller }
+          : {}),
       });
       return Response.json({ duplicate: false, record: toPaymentRecord(tx) });
     } catch (err: any) {
