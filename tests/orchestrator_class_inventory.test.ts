@@ -308,8 +308,18 @@ describe("orchestrator class inventory (#992 standing gate)", () => {
   });
 
   it("keeps the extracted modules present with their execution markers", () => {
+    // #2358 (#1976 step 4a) pin update: the extracted module now
+    // serves the async-job queue through the data layer's ports
+    // instead of holding the INSERT statements itself — the
+    // marker's intent (this module owns the queue composition
+    // for the class) is unchanged; the statements moved behind
+    // the Queue/Read/Maintenance ports (same pattern as the
+    // #2337 scheduledCallbacks update below).
     expect(src("agents/orchestrator/asyncJobs.ts")).toContain(
-      "INSERT INTO mas_async_jobs",
+      "createAsyncJobPorts(",
+    );
+    expect(src("agents/orchestrator/asyncJobs.ts")).toContain(
+      ".queue",
     );
     expect(src("agents/orchestrator/autopilot.ts")).toContain(
       "INSERT INTO mas_policy_verdicts",
