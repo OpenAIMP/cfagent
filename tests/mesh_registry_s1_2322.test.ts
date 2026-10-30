@@ -255,8 +255,12 @@ describe("registry vs A2A cards and resolutions (#2322)", () => {
     }
   });
 
-  it("agents with no A2A surface record none (TickerAgent, SandboxAgent, SessionStore, OptionsScannerMCP)", () => {
-    for (const className of ["TickerAgent", "SandboxAgent", "SessionStore", "OptionsScannerMCP"]) {
+  it("agents with no A2A surface record none (TickerAgent, SessionStore, OptionsScannerMCP)", () => {
+    // SandboxAgent left this set in S15 (#2421): its A2A surface is
+    // the #2253 recorded follow-up, landed with card + resolution +
+    // dispatch — the census pins it in
+    // tests/mesh_every_door_s15_2421.test.ts.
+    for (const className of ["TickerAgent", "SessionStore", "OptionsScannerMCP"]) {
       expect(surfacesForClass(className), className).toEqual([]);
     }
   });
