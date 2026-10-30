@@ -352,9 +352,11 @@ describe("Cloudflare Agents: Task Scheduling & Durable Timers", () => {
       });
 
       const etrade = new ETradeService(orm, env, sessionId, "sandbox");
-      expect(() => {
-        etrade.executeOrder(orderId, "did:key:user123", "approved");
-      }).toThrow(/cannot be executed.*current status is 'expired'/i);
+      // #2389: executeOrder is async now (approval places through the
+      // broker client), so the status gate surfaces as a rejection.
+      await expect(etrade.executeOrder(orderId, "did:key:user123", "approved")).rejects.toThrow(
+        /cannot be executed.*current status is 'expired'/i
+      );
     });
 
     it("does not overwrite already executed or rejected orders upon expiration timer firing", async () => {
