@@ -28,6 +28,7 @@ import {
 } from "../../config/quoteModes";
 import { getCuratedStockBySymbol } from "../../config/curatedStockUniverse";
 import { getETradeAuthStatus, etradeIdentityFromLogin } from "../../security/etradeOAuth";
+import { parseStrategyOrder } from "../../agents/routes/orderPayloadHash";
 import { AGENT_DIDS, createDidAttestationSync, getUserDid } from "../../agents/did";
 
 /**
@@ -567,7 +568,7 @@ export class ETradeTradingPlatform implements ITradingPlatform {
     return draft;
   }
 
-  executeOrder(orderId: string, authorizerDid: string, decision: "approved" | "rejected", expectedTerms?: ExpectedTradeTerms): ETradeOrderExecutionResult {
+  async executeOrder(orderId: string, authorizerDid: string, decision: "approved" | "rejected", expectedTerms?: ExpectedTradeTerms): Promise<ETradeOrderExecutionResult> {
     const now = new Date().toISOString();
 
     // 1. Strict HITL Gate: authorizer must be a verified human user DID
@@ -609,7 +610,6 @@ export class ETradeTradingPlatform implements ITradingPlatform {
     const symbol = record.symbol;
     const action = record.action;
     const quantity = record.quantity;
-    const estimatedTotal = record.totalValue;
     const proposerDid = record.proposerDid;
     const proofSignature = record.proofSignature;
 
@@ -647,38 +647,47 @@ export class ETradeTradingPlatform implements ITradingPlatform {
       throw new Error(`Invalid decision '${decision}'. Order execution requires explicit 'approved' decision.`);
     }
 
-    const brokerOrderRef = `et_ref_${crypto.randomUUID().slice(0, 10)}`;
-    const executionPrice = Number((estimatedTotal / (quantity || 1)).toFixed(2));
+    // #2389: an approved draft is placed through the real broker
+    // client and the record takes the client's outcome — `executed`
+    // is persisted only when the client returns broker-confirmed
+    // success carrying a reference from an actual placement response.
+    // This method used to invent an et_ref_ reference, derive a price
+    // from the preview estimate, and stamp the record executed with
+    // zero broker calls; that fabrication is what filled the
+    // autopilot feed with executions no broker performed. On any
+    // non-executed client result the draft is left untouched (still
+    // "previewed"), so the approval can be retried once the broker
+    // path works — the same posture the broker-orders route takes.
+    const strategyOrder = parseStrategyOrder(record.previewNotes);
+    const result = await this.client.placeOrder({
+      orderId,
+      symbol,
+      action,
+      quantity,
+      orderType: record.orderType,
+      limitPrice:
+        record.orderType === "LIMIT" || record.orderType === "STOP_LIMIT" ? record.price : undefined,
+      previewId:
+        record.orderRef && String(record.orderRef).trim() !== "" ? String(record.orderRef).trim() : undefined,
+      optionLegs: strategyOrder.optionLegs.length > 0 ? (strategyOrder.optionLegs as any) : undefined,
+      strategyNetDebit: strategyOrder.strategyNetDebit ?? undefined,
+      userLogin: authorizerDid,
+    });
 
-    if (this.orm?.trades) {
+    if (
+      result.success &&
+      this.orm?.trades &&
+      (result.status === "executed" || result.status === "submitted")
+    ) {
       this.orm.trades.update(orderId, {
-        status: "executed",
-        orderRef: brokerOrderRef,
+        status: result.status,
+        orderRef: result.brokerOrderRef || result.executionId,
         authorizerDid,
         updatedAt: now,
       });
     }
 
-    return {
-      success: true,
-      orderId,
-      executionId: brokerOrderRef,
-      brokerOrderRef,
-      authorizerDid,
-      status: "executed",
-      symbol,
-      action,
-      quantity,
-      executionPrice,
-      totalSettled: estimatedTotal,
-      didAttestation: {
-        proposerDid,
-        authorizerDid,
-        signature: proofSignature,
-      },
-      message: `E*TRADE Execution Confirmed: ${action} ${quantity} ${symbol} @ $${executionPrice.toFixed(2)}. Settled total: $${estimatedTotal.toLocaleString()} USD.`,
-      timestamp: now,
-    };
+    return result;
   }
 
   async placeOrderRemote(params: any): Promise<ETradeOrderExecutionResult> {
