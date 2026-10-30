@@ -126,6 +126,34 @@ describe("IAAA admin tabs", () => {
     expect(container.textContent).toContain("UNMAPPED");
   });
 
+  it("#2173: overview with adminCounts renders the counts section and per-tenant breakdown", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            ...OVERVIEW,
+            adminCounts: {
+              platformAdmins: 2,
+              tenantAdminsTotal: 3,
+              tenantAdminsByTenant: [
+                { tenantId: "acme", count: 2 },
+                { tenantId: "primary", count: 1 },
+              ],
+            },
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+    await renderPanel();
+    expect(container.textContent).toContain("Admin counts");
+    expect(container.textContent).toContain("Platform admins");
+    expect(container.textContent).toContain("Tenant admins (all tenants)");
+    expect(container.textContent).toContain("acme");
+    expect(container.textContent).toContain("primary");
+  });
+
   it("a 403 still shows the not-admin state and no tabs", async () => {
     vi.stubGlobal(
       "fetch",

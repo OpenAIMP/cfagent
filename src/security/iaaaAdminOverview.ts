@@ -24,8 +24,11 @@
  * Store limitations (read before extending this panel):
  * - There is NO list-all memberships API in MembershipStore
  *   (getMembershipsByUser only), so v1 shows the CALLER'S OWN
- *   memberships, not every user's. Cross-user listing needs a new
- *   store capability and is deliberately out of v1.
+ *   memberships, not every user's. Cross-user listing goes
+ *   through the #1758 list-all source (listMembershipsFromEntries
+ *   over the sessions-namespace listing), which is what the
+ *   #2173 admin-counts field on the overview route uses; the
+ *   builder itself still never lists other users.
  * - The audit store is a single tenant-mixed log key
  *   (iaaa-audit:events) read in full and filtered in memory;
  *   at auth-event volume that is acceptable, but this route
@@ -87,6 +90,88 @@ export type AdminOverviewResult =
       genesis: { platformGenesisOccurred: boolean };
       recentAuditEvents: AdminAuditEventView[];
     };
+
+/** One tenant's admin count inside an AdminCounts breakdown. */
+export interface TenantAdminCount {
+  tenantId: string;
+  count: number;
+}
+
+/**
+ * #2173 admin-counts slice — system-wide admin counts from
+ * membership records. Counts only: no member identities are
+ * returned (the existing GET /api/iaaa/memberships listing is the
+ * surface that exposes identities to platform admins).
+ *
+ * Rules (fixed from the membership model in authorization.ts):
+ * - A membership counts only when live: revokedAtMs undefined.
+ *   There is no separate "retired" status; revocation is the
+ *   status, and it is per membership.
+ * - A binding counts only when live: expiresAtMs undefined or
+ *   greater than nowMs.
+ * - platformAdmins = DISTINCT internalUserIds holding a live
+ *   platform-admin binding at platform scope. Platform scope is
+ *   platform-wide, so the membership's tenant does not split
+ *   this count.
+ * - tenantAdminsByTenant = per tenant, DISTINCT internalUserIds
+ *   holding a live tenant-admin binding at tenant scope in that
+ *   tenant. An identity admin in two tenants counts in EACH
+ *   tenant's count; tenantAdminsTotal is the SUM of the
+ *   per-tenant counts, not distinct identities across tenants.
+ * - An identity holding both a platform-admin binding and a
+ *   tenant-admin binding counts in BOTH dimensions.
+ * - member / workspace-admin / approver / auditor bindings never
+ *   count, and scope mismatches (platform-admin at tenant scope,
+ *   tenant-admin at platform scope) never count.
+ * - Breakdown rows are sorted by tenantId for determinism.
+ */
+export interface AdminCounts {
+  platformAdmins: number;
+  tenantAdminsTotal: number;
+  tenantAdminsByTenant: TenantAdminCount[];
+}
+
+function bindingIsLive(
+  membership: Membership,
+  role: "platform-admin" | "tenant-admin",
+  scope: "platform" | "tenant",
+  nowMs: number,
+): boolean {
+  if (membership.revokedAtMs !== undefined) return false;
+  return membership.roleBindings.some(
+    (b) =>
+      b.role === role &&
+      b.scope === scope &&
+      (b.expiresAtMs === undefined || b.expiresAtMs > nowMs),
+  );
+}
+
+/** Pure count over any membership list (route lists all records; see server.ts). */
+export function computeAdminCounts(memberships: Membership[], nowMs: number): AdminCounts {
+  const platformIds = new Set<string>();
+  const tenantIdsByTenant = new Map<string, Set<string>>();
+  for (const membership of memberships) {
+    if (bindingIsLive(membership, "platform-admin", "platform", nowMs)) {
+      platformIds.add(membership.internalUserId);
+    }
+    if (bindingIsLive(membership, "tenant-admin", "tenant", nowMs)) {
+      let ids = tenantIdsByTenant.get(membership.tenantId);
+      if (!ids) {
+        ids = new Set<string>();
+        tenantIdsByTenant.set(membership.tenantId, ids);
+      }
+      ids.add(membership.internalUserId);
+    }
+  }
+  const tenantAdminsByTenant: TenantAdminCount[] = [...tenantIdsByTenant.entries()]
+    .map(([tenantId, ids]) => ({ tenantId, count: ids.size }))
+    .sort((a, b) => (a.tenantId < b.tenantId ? -1 : a.tenantId > b.tenantId ? 1 : 0));
+  return {
+    platformAdmins: platformIds.size,
+    tenantAdminsTotal: tenantAdminsByTenant.reduce((sum, row) => sum + row.count, 0),
+    tenantAdminsByTenant,
+  };
+}
 
 /**
  * Live platform-admin test, same semantics as the end-to-end

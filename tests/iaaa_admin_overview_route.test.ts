@@ -190,3 +190,31 @@ describe("GET /api/iaaa/overview gating", () => {
     expect(res.status).toBe(405);
   });
 });
+
+describe("GET /api/iaaa/overview adminCounts (#2173)", () => {
+  it("platform-admin 200 carries system-wide counts with a per-tenant breakdown summing to the total", async () => {
+    const res = await worker.fetch(req("/api/iaaa/overview", { cookie: ADMIN_SESSION }), makeEnv());
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, any>;
+    // Seeds: ADMIN holds platform-admin in primary; USER holds
+    // tenant-admin in primary. No other memberships exist.
+    expect(body.adminCounts.platformAdmins).toBe(1);
+    expect(body.adminCounts.tenantAdminsTotal).toBe(1);
+    expect(body.adminCounts.tenantAdminsByTenant).toEqual([{ tenantId: "primary", count: 1 }]);
+    const sum = body.adminCounts.tenantAdminsByTenant.reduce(
+      (acc: number, row: { count: number }) => acc + row.count,
+      0,
+    );
+    expect(sum).toBe(body.adminCounts.tenantAdminsTotal);
+    // Counts only: no member identities in the counts field.
+    expect(JSON.stringify(body.adminCounts)).not.toContain(ADMIN_ID);
+    expect(JSON.stringify(body.adminCounts)).not.toContain(USER_ID);
+  });
+
+  it("wired non-admin 403 carries no counts", async () => {
+    const res = await worker.fetch(req("/api/iaaa/overview", { cookie: USER_SESSION }), makeEnv());
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect("adminCounts" in body).toBe(false);
+  });
+});

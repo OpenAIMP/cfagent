@@ -45,12 +45,27 @@ export interface AdminAuditEventView {
   errorCode?: string;
 }
 
+/** #2173 admin-counts slice — counts only, no member identities. */
+export interface TenantAdminCountView {
+  tenantId: string;
+  count: number;
+}
+
+/** #2173 admin-counts slice — system-wide counts + per-tenant breakdown. */
+export interface AdminCountsView {
+  platformAdmins: number;
+  tenantAdminsTotal: number;
+  tenantAdminsByTenant: TenantAdminCountView[];
+}
+
 export interface AdminOverview {
   tenantId: string;
   callerInternalUserId: string;
   memberships: AdminMembershipView[];
   genesis: { platformGenesisOccurred: boolean };
   recentAuditEvents: AdminAuditEventView[];
+  /** #2173: present on server responses that carry admin counts; older payloads omit it. */
+  adminCounts?: AdminCountsView;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -81,6 +96,17 @@ function isAuditEvent(value: unknown): value is AdminAuditEventView {
   );
 }
 
+function isAdminCounts(value: unknown): value is AdminCountsView {
+  if (!isRecord(value)) return false;
+  if (typeof value.platformAdmins !== "number") return false;
+  if (typeof value.tenantAdminsTotal !== "number") return false;
+  if (!Array.isArray(value.tenantAdminsByTenant)) return false;
+  return value.tenantAdminsByTenant.every(
+    (row) =>
+      isRecord(row) && typeof row.tenantId === "string" && typeof row.count === "number",
+  );
+}
+
 /** Shape guard: true only for a well-formed overview payload. */
 export function isAdminOverview(value: unknown): value is AdminOverview {
   if (!isRecord(value)) return false;
@@ -93,6 +119,10 @@ export function isAdminOverview(value: unknown): value is AdminOverview {
   if (!Array.isArray(value.recentAuditEvents) || !value.recentAuditEvents.every(isAuditEvent)) {
     return false;
   }
+  // #2173: adminCounts is optional for backward compatibility, but
+  // when present it must be well-formed — a malformed counts block
+  // rejects the whole payload instead of rendering partial counts.
+  if (value.adminCounts !== undefined && !isAdminCounts(value.adminCounts)) return false;
   return true;
 }
 
