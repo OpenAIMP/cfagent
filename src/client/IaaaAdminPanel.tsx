@@ -20,6 +20,12 @@
  * decides authorization: every mutation can still 403 server-side
  * (non-granter, self-grant, stale auth for the step-up obligation),
  * and the panel surfaces that refusal instead of hiding it.
+ *
+ * #2173 admin-counts slice: the Overview tab also shows
+ * system-wide admin counts (platform admins + tenant admins with
+ * a per-tenant breakdown) from the overview route. Counts only —
+ * no member identities; the Members tab remains the surface that
+ * lists identities.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -305,6 +311,45 @@ export function IaaaAdminPanel() {
             </strong>
           </div>
         </div>
+
+        {overview.adminCounts && (
+          <>
+            <h4>Admin counts</h4>
+            <div className="iaaa-admin-summary">
+              <div>
+                <span className="iaaa-admin-label">Platform admins</span>
+                <strong>{overview.adminCounts.platformAdmins}</strong>
+              </div>
+              <div>
+                <span className="iaaa-admin-label">Tenant admins (all tenants)</span>
+                <strong>{overview.adminCounts.tenantAdminsTotal}</strong>
+              </div>
+            </div>
+            {overview.adminCounts.tenantAdminsByTenant.length === 0 ? (
+              <EmptyState
+                title="No tenant admins"
+                description="No tenant-admin memberships recorded yet."
+              />
+            ) : (
+              <Table
+                columns={[
+                  {
+                    key: "tenant",
+                    header: "Tenant",
+                    render: (row) => <code>{row.tenantId}</code>,
+                  },
+                  {
+                    key: "count",
+                    header: "Tenant admins",
+                    render: (row) => String(row.count),
+                  },
+                ]}
+                rows={overview.adminCounts.tenantAdminsByTenant}
+                rowKey={(row) => row.tenantId}
+              />
+            )}
+          </>
+        )}
 
         <p className="iaaa-admin-note">
           Audit events are read-only. Pending access requests below can be

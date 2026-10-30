@@ -45,7 +45,7 @@ import {
 } from "./security/iaaaMembershipStore";
 import { canGrantRole, type AuthorizationScope, type Role } from "./security/authorization";
 import { createAccessRequestStore } from "./security/iaaaAccessRequests";
-import { buildAdminOverview, isPlatformAdmin } from "./security/iaaaAdminOverview";
+import { buildAdminOverview, computeAdminCounts, isPlatformAdmin } from "./security/iaaaAdminOverview";
 import {
   evaluateWithObligations,
   type ObligationAuditWriter,
@@ -1453,13 +1453,19 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
 
     // --- IAAA Admin overview (issue #945, IAAA-UI v1: READ-ONLY) ---
     // GET /api/iaaa/overview: the caller's own memberships, the
-    // tenant's platform-genesis status, and recent tenant audit
-    // events. Gating is fail-closed and server-side (see
-    // iaaaAdminOverview.ts): unauthenticated → 401; legacy session
-    // (no internalUserId) or wired non-admin → 403 with NO data;
-    // only a live platform-admin membership returns 200. This route
-    // performs no store write of any kind, and a corrupt store read
-    // answers 500 with a generic error and no partial data.
+    // tenant's platform-genesis status, recent tenant audit
+    // events, and (#2173 admin-counts slice) system-wide admin
+    // counts from the membership records. Gating is fail-closed
+    // and server-side (see iaaaAdminOverview.ts): unauthenticated
+    // → 401; legacy session (no internalUserId) or wired non-admin
+    // → 403 with NO data; only a live platform-admin membership
+    // returns 200. Counts are counts only — no member identities
+    // (the existing GET /api/iaaa/memberships listing is the
+    // surface that exposes identities to platform admins). The
+    // counts list reuses that route's list-all source, so a
+    // corrupt record is skipped, never fatal; an unavailable
+    // listing answers 500 with a generic error and no partial
+    // data. This route performs no store write of any kind.
     if (path === "/api/iaaa/overview") {
       const session = await requireAuth(request, env);
       if (!session) {
@@ -1485,7 +1491,19 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
         if (!overview.allowed) {
           return Response.json({ error: "Forbidden: IAAA admin access requires platform-admin membership." }, { status: 403 });
         }
-        return Response.json(overview);
+        const entries = await listStoreEntries({
+          namespace: env.SESSION_STORE as unknown as DoNamespaceLike | undefined,
+          namespaceName: "sessions",
+          prefix: "iaaa-membership:",
+        });
+        if (!entries) {
+          return Response.json({ error: "IAAA admin overview unavailable." }, { status: 500 });
+        }
+        const adminCounts = computeAdminCounts(
+          listMembershipsFromEntries(entries),
+          Date.now(),
+        );
+        return Response.json({ ...overview, adminCounts });
       } catch {
         return Response.json({ error: "IAAA admin overview unavailable." }, { status: 500 });
       }
