@@ -11,7 +11,7 @@ and `tests/a2a_entrypoint_auth_1763.test.ts`).
 ## Method and scope
 
 - Inventory source: `src/permissions/mcpPermissionPorts.ts`
-  `MCP_TOOL_SCOPES` (80 tools: 71 canonical + 9 deprecated #1906
+  `MCP_TOOL_SCOPES` (81 tools: 72 canonical + 9 deprecated #1906
   aliases, completeness-pinned against the live
   factory registry in both directions by #1843's tests) plus the
   scanner surface (`src/services/cloudflareWalletsScanner.ts`) and
@@ -58,7 +58,7 @@ and `tests/a2a_entrypoint_auth_1763.test.ts`).
    authenticated the request is the identity, not the tool call
    itself. See gap G-AUD-3.
 
-## The 80 factory tools — verdict per tool
+## The 81 factory tools — verdict per tool
 
 Verdict key: **L** = login-attributable via door 1 (session /
 API-key); **I** = instance-attributable only via door 2 (gap
@@ -104,6 +104,7 @@ other doors. Scope column is #1843's declaration, consumed here.
 | `agentdb.jobs.history` | mcp:read | L (I / R on other doors) |
 | `agentdb.audit.history` | mcp:read | L (I / R on other doors) |
 | `agentdb.reports.list` | mcp:read | L (I / R on other doors) |
+| `agentdb.trace.get` | mcp:read | L (I / R on other doors) — the #2428 mesh-trace read surface: assembles one trace's recorded hops; the tenant is IAAA-resolved, never an argument, and hops under another tenant are excluded |
 | `list_scheduled_goals` | mcp:read | L via door 2 only — acting identity required (#2341); refused on doors 1/3 (no acting-identity carrier there) |
 | `get_trading_accounts` | mcp:read | L via door 2 only — acting identity required (#2349); refused on doors 1/3 (no acting-identity carrier there) |
 | `get_trading_positions` | mcp:read | L via door 2 only — acting identity required (#2349); refused on doors 1/3 (no acting-identity carrier there) |

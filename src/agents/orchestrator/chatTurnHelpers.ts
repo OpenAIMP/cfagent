@@ -47,6 +47,15 @@ export interface ChatTurnHelpersContext {
    * which may run after the tool set is built.
    */
   turnUserLogin?: () => string | undefined;
+  /**
+   * #2428 (Agent Mesh S17): resolver for the current turn's mesh
+   * traceparent (the orchestrator's turn stash, minted lazily on
+   * first read so every tool built for the turn shares ONE trace).
+   * Optional under the same discipline as turnUserLogin: contexts
+   * built outside a turn supply none, and trace recording for the
+   * call is then skipped — never fabricated.
+   */
+  turnTraceparent?: () => string | undefined;
   audit: (type: string, agent: AgentName | "judge" | "nlq" | "orchestrator", payload: Record<string, unknown>) => void;
   submitAsyncJob: (job: AsyncJobSubmission) => Promise<{ jobId: string; status: "queued"; statusUrl: string }>;
   getAsyncJob: (jobId: string) => AsyncJobRecord | undefined;
@@ -105,6 +114,9 @@ export function createTurnTools(ctx: ChatTurnHelpersContext, requestId: string):
     // The principal above is unchanged; this carrier exists so a
     // door can name the acting user, not just the instance.
     actingLogin: ctx.turnUserLogin,
+    // #2428 (Agent Mesh S17): the trace carrier the door/job
+    // paths resolve through (see McpToolContext.traceparent).
+    traceparent: ctx.turnTraceparent,
     permissionDecisionSink: createObservabilitySink(ctx.env),
     submitJob: (job) => ctx.submitAsyncJob(job),
     getJob: (jobId) => ctx.getAsyncJob(jobId),

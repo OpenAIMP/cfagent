@@ -917,3 +917,31 @@ export const resourceComparisonReports = sqliteTable("resource_comparison_report
   generatedAt: integer("generated_at").notNull(),
   reportJson: text("report_json").notNull(),
 });
+
+/**
+ * Issue #2428 (Agent Mesh S17, G13a) — one row per recorded
+ * mesh trace hop. The (trace_id, span_id) primary key is the
+ * recording idempotency rule (durable replay converges).
+ * tenant_id is nullable by design: a hop emitted at a boundary
+ * with no tenant scope records null, never a fabricated tenant
+ * (the #1743 scope rule). DDL lives in MIGRATION_0023.
+ */
+export const agentMeshTraceHops = sqliteTable(
+  "agent_mesh_trace_hops",
+  {
+    traceId: text("trace_id").notNull(),
+    spanId: text("span_id").notNull(),
+    parentSpanId: text("parent_span_id"),
+    kind: text("kind").notNull(),
+    operation: text("operation").notNull(),
+    timestampMs: integer("timestamp_ms").notNull(),
+    tenantId: text("tenant_id"),
+    caller: text("caller"),
+    agentName: text("agent_name"),
+    jobId: text("job_id"),
+    note: text("note"),
+  },
+  (table) => [
+    primaryKey({ columns: [table.traceId, table.spanId] }),
+  ],
+);

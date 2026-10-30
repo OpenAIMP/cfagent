@@ -7,6 +7,12 @@ export * from "./agent-cards";
 import { A2A_CARDS, A2A_CARD_PATHS, getAgentCard } from "./agent-cards";
 import { resolveA2AAgent, resolveA2AInstanceName } from "./resolution";
 import { authenticateA2A } from "./meshCredentials";
+import { recordTraceHopBestEffort } from "../data/createMeshTracePorts";
+import {
+  formatTraceparent,
+  newTraceContext,
+} from "../observability/observabilityPorts";
+import { childContextOfTraceparent } from "../observability/meshTrace";
 
 /**
  * Route an incoming A2A request to the right DO stub.
@@ -106,11 +112,35 @@ export async function handleA2A(request: Request, env: any): Promise<Response> {
         { status: 400 },
       );
     }
+    // Mesh trace (S17, #2428): the A2A edge is an ingress — it
+    // continues the caller's traceparent or mints a fresh trace
+    // (#1743's ingress rule), records the a2a hop with the S16
+    // two-part attribution, and hands the traceparent into the
+    // dispatch as the fourth argument. Agents whose records
+    // carry attribution/trace (PaymentsAgent) declare the
+    // parameter; the rest ignore it. Recording is best-effort:
+    // a tracing failure never fails the dispatch.
+    const traceparent =
+      request.headers.get("traceparent") ?? formatTraceparent(newTraceContext());
+    const traceChild = childContextOfTraceparent(traceparent);
+    if (traceChild) {
+      await recordTraceHopBestEffort(env as Record<string, unknown>, {
+        traceId: traceChild.traceId,
+        spanId: traceChild.spanId,
+        parentSpanId: traceChild.parentSpanId,
+        kind: "a2a",
+        operation: `a2a:${match[1]}`,
+        timestampMs: Date.now(),
+        caller: auth.attribution.caller,
+        agent: auth.attribution.surface,
+      });
+    }
+
     // Two-part attribution (S16, #2426): the edge-authenticated
     // caller + the surface served ride into the dispatch as the
     // third argument. Agents whose records carry attribution
     // (PaymentsAgent) declare the parameter; the rest ignore it.
-    const outcome = (await stub.handleA2A(body, url.origin, auth.attribution)) as {
+    const outcome = (await stub.handleA2A(body, url.origin, auth.attribution, traceparent)) as {
       text?: string;
       data?: unknown;
     };

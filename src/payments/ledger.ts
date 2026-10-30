@@ -85,6 +85,14 @@ export interface LedgerPaymentInput {
    * ledger owner's audit record for the write.
    */
   caller?: string;
+  /**
+   * Issue #2428 (Agent Mesh S17): the W3C trace id of the
+   * caller's mesh trace, when the payment arrived over a
+   * traced door. Rides the ledger record beside the caller so
+   * the write joins the trace it was part of; the budget
+   * derivation never keys on it.
+   */
+  traceId?: string;
   /** Original timestamp to preserve (legacy migration); defaults to now. */
   createdAt?: string;
 }
