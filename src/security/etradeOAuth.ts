@@ -18,7 +18,7 @@ import {
 } from "./etradeTokenCache";
 import { consumeStoreKey, createStoreKv, listStoreEntries, type DoNamespaceLike } from "./durableKv";
 import { type KvLike } from "./kvResilience";
-import { lookupLoginByUserId } from "./iaaaMigration";
+import { lookupInternalUserIdByLogin, lookupLoginByUserId } from "./iaaaMigration";
 import { sessionStore } from "./session";
 import { generateOAuth1Header, rfc3986 } from "../services/cryptoUtils";
 import { resolveEnvironmentConfig } from "../config/environment";
@@ -132,6 +132,116 @@ async function readFirstParsable<T>(
     if (parsed !== null) return parsed;
   }
   return null;
+}
+
+/**
+ * Issue #2386 — the session identity for token resolution, taken ONLY
+ * from the verified session (server routes) or from the alias record
+ * for a login the route already trusts (broker-status route). It is
+ * NEVER user-supplied: a caller passing another principal's internal
+ * id would read that principal's token. Unknown or legacy sessions
+ * (no internalUserId) yield an empty identity, which resolves exactly
+ * like the pre-#2386 login-only read — fail closed, never sideways.
+ */
+export function etradeIdentityFromSession(
+  session: { internalUserId?: string } | null | undefined,
+): ETradeTokenIdentity {
+  const internalUserId = session?.internalUserId;
+  return internalUserId ? { internalUserId } : {};
+}
+
+/**
+ * Issue #2386 — resolve a login the caller already trusts to its
+ * session identity via the alias record. No record (or no store)
+ * yields an empty identity: the read falls back to login keys only.
+ */
+export async function etradeIdentityFromLogin(
+  env: Env,
+  userLogin: string,
+): Promise<ETradeTokenIdentity> {
+  if (!userLogin) return {};
+  try {
+    const internalUserId = await lookupInternalUserIdByLogin(sessionStore(env), userLogin);
+    return internalUserId ? { internalUserId } : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Issue #2386 — the ONE token-set resolution seam. Every token read
+ * (status, renew, revoke, broker flag) resolves through here, so no
+ * endpoint derives keys on its own: internal-id scoped first, then
+ * alias-login scoped, then login scoped, then the unscoped variants
+ * in the same order (see tokenCandidateKeys). The matched key is
+ * returned alongside the token so callers that distinguish scoped
+ * from unscoped hits (the unscoped-environment guard in
+ * getValidTokens) need no second derivation. A corrupt candidate
+ * never blocks a healthy fallback.
+ */
+async function readResolvedTokenSet(
+  env: Env,
+  userLogin: string,
+  overrideEnv?: string,
+  identity?: ETradeTokenIdentity,
+): Promise<{ tokens: ETradeTokenSet; key: string } | null> {
+  const kv = getKv(env);
+  const envConfig = resolveEnvironmentConfig(env, overrideEnv);
+  const aliasLogin = await resolveAliasLogin(env, identity?.internalUserId);
+  const keys = tokenCandidateKeys(
+    KV_ACCESS_TOKEN_KEY,
+    userLogin,
+    envConfig.name,
+    identity,
+    aliasLogin,
+  );
+  for (const key of keys) {
+    const raw = await kv.get(key);
+    if (!raw) continue;
+    try {
+      return { tokens: JSON.parse(raw) as ETradeTokenSet, key };
+    } catch {
+      // Corrupt candidate: fall through to the next key.
+    }
+  }
+  return null;
+}
+
+/**
+ * Issue #2386 — renew failure reasons, mapped to EXISTING catalog
+ * codes only (no new catalog; the outcome-catalog build #2381 owns
+ * any new code surface). The renew route reports these so the panel
+ * can tell the user the real reason instead of one generic 400.
+ */
+export type RenewFailureKind =
+  | "NO_TOKENS"
+  | "TOKEN_EXPIRED"
+  | "CREDENTIALS_MISSING"
+  | "UPSTREAM_REJECTED";
+
+export function renewFailureDetail(kind: RenewFailureKind): { code: string; message: string } {
+  switch (kind) {
+    case "NO_TOKENS":
+      return {
+        code: ETradeErrorCode.AUTH_REQUIRED,
+        message: "No stored E*TRADE token was found for this login. Reconnect E*TRADE to continue.",
+      };
+    case "TOKEN_EXPIRED":
+      return {
+        code: ETradeErrorCode.TOKEN_EXPIRED,
+        message: "The stored E*TRADE token expired past midnight ET. Reconnect E*TRADE to continue.",
+      };
+    case "CREDENTIALS_MISSING":
+      return {
+        code: ETradeErrorCode.CREDENTIALS_MISSING,
+        message: "E*TRADE consumer credentials are not configured for this environment.",
+      };
+    case "UPSTREAM_REJECTED":
+      return {
+        code: ETradeErrorCode.UPSTREAM_ERROR,
+        message: "E*TRADE rejected the renewal request. Try again, or reconnect E*TRADE if the problem persists.",
+      };
+  }
 }
 
 /**
@@ -301,30 +411,15 @@ export async function getStoredTokens(
   overrideEnv?: string,
   identity?: ETradeTokenIdentity
 ): Promise<ETradeTokenSet | null> {
-  const kv = getKv(env);
-  const envConfig = resolveEnvironmentConfig(env, overrideEnv);
   // Issue #1759: dual-read. Without an identity this is exactly
   // the pre-#1759 read (scoped login, then unscoped login). With
   // one, the internal-id key is primary and the alias login is
   // the fallback that keeps pre-rename tokens reachable.
-  const aliasLogin = await resolveAliasLogin(env, identity?.internalUserId);
-  return readFirstParsable(
-    kv,
-    tokenCandidateKeys(
-      KV_ACCESS_TOKEN_KEY,
-      userLogin,
-      envConfig.name,
-      identity,
-      aliasLogin,
-    ),
-    (raw) => {
-      try {
-        return JSON.parse(raw) as ETradeTokenSet;
-      } catch {
-        return null;
-      }
-    },
-  );
+  // Issue #2386: delegates to the one resolution seam
+  // (readResolvedTokenSet); this function keeps its shape so
+  // existing callers are untouched.
+  const resolved = await readResolvedTokenSet(env, userLogin, overrideEnv, identity);
+  return resolved?.tokens ?? null;
 }
 
 /**
@@ -369,9 +464,14 @@ export async function revokeStoredTokens(env: Env, userLogin: string, overrideEn
 export async function revokeRemoteAccessToken(
   env: Env,
   userLogin: string,
-  overrideEnv?: string
-): Promise<{ success: boolean; message: string }> {
-  const tokens = await getStoredTokens(env, userLogin, overrideEnv);
+  overrideEnv?: string,
+  identity?: ETradeTokenIdentity
+): Promise<{ success: boolean; deleted: boolean; message: string }> {
+  // Issue #2386: identity-aware read, so the upstream revoke targets
+  // the token the session can actually reach, and `deleted` tells
+  // the route (and the panel) whether anything was there to delete.
+  // Idempotent: no tokens still succeeds, with deleted: false.
+  const tokens = await getStoredTokens(env, userLogin, overrideEnv, identity);
   const envConfig = resolveEnvironmentConfig(env, overrideEnv);
   const consumerKey = envConfig.etrade.apiKey;
   const consumerSecret = envConfig.etrade.apiSecret;
@@ -403,8 +503,14 @@ export async function revokeRemoteAccessToken(
     }
   }
 
-  await revokeStoredTokens(env, userLogin, overrideEnv);
-  return { success: true, message: "E*TRADE access token revoked upstream and cleared from storage." };
+  await revokeStoredTokens(env, userLogin, overrideEnv, identity);
+  return {
+    success: true,
+    deleted: tokens !== null,
+    message: tokens
+      ? "E*TRADE access token revoked upstream and cleared from storage."
+      : "No stored E*TRADE token was found for this login; nothing was deleted.",
+  };
 }
 
 /**
@@ -590,14 +696,20 @@ export async function exchangeETradeVerifier(
 export async function renewETradeAccessToken(
   env: Env,
   userLogin: string,
-  overrideEnv?: string
+  overrideEnv?: string,
+  identity?: ETradeTokenIdentity
 ): Promise<ETradeTokenSet | null> {
-  const tokens = await getStoredTokens(env, userLogin, overrideEnv);
+  // Issue #2386: identity-aware read + identity-carrying expiry
+  // delete + dual-write store, so a renewed token lands under the
+  // internal-id key too and the next status read sees the same set
+  // the renew just wrote. Identity-less callers behave exactly as
+  // before (scheduled renewal, preflight).
+  const tokens = await getStoredTokens(env, userLogin, overrideEnv, identity);
   if (!tokens) return null;
 
   if (isTokenExpiredEt(tokens.storedAt)) {
     console.warn(`Cannot renew E*TRADE token for ${userLogin}: already expired past midnight ET.`);
-    await revokeStoredTokens(env, userLogin, overrideEnv);
+    await revokeStoredTokens(env, userLogin, overrideEnv, identity);
     return null;
   }
 
@@ -665,7 +777,7 @@ export async function renewETradeAccessToken(
           storedAt: new Date().toISOString(),
           environment: envConfig.name,
         };
-        await storeAccessTokens(env, userLogin, renewedTokens.accessToken, renewedTokens.accessTokenSecret, overrideEnv);
+        await storeAccessTokens(env, userLogin, renewedTokens.accessToken, renewedTokens.accessTokenSecret, overrideEnv, identity);
         return renewedTokens;
       }
     );
@@ -713,67 +825,81 @@ export async function renewAllStoredETradeTokens(env: Env): Promise<{ renewed: n
 
 /**
  * Returns a valid token set for a user.
+ *
+ * Issue #2386: this used to derive its own keys (scoped login, then
+ * unscoped legacy) in parallel with getStoredTokens' identity-aware
+ * dual-read — so status could see a token renew/revoke could not
+ * reach, and vice versa. It now resolves through the ONE seam
+ * (readResolvedTokenSet) and only adds validity: the isolate cache
+ * (identity-less callers only — session-facing reads stay fresh so
+ * the panel can never show a revoked token), the unscoped
+ * environment guard, and midnight-ET expiry (whose delete now
+ * carries the identity, so an expired internal-id token is actually
+ * removed instead of surviving to confuse the next status read).
+ * The pre-#2386 legacy-adopt write is dropped deliberately: an
+ * unscoped token stays readable through the seam's fallback, so
+ * the copy served no read — it only wrote on a read path.
+ * The stored per-user token is the ONLY source (#1185 Phase B,
+ * #1066): the legacy process-wide static pair was deleted, so a
+ * login with no valid stored token resolves to null and callers
+ * fail closed.
  */
 export async function getValidTokens(
   env: Env,
   userLogin: string,
-  overrideEnv?: string
+  overrideEnv?: string,
+  identity?: ETradeTokenIdentity
 ): Promise<ETradeTokenSet | null> {
   const envConfig = resolveEnvironmentConfig(env, overrideEnv);
-  // The stored per-user token is the ONLY source (#1185 Phase B, #1066):
-  // the legacy process-wide static pair was deleted, so a login with no
-  // valid stored token resolves to null and callers fail closed.
-
-  const kv = getKv(env);
-  const scopedKey = KV_ACCESS_TOKEN_KEY(userLogin, envConfig.name);
-
   // Issue #329 follow-up: this function runs once per E*TRADE request, so the
-  // token-store read (or two, on the legacy-key fallback) is the hottest remaining read
-  // path. Serve repeats from the isolate cache; every write path invalidates.
+  // token-store read is the hottest remaining read path. Serve repeats from
+  // the isolate cache; every write path invalidates. Identity-aware reads
+  // bypass the cache: they serve session-facing routes (status, renew,
+  // revoke) where a stale cached verdict is exactly the #2386 snap-back,
+  // and they are user-triggered, not hot data-plane reads.
+  const useCache = !identity?.internalUserId;
   const cacheKey = tokenCacheKey(envConfig.name, userLogin);
-  const cached = readTokenCache(cacheKey);
-  if (cached !== undefined) return cached;
+  if (useCache) {
+    const cached = readTokenCache(cacheKey);
+    if (cached !== undefined) return cached;
+  }
   // Issue #1218: the store read below is async — a concurrent write
   // path (connect/renew/revoke) may invalidate while it is in flight.
   // Capture the epoch now; the cache writes below no-op if it moved,
   // so a stale result never resurrects after the invalidation.
-  const readEpoch = tokenCacheEpoch(cacheKey);
+  const readEpoch = useCache ? tokenCacheEpoch(cacheKey) : 0;
 
-  let raw = await kv.get(scopedKey);
-  let tokens: ETradeTokenSet | null = null;
+  const resolved = await readResolvedTokenSet(env, userLogin, overrideEnv, identity);
+  let tokens: ETradeTokenSet | null = resolved?.tokens ?? null;
 
-  if (raw) {
-    try { tokens = JSON.parse(raw); } catch {}
-  }
-
-  // If not found in environment-scoped key, check unscoped fallback key
-  if (!tokens) {
-    const legacyRaw = await kv.get(KV_ACCESS_TOKEN_KEY(userLogin));
-    if (legacyRaw) {
-      try {
-        const parsed = JSON.parse(legacyRaw) as ETradeTokenSet;
-        if (!parsed.environment || parsed.environment.toUpperCase() === envConfig.name.toUpperCase()) {
-          tokens = parsed;
-          // Adopt active token for current environment in the token store so future reads are instantaneous
-          await kv.put(scopedKey, JSON.stringify({ ...parsed, environment: envConfig.name }), { expirationTtl: 86400 });
-        }
-      } catch {}
+  // The unscoped-environment guard, preserved from the pre-#2386 read:
+  // a token found only under an unscoped legacy key counts only when
+  // its recorded environment matches (or is absent). Scoped keys
+  // carry the environment in the key itself and are never guarded.
+  if (tokens && resolved) {
+    const scopedPrefix = `etrade:token:${envConfig.name.toUpperCase()}:`;
+    if (
+      !resolved.key.startsWith(scopedPrefix) &&
+      tokens.environment &&
+      tokens.environment.toUpperCase() !== envConfig.name.toUpperCase()
+    ) {
+      tokens = null;
     }
   }
 
   if (!tokens) {
-    writeTokenCache(cacheKey, null, readEpoch);
+    if (useCache) writeTokenCache(cacheKey, null, readEpoch);
     return null;
   }
 
   if (isTokenExpiredEt(tokens.storedAt)) {
     console.warn(`E*TRADE tokens for ${userLogin} expired at midnight ET.`);
-    await revokeStoredTokens(env, userLogin, overrideEnv);
-    writeTokenCache(cacheKey, null, readEpoch);
+    await revokeStoredTokens(env, userLogin, overrideEnv, identity);
+    if (useCache) writeTokenCache(cacheKey, null, readEpoch);
     return null;
   }
 
-  writeTokenCache(cacheKey, tokens, readEpoch);
+  if (useCache) writeTokenCache(cacheKey, tokens, readEpoch);
   return tokens;
 }
 
@@ -783,10 +909,11 @@ export async function getValidTokens(
 export async function getETradeAuthStatus(
   env: Env,
   userLogin: string,
-  overrideEnv?: string
+  overrideEnv?: string,
+  identity?: ETradeTokenIdentity
 ): Promise<ETradeAuthStatus> {
   const envConfig = resolveEnvironmentConfig(env, overrideEnv);
-  const valid = await getValidTokens(env, userLogin, overrideEnv);
+  const valid = await getValidTokens(env, userLogin, overrideEnv, identity);
 
   if (!valid) {
     return {

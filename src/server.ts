@@ -151,8 +151,12 @@ import {
   revokeStoredTokens,
   revokeRemoteAccessToken,
   getETradeAuthStatus,
+  getStoredTokens,
   getValidTokens,
   renewAllStoredETradeTokens,
+  renewFailureDetail,
+  etradeIdentityFromSession,
+  isTokenExpiredEt,
 } from "./services/etradeOAuth";
 import {
   PublicClientRejectedError,
@@ -644,7 +648,10 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
     if (path === "/api/etrade/oauth/status") {
       const session = await requireAuth(request, env);
       if (!session) return Response.json({ authenticated: false });
-      const status = await getETradeAuthStatus(env, session.githubLogin, reqEnv);
+      // Issue #2386: status resolves through the identity-aware seam,
+      // so the panel label reflects the same token set renew and
+      // revoke act on — never a login-only subset of it.
+      const status = await getETradeAuthStatus(env, session.githubLogin, reqEnv, etradeIdentityFromSession(session));
       return Response.json(status);
     }
 
@@ -653,7 +660,10 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       if (!session) return Response.json({ authenticated: false, error: "Unauthorized: Please log in with GitHub" }, { status: 401 });
 
       const envConfig = resolveEnvironmentConfig(env, reqEnv);
-      const valid = await getValidTokens(env, session.githubLogin, reqEnv);
+      // Issue #2386: diagnostics reads through the same identity-aware
+      // seam as status, so its token-present verdict cannot disagree
+      // with the panel label for the same session.
+      const valid = await getValidTokens(env, session.githubLogin, reqEnv, etradeIdentityFromSession(session));
 
       const client = new ETradeRestClient(env, session.githubLogin, reqEnv);
       let accounts: any[] = [];
@@ -735,11 +745,35 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       const session = await requireAuth(request, env);
       if (!session) return new Response("Unauthorized", { status: 401 });
       try {
-        const renewed = await renewETradeAccessToken(env, session.githubLogin, reqEnv);
+        // Issue #2386: the renew failure reason is distinguished
+        // BEFORE the renew call, from the same identity-aware seam
+        // the renew itself reads — so a null renew maps to a real
+        // cause instead of one generic 400. The pre-checks are
+        // reads only; the renew call still owns the upstream
+        // attempt and the write. (A token revoked or expired in
+        // the gap between pre-check and renew still lands in the
+        // upstream bucket; the next attempt's pre-check names it.)
+        const identity = etradeIdentityFromSession(session);
+        const stored = await getStoredTokens(env, session.githubLogin, reqEnv, identity);
+        if (!stored) {
+          const detail = renewFailureDetail("NO_TOKENS");
+          return Response.json({ success: false, error: detail.message, code: detail.code }, { status: 400 });
+        }
+        if (isTokenExpiredEt(stored.storedAt)) {
+          const detail = renewFailureDetail("TOKEN_EXPIRED");
+          return Response.json({ success: false, error: detail.message, code: detail.code }, { status: 400 });
+        }
+        const envConfig = resolveEnvironmentConfig(env, reqEnv);
+        if (!envConfig.etrade.apiKey || !envConfig.etrade.apiSecret) {
+          const detail = renewFailureDetail("CREDENTIALS_MISSING");
+          return Response.json({ success: false, error: detail.message, code: detail.code }, { status: 400 });
+        }
+        const renewed = await renewETradeAccessToken(env, session.githubLogin, reqEnv, identity);
         if (renewed) {
           return Response.json({ success: true, storedAt: renewed.storedAt });
         }
-        return Response.json({ success: false, error: "Token could not be renewed. User must re-authenticate." }, { status: 400 });
+        const detail = renewFailureDetail("UPSTREAM_REJECTED");
+        return Response.json({ success: false, error: detail.message, code: detail.code }, { status: 400 });
       } catch (err: any) {
         return Response.json({ error: err.message || "Failed to renew token" }, { status: 500 });
       }
@@ -748,7 +782,10 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
     if (path === "/api/etrade/oauth/revoke" && request.method === "POST") {
       const session = await requireAuth(request, env);
       if (!session) return new Response("Unauthorized", { status: 401 });
-      const result = await revokeRemoteAccessToken(env, session.githubLogin, reqEnv);
+      // Issue #2386: identity-aware revoke deletes the FULL resolved
+      // key set (login + internal-id + alias); the result tells the
+      // panel whether anything was actually deleted.
+      const result = await revokeRemoteAccessToken(env, session.githubLogin, reqEnv, etradeIdentityFromSession(session));
       return Response.json(result);
     }
 

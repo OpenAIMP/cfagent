@@ -747,10 +747,19 @@ export function ETradeTradingHub({
   const doRevokeOAuth = async () => {
     setOauthLoading(true);
     try {
-      await fetch("/api/etrade/oauth/revoke", {
+      // Issue #2386: the panel flips to disconnected ONLY on a
+      // confirmed revoke. A failed revoke leaves the panel exactly
+      // as the server reports it — no optimistic flip, no blind
+      // refetch snap-back.
+      const resp = await fetch("/api/etrade/oauth/revoke", {
         method: "POST",
         headers: { "x-environment": activeEnv },
       });
+      const data = (await resp.json().catch(() => ({}))) as any;
+      if (!resp.ok || data.success !== true) {
+        setOauthMsg(data.error || data.message || "Failed to disconnect E*TRADE account. Your connection is unchanged.");
+        return;
+      }
       setOauthStatus({
         authenticated: false,
         environment: activeEnv,
@@ -764,7 +773,7 @@ export function ETradeTradingHub({
       await fetchOAuthStatus(activeEnv);
       await fetchBrokerStatus(activeEnv);
     } catch {
-      // Ignore
+      setOauthMsg("Failed to disconnect E*TRADE account. Your connection is unchanged.");
     } finally {
       setOauthLoading(false);
     }
@@ -780,14 +789,11 @@ export function ETradeTradingHub({
         const data = (await resp.json()) as any;
         setBrokerStatus(data.status || data);
         if (data.account) setAccount(data.account);
-        if (data.oauthAuthenticated !== undefined) {
-          setOauthStatus((prev) => ({
-            authenticated: data.oauthAuthenticated,
-            environment: data.activeEnvironment || envToUse,
-            storedAt: data.oauthExpiresAtEt || prev?.storedAt,
-            renewable: data.oauthRenewable !== undefined ? data.oauthRenewable : prev?.renewable,
-          }));
-        }
+        // Issue #2386: oauth/status is the SOLE writer of
+        // oauthStatus. This broker read used to overwrite it from
+        // its own oauthAuthenticated flag, so the two reads raced
+        // (and, before the identity-aware seam, could disagree);
+        // the broker flag still lands in brokerStatus for display.
       }
     } catch {
       // Ignore
