@@ -185,6 +185,9 @@ function makeCtx(
   env: Record<string, unknown>,
   delivered: Array<{ channel: string; artifacts: unknown }>,
   notified: Array<{ channel: string; text: string }> = [],
+  // Issue #2178 (Q7 S2): the delivery claim audits through the ORM
+  // events repo — injectable so pins can record or throw.
+  eventsRepo: { create: (record: unknown) => unknown } = { create: () => ({}) },
 ): AsyncJobsContext {
   const storage = sql as unknown as AsyncJobsContext["agentCtx"]["storage"]["sql"];
   return {
@@ -194,9 +197,7 @@ function makeCtx(
     sessionKey: () => "session-1",
     schedule: async () => ({}),
     audit: () => {},
-    getOrm: () => {
-      throw new Error("no orm");
-    },
+    getOrm: () => ({ events: eventsRepo }),
     routeRequest: async () => new Response(STOCK_BODY, { status: 200 }),
     nlqSchedulingPort: () => {
       throw new Error("unused");
@@ -314,5 +315,55 @@ describe("inline-suppression wiring pins", () => {
   it("the options screen defers its Slack delivery when running as a job", () => {
     const src = readFileSync("src/agents/routes/etradeOptionsScreen.ts", "utf8");
     expect(src).toContain("deferDelivery");
+  });
+});
+
+describe("delivery blocking audit (#2178 S2)", () => {
+  it("a sent delivery audits the claim before the job completes as sent", async () => {
+    const sql = new StatefulAsyncSql();
+    const delivered: Array<{ channel: string; artifacts: unknown }> = [];
+    const created: any[] = [];
+    const ctx = makeCtx(
+      sql,
+      { SLACK_WEBHOOK_URL: "https://hooks.slack.com/x", SCREENER_EMAIL_TO: "ops@example.com" },
+      delivered,
+      [],
+      { create: (record: any) => { created.push(record); return record; } },
+    );
+    await runChain(ctx, sql);
+    const deliveries = sql.rows.filter((r) => r.capability === "followup.deliver");
+    expect(deliveries).toHaveLength(2);
+    for (const d of deliveries) {
+      await executeAsyncJob(ctx, { jobId: String(d.job_id) });
+      expect(getAsyncJob(ctx, String(d.job_id))?.status).toBe("completed");
+    }
+    const claims = created.filter((r) => r.type === "followup.delivered");
+    expect(claims).toHaveLength(2);
+    expect(claims.map((r) => r.payload.channel).sort()).toEqual(["email", "slack"]);
+    expect(claims[0].payload.jobId).toBeTruthy();
+    expect(claims[0].sessionId).toBeTruthy();
+  });
+
+  it("a throwing audit store fails the delivery job instead of reporting an unrecorded sent", async () => {
+    const sql = new StatefulAsyncSql();
+    const delivered: Array<{ channel: string; artifacts: unknown }> = [];
+    const ctx = makeCtx(
+      sql,
+      { SLACK_WEBHOOK_URL: "https://hooks.slack.com/x", SCREENER_EMAIL_TO: "ops@example.com" },
+      delivered,
+    );
+    await runChain(ctx, sql);
+    const delivery = sql.rows.find((r) => r.capability === "followup.deliver");
+    expect(delivery).toBeTruthy();
+    // Swap in the throwing repo only for the delivery execution: the
+    // chain itself (main + report) never needed the ORM.
+    (ctx as any).getOrm = () => ({
+      events: { create: () => { throw new Error("audit store unavailable"); } },
+    });
+    await executeAsyncJob(ctx, { jobId: String(delivery!.job_id) });
+    // The port still ran (the recipient may already have the
+    // artifact) — but the job must NOT read as a successful sent.
+    expect(delivered).toHaveLength(1);
+    expect(getAsyncJob(ctx, String(delivery!.job_id))?.status).toBe("failed");
   });
 });

@@ -19,6 +19,7 @@ import {
   createOptionsDiscoveryPorts,
 } from "../../data/createOptionsDiscoveryPorts";
 import { resolveScheduledLogin, type ScreenerExecutionContext } from "./scheduleMaintenance";
+import { recordBlockingAudit } from "../../security/auditChain";
 import {
   enforceBrokerDispatch,
   enforceServiceDispatch,
@@ -127,6 +128,37 @@ export interface ScheduledCallbacksContext {
 }
 
 /**
+ * Issue #2178 (Q7 S2) — report family: make a failed canonical
+ * report store visible. The store's failure signal is a null
+ * return, not a throw, so the caller checks and calls this. The
+ * failure record is a chained audit row (retrievable through
+ * the audit read path); if the audit store itself is down, the
+ * failure falls back to the worker log rather than vanishing.
+ * Never throws, so scheduled callbacks keep their no-throw
+ * contract even when both stores fail.
+ */
+export function recordReportStoreFailure(
+  orm: DatabaseORM,
+  input: { runId: string; userLogin: string },
+): void {
+  try {
+    orm.events.create({
+      id: crypto.randomUUID(),
+      sessionId: input.userLogin,
+      type: "screener.report_store_failed",
+      agent: "orchestrator",
+      payload: { runId: input.runId, userLogin: input.userLogin },
+      createdAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error(
+      `[scheduledCallbacks] report store failure for run ${input.runId} could not be audited:`,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+}
+
+/**
  * Cloudflare Agents Scheduled Callback: Proactively renews E*TRADE tokens before midnight ET
  */
 export async function autoRenewETradeTokens(ctx: ScheduledCallbacksContext, payload?: { userLogin?: string; env?: string }): Promise<void> {
@@ -171,6 +203,28 @@ export async function autoRenewETradeTokens(ctx: ScheduledCallbacksContext, payl
       }
     );
   }
+  // Issue #2178 (Q7 S2) — token-ops family: the renewal OUTCOME
+  // claim goes through the blocking helper. This row is distinct
+  // from the service's own warn-path outcome notes
+  // (etrade.token_auto_renewed/failed/error), which stay — the
+  // service is also called from the NLQ path, where no callback
+  // exists. A throwing store propagates out of the callback: the
+  // renewal surfaces as an error (the next scheduled renewal
+  // retries it), never as a success with no record.
+  recordBlockingAudit(ctx.getOrm().events, {
+    id: crypto.randomUUID(),
+    sessionId: userLogin,
+    type: "etrade.token_renewal_claim",
+    agent: "orchestrator",
+    payload: {
+      userLogin: userLogin,
+      environment: environment ?? "default",
+      success: res.success,
+      renewed: (res as { data?: { renewed?: boolean } }).data?.renewed ?? false,
+      ...(res.success ? {} : { error: res.error }),
+    },
+    createdAt: new Date().toISOString(),
+  });
 }
 
 /**
@@ -307,7 +361,7 @@ export async function autonomousMarketScreen(ctx: ScheduledCallbacksContext, pay
       // canonical row per generation (generationId = run id).
       // Skipped for queued sharded chains (see above).
       if (!res.data?.sharded && userLogin) {
-      orm.storeCanonicalReport({
+      const stored = orm.storeCanonicalReport({
         runId: `screener:${res.timestamp}`,
         generationId: `screener:${res.timestamp}`,
         title: `Autonomous market screen — ${res.data?.universe || payload?.universe || "NASDAQ100"}`,
@@ -329,6 +383,14 @@ export async function autonomousMarketScreen(ctx: ScheduledCallbacksContext, pay
       // Issue #1169 S4-1: thread ctx.env so the seam indexes this
       // screener row at write time.
       ctx.env);
+      // Issue #2178 (Q7 S2): the canonical store never throws — null
+      // IS its failure signal. Ignoring it (the old behavior) made a
+      // run with no stored report read exactly like a stored one.
+      // Record the failure visibly instead; no throw, preserving
+      // this callback's deliberate no-throw contract.
+      if (!stored) {
+        recordReportStoreFailure(orm, { runId: `screener:${res.timestamp}`, userLogin });
+      }
       }
     } catch {
       // Non-critical: persistence failure must not break the screen.

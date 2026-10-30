@@ -118,6 +118,24 @@ function findDraft(
   return pending.length > 0 ? pending[0] : null;
 }
 
+/**
+ * Issue #2178 (Q7 S2) — blocking audit sink for trade approvals.
+ * Same injected-writer pattern as the obligations audit-before-allow:
+ * when provided, the decision audit runs before execution and the
+ * result audit after success; a throwing sink blocks (no execution
+ * on a decision-audit throw, no success report on a result-audit
+ * throw). Callers with an ORM pass a recordBlockingAudit-backed
+ * writer. Absent = today's behavior, unchanged.
+ */
+export type ApprovalAuditSink = (record: {
+  id: string;
+  sessionId: string;
+  type: string;
+  agent: "trading";
+  payload: Record<string, unknown>;
+  createdAt: string;
+}) => void;
+
 export async function approvePreviewedOrder(args: {
   trades: ApprovalTradeStore | null | undefined;
   executor: ApprovalExecutor;
@@ -128,6 +146,7 @@ export async function approvePreviewedOrder(args: {
   /** Slack button approvals pass false: exactly the button's id, never the latest draft. */
   allowLatestFallback?: boolean;
   timestamp: string;
+  audit?: ApprovalAuditSink;
 }): Promise<ApproveOutcome> {
   const refusal = tierRefusal(args.principal, "trade", "approval");
   if (refusal) return { kind: "tier_refused", reason: refusal };
@@ -135,6 +154,23 @@ export async function approvePreviewedOrder(args: {
   const targetTrade = findDraft(args.trades, args.orderId, args.allowLatestFallback !== false);
   if (!targetTrade) return { kind: "not_found", orderId: args.orderId };
   if (targetTrade.status !== "previewed") return { kind: "not_previewed", trade: targetTrade };
+
+  // Issue #2178 (Q7 S2): decision audit BEFORE execution. A throwing
+  // sink propagates, so an unaudited approval never executes.
+  if (args.audit) {
+    args.audit({
+      id: crypto.randomUUID(),
+      sessionId: args.userLogin,
+      type: "trade.approval_decision",
+      agent: "trading",
+      payload: {
+        orderId: targetTrade.id,
+        authorizerDid: args.authorizerDid,
+        decision: "approved",
+      },
+      createdAt: args.timestamp,
+    });
+  }
 
   let execRes: any;
   try {
@@ -165,6 +201,30 @@ export async function approvePreviewedOrder(args: {
 
   const execId = execRes?.executionId || execRes?.brokerOrderRef || undefined;
   if (execRes?.success) {
+    // Issue #2178 (Q7 S2): result audit AFTER success. Execution
+    // already happened and cannot be undone — but a failed audit
+    // write must surface as a throw naming the unrecorded execution,
+    // never as an executed outcome.
+    if (args.audit) {
+      try {
+        args.audit({
+          id: crypto.randomUUID(),
+          sessionId: args.userLogin,
+          type: "trade.order_executed",
+          agent: "trading",
+          payload: {
+            orderId: targetTrade.id,
+            authorizerDid: args.authorizerDid,
+            execId,
+          },
+          createdAt: args.timestamp,
+        });
+      } catch (err) {
+        throw new Error(
+          `Trade execution for order ${targetTrade.id} completed but the execution audit write failed; the execution may be unrecorded: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
     return { kind: "executed", trade: targetTrade, execId, execRes };
   }
   return {
