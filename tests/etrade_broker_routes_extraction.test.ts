@@ -26,9 +26,9 @@ import { readFileSync } from "node:fs";
 import {
   handleEtradeBrokerRoutes,
   handleEtradeBrokerActivityRoutes,
-  handleEnvironmentSwitch,
   type EtradeBrokerRouteContext,
 } from "../src/agents/routes/etradeBroker";
+import { handleEnvironmentSwitch } from "../src/agents/routes/brokerEnvironment";
 
 const src = (rel: string) => readFileSync(`src/${rel}`, "utf8");
 
@@ -38,6 +38,9 @@ const baseCtx = (overrides: Partial<EtradeBrokerRouteContext> = {}): EtradeBroke
     getOrm: () => {
       throw new Error("boom");
     },
+    // Issue #2482: handlers resolve the broker environment from the
+    // persisted selection; fixtures without a selection read PROD.
+    readSettingRaw: () => null,
     audit: vi.fn(),
     getScreenerAgent: () => ({}) as any,
     persistScreenerReportCanonical: vi.fn(),
@@ -117,7 +120,12 @@ describe("E*TRADE broker route inventory (extraction #372)", () => {
     }
     // The extracted module is the sole owner of these blocks now.
     const moduleSrc = src("agents/routes/etradeBroker.ts");
-    expect(moduleSrc).toContain("export async function handleEnvironmentSwitch");
+    // Issue #2482 split (same #995 pattern as diagnostics): the
+    // environment block lives in brokerEnvironment.ts, and
+    // etradeBroker.ts delegates to it.
+    const envModuleSrc = src("agents/routes/brokerEnvironment.ts");
+    expect(envModuleSrc).toContain("export async function handleEnvironmentSwitch");
+    expect(moduleSrc).toContain("return handleEnvironmentSwitch(request, ctx);");
     expect(moduleSrc).toContain("export async function handleEtradeBrokerRoutes");
     expect(moduleSrc).toContain("export async function handleEtradeBrokerActivityRoutes");
     // The options blocks were NOT moved (sibling slice #359-11).
@@ -147,7 +155,9 @@ describe("E*TRADE broker route inventory (extraction #372)", () => {
     expect(optionsIdx).toBeGreaterThan(-1);
     expect(activityIdx, "activity delegation must precede the options block").toBeLessThan(optionsIdx);
     // The requestedEnv binding stays inline for the still-inline options block.
-    expect(orchSrc).toContain('const rawEnvHeader = (request.headers.get("x-environment")');
+    // Issue #2482: it now resolves from the persisted selection, never
+    // from the request header.
+    expect(orchSrc).toContain("resolveBrokerEnvironmentFromSettings((key) => this.readSettingRaw(key), this.env)");
   });
 });
 
@@ -226,7 +236,7 @@ describe("handleEtradeBrokerActivityRoutes behavior", () => {
     expect(res!.status).toBe(500);
   });
 
-  it("handleEnvironmentSwitch is exported from the module for the #314 test pins", () => {
+  it("handleEnvironmentSwitch is exported from the brokerEnvironment module for the #314 test pins", () => {
     expect(typeof handleEnvironmentSwitch).toBe("function");
   });
 });

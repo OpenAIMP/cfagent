@@ -221,9 +221,13 @@ const ORCH = "agents/orchestrator.ts";
  *  Issue #2457 adds the admin tenant-queue delegation (import +
  *  onRequest early branch + routeRequest delegation, no logic in
  *  the class) — measured 2,714 lines / 127,049 B, so budget lines
- *  rise to 2725 and bytes rise to 127_250. */
-const BUDGET_LINES = 2725;
-const BUDGET_BYTES = 127_650;
+ *  rise to 2725 and bytes rise to 127_250.
+ *  Issue #2482 adds the broker environment selection resolution
+ *  (import + dispatcher binding + writeSetting on both broker
+ *  contexts) — measured 2,726 lines / 127,725 B, so budget lines
+ *  rise to 2735 and bytes rise to 128_250. */
+const BUDGET_LINES = 2735;
+const BUDGET_BYTES = 128_250;
 
 const count = (haystack: string, needle: string) =>
   haystack.split(needle).length - 1;

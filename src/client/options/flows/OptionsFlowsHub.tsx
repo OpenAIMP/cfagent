@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { useUrlSyncedTabs } from "../../useUrlSyncedTabs";
+import { useBrokerEnvironment } from "../../brokerEnvironment";
 import { usePolling } from "../../usePolling";
 import { useAutoRefresh } from "../../autoRefresh";
 import { getPollingConfig } from "../../pollingConfig";
@@ -87,6 +88,10 @@ export function OptionsFlowsHub({
   onSendPrompt,
   onTradeSymbol,
 }: OptionsFlowsHubProps) {
+  // Issue #2482: this tab renders outside the hub, so it reads the
+  // single environment value directly instead of inheriting the
+  // StrategyDiscoveryPanel TEST prop default.
+  const brokerEnv = useBrokerEnvironment();
   const [filterConfig, setFilterConfig] = useState<FlowFilterConfig>(DEFAULT_FILTER_CONFIG);
   const [activePreset, setActivePreset] = useState<SavedFilterPreset | null>(DEFAULT_SAVED_PRESETS[0]);
   const [savedPresets, setSavedPresets] = useState<SavedFilterPreset[]>(DEFAULT_SAVED_PRESETS);
@@ -400,6 +405,7 @@ export function OptionsFlowsHub({
           scopeNote="Options flows, dark pool prints, institutional sweeps, blocks, and insider disclosures"
         >
         <StrategyDiscoveryPanel
+          activeEnv={brokerEnv}
           initialSymbol={activeBuilderTrade.symbol}
           initialStrategyName={activeBuilderTrade.strategyTitle || activeBuilderTrade.strategy}
           initialExpirationDate={

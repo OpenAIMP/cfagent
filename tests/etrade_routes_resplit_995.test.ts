@@ -102,6 +102,8 @@ const OPTIONS_CONDITIONS_BASELINE = [
 const BROKER_CONDITIONS_BASELINE = [
   'endsWith("/environment/switch")',
   'endsWith("/broker/etrade/environment")',
+  'endsWith("/environment/switch")',
+  'endsWith("/broker/etrade/environment")',
   'endsWith("/etrade/status")',
   'endsWith("/etrade/diagnostics")',
   'endsWith("/etrade/accounts")',
@@ -200,7 +202,12 @@ describe("route module re-split (#995)", () => {
     }
     const broker = readFileSync(BROKER_FILE, "utf8");
     expect(broker).toContain("export interface EtradeBrokerRouteContext");
-    expect(broker).toContain("export async function handleEnvironmentSwitch");
+    // Issue #2482 split: the switch handler lives in brokerEnvironment.ts
+    // (same #995 pattern as diagnostics); etradeBroker.ts delegates.
+    expect(readFileSync("src/agents/routes/brokerEnvironment.ts", "utf8")).toContain(
+      "export async function handleEnvironmentSwitch",
+    );
+    expect(broker).toContain("return handleEnvironmentSwitch(request, ctx);");
     expect(broker).toContain("export async function handleEtradeBrokerRoutes");
     expect(broker).toContain("export async function handleEtradeBrokerActivityRoutes");
     for (const call of [

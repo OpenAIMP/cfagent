@@ -87,7 +87,7 @@ vi.mock("agents", () => {
 });
 import { OrchestratorAgent } from "../src/agents/orchestrator";
 import { handleOptionsStrategyRecommend } from "../src/agents/routes/etradeOptions";
-import { handleEnvironmentSwitch } from "../src/agents/routes/etradeBroker";
+import { handleEnvironmentSwitch } from "../src/agents/routes/brokerEnvironment";
 import { MockSqlStorage } from "./mock-sql";
 
 /**
@@ -242,6 +242,23 @@ function apiPost(path: string, body: unknown, headers: Record<string, string> = 
 }
 
 describe("environment switcher — both spellings delegate to one handler (#314)", () => {
+  // Issue #2482: the switch persists the selection, so direct calls
+  // need a settings-backed context. Each request gets a fresh store so
+  // iterations cannot leak a persisted value into each other.
+  const stubCtx = () => {
+    const store = new Map<string, string>();
+    return {
+      store,
+      ctx: {
+        readSettingRaw: (key: string) => store.get(key) ?? null,
+        writeSetting: (key: string, value: string) => {
+          store.set(key, value);
+        },
+        env: {},
+      },
+    };
+  };
+
   it("returns the identical contract for TEST/PROD/invalid bodies", async () => {
     for (const body of [
       { environment: "TEST" },
@@ -252,16 +269,22 @@ describe("environment switcher — both spellings delegate to one handler (#314)
     ]) {
       const reqA = apiPost("/api/environment/switch", body);
       const reqB = apiPost("/api/broker/etrade/environment", body);
-      const resA = await handleEnvironmentSwitch(reqA);
-      const resB = await handleEnvironmentSwitch(reqB);
+      const resA = await handleEnvironmentSwitch(reqA, stubCtx().ctx);
+      const resB = await handleEnvironmentSwitch(reqB, stubCtx().ctx);
       expect(resB.status).toBe(resA.status);
       expect(await resB.json()).toEqual(await resA.json());
     }
     const ok = await (
-      await handleEnvironmentSwitch(apiPost("/api/broker/etrade/environment", { environment: "TEST" }))
+      await handleEnvironmentSwitch(
+        apiPost("/api/broker/etrade/environment", { environment: "TEST" }),
+        stubCtx().ctx,
+      )
     ).json();
     expect(ok).toEqual({ success: true, environment: "TEST" });
-    const bad = await handleEnvironmentSwitch(apiPost("/api/broker/etrade/environment", { environment: "BOGUS" }));
+    const bad = await handleEnvironmentSwitch(
+      apiPost("/api/broker/etrade/environment", { environment: "BOGUS" }),
+      stubCtx().ctx,
+    );
     expect(bad.status).toBe(400);
     expect((await bad.json()).error).toMatch(/TEST or PROD/);
   });
@@ -272,7 +295,9 @@ describe("environment switcher — both spellings delegate to one handler (#314)
     const src = readFileSync("src/agents/routes/etradeBroker.ts", "utf8");
     expect(src).toContain('path.endsWith("/environment/switch")');
     expect(src).toContain('path.endsWith("/broker/etrade/environment")');
-    expect(src).toContain("return handleEnvironmentSwitch(request);");
+    expect(src).toContain("return handleEnvironmentSwitch(request, ctx);");
+    // Issue #2482: GET on either spelling reads the selection back.
+    expect(src).toContain("return handleBrokerEnvironmentGet(ctx);");
   });
 });
 

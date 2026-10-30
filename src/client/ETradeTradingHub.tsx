@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { apiFetch as fetch } from "./apiFetch";
 import { getDisplayUserDid } from "../agents/did";
@@ -21,6 +21,11 @@ import { AccountPanels } from "./AccountPanels";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { ScreenersHub, type ScreenersHubTab } from "./ScreenersHub";
 import { ETradeDynamicMenu, type ETradeDynamicMenuProps } from "./ETradeDynamicMenu";
+import {
+  fetchBrokerEnvironment,
+  switchBrokerEnvironment,
+  useBrokerEnvironment,
+} from "./brokerEnvironment";
 import { EtapiConfigModal } from "./options/EtapiConfigModal";
 import { RiskAnalysisModal } from "./options/RiskAnalysisModal";
 import type { RiskSubject } from "./options/riskManagementEngine";
@@ -564,39 +569,42 @@ export function ETradeTradingHub({
     await handleVoiceTurn(textPrompt);
   };
 
-  // Active environment (Sandbox TEST vs Live PROD)
-  const [activeEnv, setActiveEnv] = useState<"TEST" | "PROD">(() => {
-    if (typeof window !== "undefined") {
-      const stored = localStorage.getItem("cfagent_env");
-      if (stored === "TEST" || stored === "PROD") return stored;
-    }
-    return "PROD";
-  });
+  // Active environment (Sandbox TEST vs Live PROD) — Issue #2482: the
+  // single client value, mirroring the server-persisted selection.
+  // It is the prop root for every hub-embedded surface; no component
+  // reads a localStorage environment key anymore.
+  const activeEnv = useBrokerEnvironment();
+
+  // Issue #2482: true while this hub's own switch is in flight, so the
+  // etrade-env-changed listener below skips the event its own switch
+  // broadcast and does not re-POST or double-refetch.
+  const switchingRef = useRef(false);
 
   const handleSwitchEnvironment = async (target: "TEST" | "PROD") => {
-    setActiveEnv(target);
-    if (typeof window !== "undefined") {
-      localStorage.setItem("cfagent_env", target);
-    }
-    setActiveDraft(null);
-    setLastExecutionResult(null);
-    setOauthMsg(`Switched to ${target === "PROD" ? "Production (Live)" : "Sandbox (TEST)"} mode.`);
+    // Writes through to the server source of truth; adopt the echoed
+    // value so the UI never displays a switch the server did not store.
+    switchingRef.current = true;
     try {
-      await fetch("/api/environment/switch", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-environment": target },
-        body: JSON.stringify({ environment: target }),
-      });
-    } catch {
-      // Ignore
+      const adopted = await switchBrokerEnvironment(target);
+      setActiveDraft(null);
+      setLastExecutionResult(null);
+      setOauthMsg(`Switched to ${adopted === "PROD" ? "Production (Live)" : "Sandbox (TEST)"} mode.`);
+      await Promise.all([
+        fetchOAuthStatus(adopted),
+        fetchBrokerStatus(adopted),
+        fetchPositions(adopted),
+      ]);
+      fetchSymbolQuote(orderSymbol, adopted);
+    } finally {
+      switchingRef.current = false;
     }
-    await Promise.all([
-      fetchOAuthStatus(target),
-      fetchBrokerStatus(target),
-      fetchPositions(target),
-    ]);
-    fetchSymbolQuote(orderSymbol, target);
   };
+
+  // Issue #2482: load the server-persisted selection at boot. The
+  // [activeEnv] effect below then fetches with the selection.
+  useEffect(() => {
+    void fetchBrokerEnvironment();
+  }, []);
 
   // Fetch initial broker status, OAuth status, positions, and screener
   useEffect(() => {
@@ -620,11 +628,20 @@ export function ETradeTradingHub({
   useEffect(() => {
     const handleOpenTuning = () => setConfigModalOpen(true);
     const handleEnvChange = (e: any) => {
+      // Issue #2482: the hub's own switch already refetched above; this
+      // listener serves menu-initiated switches only (same value, so
+      // the module needs no second POST — reset drafts and refetch).
+      if (switchingRef.current) return;
       const target = e.detail?.env;
       if (target === "TEST" || target === "PROD") {
-        if (target !== activeEnv) {
-          handleSwitchEnvironment(target);
-        }
+        setActiveDraft(null);
+        setLastExecutionResult(null);
+        void Promise.all([
+          fetchOAuthStatus(target),
+          fetchBrokerStatus(target),
+          fetchPositions(target),
+        ]);
+        fetchSymbolQuote(orderSymbol, target);
       }
     };
     window.addEventListener("open-etapi-tuning", handleOpenTuning);

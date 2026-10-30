@@ -444,6 +444,8 @@ const EXPECTED_INVENTORY = [
   "handlePremiumRoutes :: includes(\"/premium/stock-signals\")",
   "handleEtradeBrokerRoutes :: endsWith(\"/environment/switch\")",
   "handleEtradeBrokerRoutes :: endsWith(\"/broker/etrade/environment\")",
+  "handleEtradeBrokerRoutes :: endsWith(\"/environment/switch\")",
+  "handleEtradeBrokerRoutes :: endsWith(\"/broker/etrade/environment\")",
   "handleEtradeBrokerRoutes :: endsWith(\"/etrade/status\")",
   "handleEtradeBrokerRoutes :: endsWith(\"/etrade/diagnostics\")",
   "handleEtradeBrokerRoutes :: endsWith(\"/etrade/accounts\")",
