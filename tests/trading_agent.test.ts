@@ -621,6 +621,8 @@ describe("TradingAgent stock trading + approval door (#291 T3)", () => {
     const agent: any = Object.create(TradingAgent.prototype);
     agent.env = env;
     agent.config = () => tradeConfig;
+    // Issue #2178 (Q7 S2): the door audits through the agent ORM —
+    // main's #2375 ctx below supplies the real one (MockSqlStorage).
     // #2375: the door settle threads the instance ORM (the draft
     // store), so the prototype agent needs a ctx like a real
     // instance's. The fake platform ignores the ORM it is handed.

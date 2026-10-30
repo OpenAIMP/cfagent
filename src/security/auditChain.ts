@@ -1,3 +1,5 @@
+import type { AuditEvent } from "../types";
+
 /**
  * Issue #2178 (Q7 S1) — tamper-evident chain on live mas_events.
  *
@@ -137,6 +139,32 @@ export function linkAuditRow(
 ): AuditChainRow {
   const withPrev = { ...row, previousEventHash };
   return { ...withPrev, eventHash: sha256HexSync(canonicalizeAuditRow(withPrev)) };
+}
+
+/**
+ * Issue #2178 (Q7 S2) — blocking audit write for consequential actions.
+ *
+ * The live writer (orm.events.create, ChainedAuditRepository) already
+ * throws on a failed insert; what makes a write "blocking" is that
+ * the caller does NOT catch it. This helper is that contract, named:
+ * it writes through the chained repository and lets any failure
+ * propagate, so the caller must not report success for an action
+ * whose own audit write failed. Contrast the warn-and-swallow paths
+ * (OrchestratorAgent.audit, ScheduledTasksService.audit), which stay
+ * for non-consequential writes per #1999 D1 (D1 governs the run,
+ * S2 governs the action).
+ */
+export interface BlockingAuditEvents {
+  create(record: AuditEvent): AuditEvent;
+}
+
+export function recordBlockingAudit(
+  events: BlockingAuditEvents,
+  record: AuditEvent,
+): AuditEvent {
+  // Deliberately no try/catch: swallowing here would silently
+  // un-block every consequential action wired through this helper.
+  return events.create(record);
 }
 
 /**

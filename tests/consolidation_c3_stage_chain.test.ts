@@ -168,9 +168,9 @@ function makeCtx(sql: C3FakeSql, overrides?: Partial<AsyncJobsContext>): {
       return {};
     },
     audit: () => {},
-    getOrm: () => {
-      throw new Error("no orm");
-    },
+    // Issue #2178 (Q7 S2): followup.deliver jobs now audit their
+    // claim through the ORM events repo — no-op here, as before.
+    getOrm: () => ({ events: { create: () => ({}) } }),
     routeRequest: async () => new Response("{}", { status: 200 }),
     nlqSchedulingPort: () => {
       throw new Error("unused");
