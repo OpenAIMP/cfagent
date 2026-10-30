@@ -200,7 +200,7 @@ describe("4d family census: surface-1 execution sites", () => {
       ["src/data/doSqlitePolicyVerdictAdapter.ts", 4],
       ["src/data/doSqliteReportConfirmationAdapter.ts", 9],
       ["src/data/doSqliteScreenerPresetAdapter.ts", 6],
-      ["src/data/doSqliteCanonicalReportStoreAdapter.ts", 19],
+      ["src/data/doSqliteCanonicalReportStoreAdapter.ts", 21],
       ["src/data/doSqliteUsageEventAdapter.ts", 4],
     ]);
     for (const [f, n] of layer) {
