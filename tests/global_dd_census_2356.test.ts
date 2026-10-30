@@ -111,9 +111,7 @@ const STORAGE_ALLOW_LIST: Array<[string, number, string]> = [
   ["src/services/learnings.ts", 7, "R-1 gated — NOT step 4c (two-host question open)"],
   ["src/services/screeningFlags.ts", 4, "G-7 (mas_settings)"],
   ["src/security/sessionStore.ts", 2, "step 5 (SessionStore / kv_store)"],
-  ["src/services/masRetentionIndexes.ts", 2, "#2362 step 4f"],
   ["src/actors/cfAgentsAdapter.ts", 1, "permanent — Agents-SDK shim (ADR-out)"],
-  ["src/services/frameworkQueueIndexes.ts", 1, "#2362 step 4f"],
 ];
 
 /** The step-4c families: zero above-layer sites remain. */
@@ -246,6 +244,18 @@ const STEP4E_DATA_LAYER_FILES: Array<[string, number]> = [
   ["src/data/createScreenRunLockPorts.ts", 0],
 ];
 
+/** The step-4f index helpers: zero above-layer sites remain. */
+const STEP4F_SERVICE_FILES = [
+  "src/services/masRetentionIndexes.ts",
+  "src/services/frameworkQueueIndexes.ts",
+] as const;
+
+/** The step-4f index statements live in the data layer, exactly. */
+const STEP4F_DATA_LAYER_FILES: Array<[string, number]> = [
+  ["src/data/masRetentionIndexSchema.ts", 2],
+  ["src/data/frameworkQueueIndexSchema.ts", 1],
+];
+
 describe("global D-D census: surface 1 — storage-shaped sites above the layer", () => {
   it("the above-layer population is exactly the shrink-only allow-list", () => {
     const actual = aboveLayerCounts(STORAGE_EXEC_PATTERN);
@@ -264,8 +274,9 @@ describe("global D-D census: surface 1 — storage-shaped sites above the layer"
     // reportSemanticIndex 1, screenerPresetResolution 1) → 54;
     // step 4d-2 (#2360) retires the payments route's 8 → 46;
     // step 4e (#2361) retires research-agent's 21 and
-    // screener-agent's 1 → 24.
-    expect(total).toBe(24);
+    // screener-agent's 1 → 24; step 4f (#2362) retires the
+    // two index helpers' 3 → 21.
+    expect(total).toBe(21);
   });
 
   for (const file of STEP4C_SERVICE_FILES) {
@@ -327,6 +338,18 @@ describe("global D-D census: surface 1 — storage-shaped sites above the layer"
       expect(countIn(STORAGE_EXEC_PATTERN, file)).toBe(sites);
     });
   }
+
+  for (const file of STEP4F_SERVICE_FILES) {
+    it(`${file} holds zero storage-exec sites (serves through its port)`, () => {
+      expect(countIn(STORAGE_EXEC_PATTERN, file)).toBe(0);
+    });
+  }
+
+  for (const [file, sites] of STEP4F_DATA_LAYER_FILES) {
+    it(`${file} holds exactly ${sites} storage-exec sites`, () => {
+      expect(countIn(STORAGE_EXEC_PATTERN, file)).toBe(sites);
+    });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -353,9 +376,8 @@ describe("global D-D census: surface 2 — (x as any).exec above the layer", () 
 
 const PREPARE_ALLOW_LIST: Array<[string, number, string]> = [
   ["src/aspects/transactionAspect.ts", 1, "permanent — the aspect's own D1 leg, in-role"],
-  ["src/services/quoteSourceSetting.ts", 3, "#2362 step 4f"],
-  ["src/telemetry/d1ResourceUsageAdapter.ts", 3, "#2362 step 4f"],
-  ["src/telemetry/resourceRollupStore.ts", 8, "#2362 step 4f"],
+  // Since step 4f (#2362) this is the ONLY above-layer prepare
+  // population: the surface is fully regularized.
 ];
 
 describe("global D-D census: surface 3 — prepare() outside the data layer", () => {
@@ -369,6 +391,40 @@ describe("global D-D census: surface 3 — prepare() outside the data layer", ()
     const expected = new Map(PREPARE_ALLOW_LIST.map(([f, n]) => [f, n]));
     expect(actual).toEqual(expected);
   });
+});
+
+/** The step-4f D1 families (#2362): the retired modules hold zero
+ *  prepare sites; the statements live in the data layer, exactly. */
+const STEP4F_PREPARE_SERVICE_FILES = [
+  "src/services/quoteSourceSetting.ts",
+  "src/telemetry/d1ResourceUsageAdapter.ts",
+  "src/telemetry/resourceRollupStore.ts",
+] as const;
+
+const STEP4F_PREPARE_DATA_LAYER_FILES: Array<[string, number]> = [
+  ["src/data/d1QuoteSourceAdapter.ts", 3],
+  ["src/data/d1ResourceUsageAdapter.ts", 3],
+  ["src/data/d1ResourceRollupAdapter.ts", 8],
+  ["src/data/quoteSourcePorts.ts", 0],
+  ["src/data/inMemoryQuoteSourceAdapter.ts", 0],
+  ["src/data/createQuoteSourcePorts.ts", 0],
+  ["src/data/resourceRollupPorts.ts", 0],
+  ["src/data/inMemoryResourceRollupAdapter.ts", 0],
+  ["src/data/createResourceRollupPorts.ts", 0],
+];
+
+describe("global D-D census: step-4f prepare placement", () => {
+  for (const file of STEP4F_PREPARE_SERVICE_FILES) {
+    it(`${file} holds zero prepare sites (serves through its port)`, () => {
+      expect(countIn(PREPARE_PATTERN, file)).toBe(0);
+    });
+  }
+
+  for (const [file, sites] of STEP4F_PREPARE_DATA_LAYER_FILES) {
+    it(`${file} holds exactly ${sites} prepare sites`, () => {
+      expect(countIn(PREPARE_PATTERN, file)).toBe(sites);
+    });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -404,6 +460,9 @@ const PORTED_TABLES = [
   // step 4e (#2361)
   "research_settings", "research_task_store", "research_runs",
   "research_evaluations", "screen_run_locks",
+  // step 4f (#2362)
+  "quote_source_setting", "resource_sql_ops", "resource_daily_rollups",
+  "resource_alert_state", "resource_comparison_reports",
 ] as const;
 
 /**
@@ -428,16 +487,10 @@ const PORTED_TABLE_WRITERS: Record<string, { layer: string[]; bypass?: Record<st
   },
   mas_enrichment_runs: { layer: ["src/data/doSqliteEnrichmentAdapter.ts"] },
   mas_messages: {
-    layer: ["src/data/doSqliteOrmAdapters.ts", "src/data/ormSchema.ts"],
-    bypass: {
-      "src/services/masRetentionIndexes.ts": "#2362 step 4f (index helper into the layer)",
-    },
+    layer: ["src/data/doSqliteOrmAdapters.ts", "src/data/ormSchema.ts", "src/data/masRetentionIndexSchema.ts"],
   },
   mas_events: {
-    layer: ["src/data/ormSchema.ts"],
-    bypass: {
-      "src/services/masRetentionIndexes.ts": "#2362 step 4f (index helper into the layer)",
-    },
+    layer: ["src/data/ormSchema.ts", "src/data/masRetentionIndexSchema.ts"],
   },
   mas_memory: { layer: ["src/data/doSqliteOrmAdapters.ts", "src/data/ormSchema.ts"] },
   mas_watchlists: { layer: ["src/data/ormSchema.ts"] },
@@ -486,6 +539,11 @@ const PORTED_TABLE_WRITERS: Record<string, { layer: string[]; bypass?: Record<st
   research_runs: { layer: ["src/data/doSqliteResearchStoreAdapter.ts"] },
   research_evaluations: { layer: ["src/data/doSqliteResearchStoreAdapter.ts"] },
   screen_run_locks: { layer: ["src/data/doSqliteScreenRunLockAdapter.ts"] },
+  quote_source_setting: { layer: ["src/data/d1QuoteSourceAdapter.ts", "src/data/migrationRunner.ts"] },
+  resource_sql_ops: { layer: ["src/data/d1ResourceUsageAdapter.ts", "src/data/migrationRunner.ts"] },
+  resource_daily_rollups: { layer: ["src/data/d1ResourceRollupAdapter.ts", "src/data/migrationRunner.ts"] },
+  resource_alert_state: { layer: ["src/data/d1ResourceRollupAdapter.ts", "src/data/migrationRunner.ts"] },
+  resource_comparison_reports: { layer: ["src/data/d1ResourceRollupAdapter.ts", "src/data/migrationRunner.ts"] },
 };
 
 const WRITE_VERB =

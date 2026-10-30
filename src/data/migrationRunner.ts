@@ -1035,6 +1035,81 @@ CREATE TABLE IF NOT EXISTS agent_external_ads (
 `,
 };
 
+/**
+ * Migration 0022 — D1 regularization (issue #2362, #1976
+ * step 4f; ADR 0022 D-A consequences). Five tables that were
+ * self-created at runtime — absent from this runner and from
+ * drizzleSchema.ts (step-4 audit R-8) — come under version
+ * control:
+ *
+ * - quote_source_setting (src/services/quoteSourceSetting.ts,
+ *   issue #2108): the deployment-wide quote source pick.
+ * - resource_sql_ops (the #1819 D1 resource-usage adapter):
+ *   the table ADR D-A named for early regularization when it
+ *   was the only known violation.
+ * - resource_daily_rollups / resource_alert_state /
+ *   resource_comparison_reports (the #1819 rollup store).
+ *
+ * The DDL below is the modules' own self-create DDL, verbatim
+ * in shape (characterization in
+ * tests/d1_regularization_step4f_characterization_2362.test.ts
+ * PRAGMA-pins the self-created shapes; the conformance suite
+ * pins that this migration produces the identical shapes), so
+ * applying 0022 against an instance that already self-created
+ * the tables is a no-op (CREATE TABLE IF NOT EXISTS), and the
+ * adapters' declared ensure-on-first-use stays a no-op where
+ * the runner has already applied it. No data moves; no
+ * residency changes.
+ */
+export const MIGRATION_0022_D1_REGULARIZATION: DataMigration = {
+  version: 22,
+  name: "0022_d1_regularization",
+  sql: `
+CREATE TABLE IF NOT EXISTS quote_source_setting (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  source TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS resource_sql_ops (
+  ts_ms INTEGER NOT NULL,
+  ns TEXT NOT NULL,
+  op TEXT NOT NULL,
+  rows_read INTEGER NOT NULL,
+  rows_written INTEGER NOT NULL,
+  caller TEXT,
+  trigger TEXT,
+  statement TEXT,
+  tenant_id TEXT,
+  run_id TEXT,
+  session_ref TEXT
+);
+CREATE TABLE IF NOT EXISTS resource_daily_rollups (
+  day TEXT NOT NULL,
+  ns TEXT NOT NULL,
+  op TEXT NOT NULL,
+  caller TEXT NOT NULL,
+  trigger TEXT NOT NULL,
+  ops INTEGER NOT NULL,
+  rows_read INTEGER NOT NULL,
+  rows_written INTEGER NOT NULL,
+  PRIMARY KEY (day, ns, op, caller, trigger)
+);
+CREATE TABLE IF NOT EXISTS resource_alert_state (
+  budget TEXT NOT NULL,
+  day TEXT NOT NULL,
+  alerted_at INTEGER NOT NULL,
+  delivered INTEGER NOT NULL,
+  note TEXT,
+  PRIMARY KEY (budget, day)
+);
+CREATE TABLE IF NOT EXISTS resource_comparison_reports (
+  day TEXT PRIMARY KEY,
+  generated_at INTEGER NOT NULL,
+  report_json TEXT NOT NULL
+);
+`,
+};
+
 export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0001_AGENT_GOVERNANCE,
   MIGRATION_0002_AGENT_CHAINS_SCHEDULES,
@@ -1057,6 +1132,7 @@ export const ALL_MIGRATIONS: DataMigration[] = [
   MIGRATION_0019_DATA_PROVIDER_PLATFORM,
   MIGRATION_0020_IV_HISTORY,
   MIGRATION_0021_MARKETPLACE,
+  MIGRATION_0022_D1_REGULARIZATION,
 ];
 
 function splitStatements(sqlText: string): string[] {

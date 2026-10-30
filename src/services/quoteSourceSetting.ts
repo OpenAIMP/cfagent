@@ -1,72 +1,47 @@
 /**
- * Issue #2108 (slice C) — the deployment-wide quote source setting.
+ * Issue #2108 (slice C) — the deployment-wide quote source
+ * setting. DELEGATE since issue #2362 (#1976 step 4f): the
+ * implementation is superseded by the QuoteSourcePort family
+ * in the data layer (src/data/quoteSourcePorts.ts +
+ * src/data/d1QuoteSourceAdapter.ts, composition in
+ * src/data/createQuoteSourcePorts.ts; the table's DDL
+ * authority is migration 0022). This module keeps the
+ * function-shaped surface its callers import (server routes,
+ * marketStream) and forwards to the port; the declared
+ * fail-open contract lives on the port.
  *
- * The WS + HTTP quotes surfaces share one Worker-level liveMarketCache,
- * so the source pick is deployment-wide, not per-user (per-user streams
- * are a named structural follow-up). The setting lives in D1 through
- * the Worker's own AGENT_DB binding, following the established
- * ensure-tables + CREATE TABLE IF NOT EXISTS pattern. Absent store,
- * missing row, or invalid value all fail open to "auto" — the legacy
- * env-driven behavior — never to an error.
+ * The WS + HTTP quotes surfaces share one Worker-level
+ * liveMarketCache, so the source pick is deployment-wide,
+ * not per-user (per-user streams are a named structural
+ * follow-up). Absent store, missing row, or invalid value
+ * all fail open to "auto" — the legacy env-driven behavior —
+ * never to an error.
  */
+import { D1QuoteSourceAdapter } from "../data/d1QuoteSourceAdapter";
+import {
+  normalizeQuoteSource,
+  type QuoteSource,
+  type QuoteSourceD1Db,
+} from "../data/quoteSourcePorts";
 
-export type QuoteSource = "auto" | "alpaca" | "yahoo";
+export { normalizeQuoteSource };
+export type { QuoteSource };
 
-const SOURCES: QuoteSource[] = ["auto", "alpaca", "yahoo"];
-
-export function normalizeQuoteSource(value: unknown): QuoteSource {
-  return typeof value === "string" && (SOURCES as string[]).includes(value)
-    ? (value as QuoteSource)
-    : "auto";
-}
-
-/** Minimal structural shape of the D1 binding this module needs. */
-export interface QuoteSourceStore {
-  prepare(sql: string): {
-    bind(...args: unknown[]): {
-      first<T = Record<string, unknown>>(): Promise<T | null>;
-      run(): Promise<unknown>;
-    };
-    run(): Promise<unknown>;
-  };
-}
-
-const CREATE_SQL = `CREATE TABLE IF NOT EXISTS quote_source_setting (
-  id INTEGER PRIMARY KEY CHECK (id = 1),
-  source TEXT NOT NULL,
-  updated_at INTEGER NOT NULL
-)`;
+/** The structural D1 shape this setting needs (port-owned now). */
+export type QuoteSourceStore = QuoteSourceD1Db;
 
 export async function ensureQuoteSourceTable(db: QuoteSourceStore): Promise<void> {
-  await db.prepare(CREATE_SQL).run();
+  await new D1QuoteSourceAdapter(db).ensureSchema();
 }
 
 export async function getQuoteSource(db?: QuoteSourceStore | null): Promise<QuoteSource> {
   if (!db) return "auto";
-  try {
-    const row = await db
-      .prepare("SELECT source FROM quote_source_setting WHERE id = 1")
-      .bind()
-      .first<{ source?: unknown }>();
-    return normalizeQuoteSource(row?.source);
-  } catch {
-    // Missing table, unbound store, or any read failure: legacy behavior.
-    return "auto";
-  }
+  return new D1QuoteSourceAdapter(db).get();
 }
 
 export async function setQuoteSource(
   db: QuoteSourceStore,
   source: QuoteSource,
 ): Promise<QuoteSource> {
-  const normalized = normalizeQuoteSource(source);
-  await ensureQuoteSourceTable(db);
-  await db
-    .prepare(
-      `INSERT INTO quote_source_setting (id, source, updated_at) VALUES (1, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET source = excluded.source, updated_at = excluded.updated_at`,
-    )
-    .bind(normalized, Date.now())
-    .run();
-  return normalized;
+  return new D1QuoteSourceAdapter(db).set(source);
 }
