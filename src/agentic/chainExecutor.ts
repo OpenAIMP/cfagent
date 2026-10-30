@@ -81,6 +81,7 @@ import {
   executeShardJob,
   type ShardExecutorDeps,
 } from "../services/shardExecutors";
+import { createAsyncJobPorts } from "../data/createAsyncJobPorts";
 
 /** The DO/SQL runtime a production caller supplies. Same shape as
  *  `ShardExecutorDeps` — the shard executors' own dependency shape
@@ -250,20 +251,32 @@ export function createChainLegExecutor(
   // In-memory completed shard rows, in the raw DB shape
   // `chainRowsFromSql` parses. The overlay sql returns base rows
   // plus these for the chain-rows SELECT only.
+  //
+  // #2358 (#1976 step 4a): the base rows for the chain-rows
+  // SELECT now come through the async-job READ PORT over the
+  // real runtime (chainRows in src/data/asyncJobPorts.ts owns
+  // the statement); the overlay still appends this run's
+  // in-memory rows, which exist nowhere durable. Any other
+  // statement forwards the runtime's exec unchanged — the
+  // shard executors' own provider composition takes a
+  // sql-shaped handle by design, and their statements live in
+  // their own modules.
   const overlayRows: Array<Record<string, unknown>> = [];
+  const runtimeExec = runtime.sql.exec.bind(runtime.sql);
   const overlaySql = {
     exec: (query: string, ...params: unknown[]) => {
-      const base = Array.from(
-        runtime.sql.exec(query, ...params) as Iterable<Record<string, unknown>>,
-      );
       if (
         typeof query === "string" &&
         query.includes("FROM mas_async_jobs") &&
         query.includes("chain_id")
       ) {
+        const base = createAsyncJobPorts(runtime.sql as never).read.chainRows(
+          String(params[0] ?? ""),
+          String(params[1] ?? ""),
+        ) as unknown as Array<Record<string, unknown>>;
         return [...base, ...overlayRows];
       }
-      return base;
+      return Array.from(runtimeExec(query, ...params) as Iterable<Record<string, unknown>>);
     },
   };
   const shardDeps: ShardExecutorDeps = {
