@@ -65,13 +65,20 @@ describe("landing tape polling migration (#2419)", () => {
     vi.restoreAllMocks();
   });
 
-  function buildDom(polling?: Record<string, number>) {
+  function buildDom(polling?: Record<string, number>, autoRefresh = true) {
     const dom = new JSDOM(renderLandingPage("Test App", polling), {
       url: "https://agent.openaimp.com/",
       runScripts: "dangerously",
       beforeParse(window: any) {
         window.WebSocket = FakeSocket;
         window.fetch = fetchMock;
+        // Issue #2481: the landing feed is gated by the global
+        // switch; the #2419 pins below cover ON, and the new
+        // OFF test covers the gated behaviour.
+        window.localStorage.setItem(
+          "cfagent_global_autorefresh_enabled",
+          String(autoRefresh),
+        );
       },
     });
     doms.push(dom);
@@ -86,6 +93,13 @@ describe("landing tape polling migration (#2419)", () => {
     expect(sub.type).toBe("subscribe");
     return ws;
   }
+
+  it("opens no socket and polls nothing while auto-refresh is OFF (#2481)", async () => {
+    buildDom({ quotesRestFallbackMs: 5_000 }, false);
+    await sleep(50);
+    expect(FakeSocket.instances.length).toBe(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 
   it("emits the injected config, defaulting when absent", () => {
     const html = renderLandingPage("Test App", { quotesRestFallbackMs: 45_000 });

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch as fetch } from "./apiFetch";
 import { Button, Checkbox, Select, Table, TextInput } from "./components/ui";
 import { getPollingConfig } from "./pollingConfig";
+import { isAutoRefreshEnabled } from "./autoRefresh";
 
 /**
  * Goal Screen panel (consolidation C1, issue #1201, epic #1151 R1).
@@ -231,6 +232,14 @@ export function GoalScreenPanel({ activeEnv, userLogin }: GoalScreenPanelProps) 
       // hidden-pause + externalized cadence rather than usePolling's
       // indefinite shape, which has no stop handle.)
       if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        continue;
+      }
+      // Issue #2481 — the global auto-refresh switch gates this
+      // periodic status fetch too: while OFF the loop sleeps
+      // without fetching (deadline unchanged, so tracking resumes
+      // if the switch flips back ON, and the stored run stays
+      // reachable via Screening → Reports).
+      if (!isAutoRefreshEnabled()) {
         continue;
       }
       let history: { jobs?: Array<{ stage?: string; status?: string; detail?: string; updatedAtMs?: number; resultJson?: string }> };
