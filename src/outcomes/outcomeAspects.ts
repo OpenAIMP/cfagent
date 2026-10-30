@@ -1,8 +1,8 @@
 /**
  * Issue #2381: the single outcome catalog + the single resolver.
  *
- * Supersedes src/errors/errorAspects.ts (deprecated by rename, same
- * slice): the aspect machinery is reused here — withLogging,
+ * Successor to src/errors/errorAspects.ts (renamed in the same
+ * slice, #2381): the aspect machinery is reused here — withLogging,
  * withSecurity, withExceptionHandling, BusinessError, codedMessage —
  * but it resolves through the outcome catalog, never the old error
  * catalog, and there is no second resolver anywhere.
