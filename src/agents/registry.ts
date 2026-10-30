@@ -406,9 +406,13 @@ export const MESH_CHANNELS: MeshChannelEntry[] = [
 // ---------------------------------------------------------------------------
 // Tool families — survey §8's fifteen, plus the three families the
 // #2225 reference-set update added (web_search, web_fetch, AI Search
-// platform), plus the mesh-door family the G1 slices add (#2341).
+// platform), plus the mesh-door family the G1 slices add (#2341),
+// plus the Agent Skills family the owner's Agents SDK Skills
+// addition names (#2225 comment 6517280689, recorded by S14/#2417).
 // The McpToolFactory module families carry the catalog's command
-// names; the rest describe their surface in notes.
+// names; the rest describe their surface in notes. Every family's
+// status is drift-pinned against its evidence by
+// tests/mesh_tool_registry_s14_2417.test.ts.
 // ---------------------------------------------------------------------------
 
 export const MESH_TOOL_FAMILIES: MeshToolFamilyEntry[] = [
@@ -437,6 +441,8 @@ export const MESH_TOOL_FAMILIES: MeshToolFamilyEntry[] = [
       "get_audit_events",
     ],
     commandSources: [{ file: "src/mcp/commands.ts", kind: "readonly-name" }],
+    notes:
+      "Grounding caveat (survey §8 row 1, verified by S14/#2417): knowledge_search and query_platform_knowledge ground on the in-repo platform-knowledge corpus (src/services/platformKnowledge.ts) — a shipped, structured knowledge base of the platform's own capabilities, not the AI Search instance. The survey's caution stands: that grounding must not be counted as a search surface. The AI Search surfaces are the ai-search-service and ai-search-platform families.",
   },
   {
     id: "cloudflare-agent-mcp-commands",
@@ -584,11 +590,11 @@ export const MESH_TOOL_FAMILIES: MeshToolFamilyEntry[] = [
   {
     id: "remote-mcp-servers",
     name: "Remotely consumed MCP servers",
-    source: "src/services/mcpClient.ts (RemoteMcpClient)",
+    source: "src/services/mcpClient.ts (RemoteMcpClient) + src/services/publicMcp.ts (PublicMcpClient)",
     status: "live",
     commands: [],
     notes:
-      "Outbound MCP consumption: AiSearchAgent's instance-MCP path (src/agents/aiSearchPaths.ts) and the payment strategies call remote MCP servers through RemoteMcpClient.",
+      "Outbound MCP consumption: AiSearchAgent's instance-MCP path (src/agents/aiSearchPaths.ts) and the payment strategies call remote MCP servers through RemoteMcpClient. A second client, PublicMcpClient, serves Public.com's hosted MCP (PUBLIC_MCP_URL) for src/services/publicData.ts and src/security/publicOAuth.ts under a recorded tool allowlist (PUBLIC_DATA_TOOL_ALLOWLIST); it was unrecorded before S14 (#2417) completed this family.",
   },
   {
     id: "sandbox-tools",
@@ -597,7 +603,7 @@ export const MESH_TOOL_FAMILIES: MeshToolFamilyEntry[] = [
     status: "degraded",
     commands: [],
     notes:
-      "No container backend is configured: runs return executed:false (honest degradation). The run_sandbox_command MCP command lives in the cloudflare-agent-mcp-commands family.",
+      "No container backend is configured: runs return executed:false (honest degradation). The run_sandbox_command MCP command lives in the cloudflare-agent-mcp-commands family. Making this family live is a named OWNER DECISION, not a code gap: add a Cloudflare Containers configuration for SandboxAgent to wrangler.jsonc and construct the service with the bound container (this.ctx.container) — the enablement steps are recorded in src/agents/sandbox-agent.ts and in the SANDBOX_AGENT binding comment in wrangler.jsonc. Owner-gated in this programme; the registry slices record it and do not make it (S14, #2417).",
   },
   {
     id: "browser-tools",
@@ -606,7 +612,7 @@ export const MESH_TOOL_FAMILIES: MeshToolFamilyEntry[] = [
     status: "live",
     commands: [],
     notes:
-      "The BROWSER binding is declared in wrangler.jsonc (#2253); the survey-era finding 'no Browser Rendering binding in deployed config' is superseded on current main. The browser_* MCP commands live in the cloudflare-agent-mcp-commands family.",
+      "The BROWSER binding is declared in wrangler.jsonc (#2253); the survey-era finding 'no Browser Rendering binding in deployed config' is superseded on current main (re-verified by S14, #2417). The browser_* MCP commands live in the cloudflare-agent-mcp-commands family. Failure-path honesty is unchanged from the survey: a capture that cannot run returns a clearly labelled placeholder (screenshotKind: \"placeholder\") rather than a fabricated image.",
   },
   {
     id: "ai-search-service",
@@ -615,7 +621,7 @@ export const MESH_TOOL_FAMILIES: MeshToolFamilyEntry[] = [
     status: "live",
     commands: [],
     notes:
-      "Direct REST search over the AI Search instance; backs the ai_search_financial_docs MCP command and AiSearchAgent's fallback path.",
+      "Direct REST search over the AI Search instance (AI_SEARCH_ENDPOINT, declared in wrangler.jsonc vars); backs the ai_search_financial_docs MCP command and AiSearchAgent's REST fallback path. Failure honesty (survey §8 row 12's fabricated-fallback caveat, verified still live by S14/#2417): when the primary path fails, the service falls back to a local matcher over a built-in five-document corpus (FINANCIAL_KNOWLEDGE_BASE in the same module) and labels the response provider \"semantic_cache\" — those results are the in-repo corpus, not the instance. The family's live status is its primary-path posture; the substitution is labelled in-band and recorded here, never silent.",
   },
   {
     id: "payments-tools",
@@ -668,7 +674,18 @@ export const MESH_TOOL_FAMILIES: MeshToolFamilyEntry[] = [
     status: "degraded",
     commands: [],
     notes:
-      "Cloudflare AI Search through the ai_search_namespaces binding: the binding is not declared in wrangler.jsonc (dashboard-issued namespace value), so the primary path is config-gated off and AiSearchAgent degrades to its MCP and REST paths.",
+      "Cloudflare AI Search through the ai_search_namespaces binding: the binding is not declared in wrangler.jsonc (dashboard-issued namespace value), so the primary path is config-gated off and AiSearchAgent degrades to its MCP and REST paths. Owner enablement is recorded in src/types.ts: add the ai_search_namespaces entry (binding \"AI_SEARCH\", dashboard-issued namespace, remote true) to wrangler.jsonc and set AI_SEARCH_INSTANCE. Owner-gated in this programme; the registry slices record it and do not make it (S14, #2417).",
+  },
+  {
+    id: "agent-skills",
+    name: "Agent Skills (SDK SKILL.md packs)",
+    source:
+      "no defining module on main — the adapter is Think.getSkills() in @cloudflare/think, inherited through PortThink (src/actors/thinkAdapter.ts)",
+    status: "absent",
+    commands: [],
+    toolNames: ["activate_skill", "read_skill_resource", "run_skill_script"],
+    notes:
+      "Named by the owner's Agents SDK Skills addition to #2225 (comment 6517280689); recorded by S14 (#2417). NOT ADOPTED: no agent class overrides getSkills() (zero occurrences in src/), so no skill catalog exists and the skills tools never appear in any turn. The adapter is present in the pinned SDK (@cloudflare/think 0.23.0): Think.getSkills() returns SkillSource[] — workspace, R2, or code-manifest sources, re-listed before every turn — and Think adds activate_skill / read_skill_resource when sources exist, plus run_skill_script behind an experimental script runner. The fleet runs Think behind the actor port: PortThink neither overrides nor blocks the hook, so adoption is a per-class override plus a source — but whether the port's adapter-driven turn surfaces Think's skills tools end-to-end is an open conformance question, recorded as the G7 matrix's skills aspect (GAP for every PortThink agent, programme backlog). A skill is instructions the model follows, so a source is a trust decision — source write-access is the control point — and any source binding (e.g. an R2 bucket for skills.r2()) is an owner-gated config change. The toolNames listed are the SDK's tool names: none is registered in the MCP catalog or any turn today (pinned).",
   },
 ];
 

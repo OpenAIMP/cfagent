@@ -52,7 +52,12 @@ turn-capable agents, Think's tree session), `routing` (bindings,
 names, and doors by which the class is reached), `websockets` (the
 Agent WebSocket lifecycle), `sdk-scheduling` (the SDK scheduler —
 `this.schedule`/`this.scheduleEvery`), `fibers` (durable execution
-via the SDK/Think fiber primitive — `runFiber`/`startFiber`/`stash`).
+via the SDK/Think fiber primitive — `runFiber`/`startFiber`/`stash`),
+`skills` (Agent Skills — `SKILL.md` packs loaded on demand through
+the harness: Think's `getSkills()` sources and the
+`activate_skill`/`read_skill_resource` tools; added by S14 (#2417)
+from the owner's Agents SDK Skills addition, #2225 comment
+6517280689).
 
 **Roster.** Exactly the S1 registry roster, in registry order: the
 12 PortThink agents, plus SessionStore (a plain Durable Object) and
@@ -115,9 +120,10 @@ recovery column reads as it does.
 | `websockets` | 2 | 12 | 0 |
 | `sdk-scheduling` | 2 | 12 | 0 |
 | `fibers` | 0 | 2 | 12 |
-| Total | 58 | 80 | 16 |
+| `skills` | 0 | 2 | 12 |
+| Total | 58 | 82 | 28 |
 
-154 cells (14 roster entries × 11 aspects), zero unclassified. The
+168 cells (14 roster entries × 12 aspects), zero unclassified. The
 two honest headlines: **recovery has its first IMPLEMENTED cells** —
 S12 (#2409) proved OrchestratorAgent's queued-job recovery and
 TradingAgent's workflow-mediated recovery with behavioral pins
@@ -129,7 +135,12 @@ draft), while two recovery GAPs remain (ResearchAgent and
 ScreenerAgent re-dispositioned to the programme backlog by #2409
 with the evidence boundary named in their cells) — and **fibers
 is a GAP for every PortThink agent**, judged against the real SDK
-primitive.
+primitive. **Skills, added by S14 (#2417), is likewise a GAP for
+every PortThink agent** — classified before any adoption, per the
+owner's Agents SDK Skills addition (#2225 comment 6517280689):
+no class overrides `getSkills()`, the adapter is present in the
+pinned Think, and the two non-Agent entries are NOT-APPLICABLE
+because no harness exists for the aspect to apply to.
 
 ## 4. GAP register
 
@@ -140,6 +151,7 @@ primitive.
 | ScreenerAgent | `recovery` | Programme backlog (workflow layer proven by #2409; agent-level resume of an interrupted screen unowned) |
 | SlackAgent | `identity` | S16 (G14 identity records + mesh credentials) |
 | All 12 PortThink agents | `fibers` | Programme backlog (no slice yet) |
+| All 12 PortThink agents | `skills` | Programme backlog (owner addition, #2225 comment 6517280689 — adoption is a separate owner-sequenced decision; no slice yet) |
 
 Residuals recorded inside IMPLEMENTED cells (not GAPs, but tracked):
 OrchestratorAgent's `sessionKey()` attribution (S16);
@@ -165,6 +177,7 @@ AiSearchAgent's unthreaded session login for turn-tool/RPC callers
 | `websockets` | IMPLEMENTED | The SDK base WebSocket lifecycle behind routeAgentRequest, with onBeforeConnect/onBeforeRequest session gates in server.ts; the class defines no onConnect override (fleet pin) — the SDK's hibernation-aware handling is the conformance posture. |
 | `sdk-scheduling` | IMPLEMENTED | this.schedule / this.scheduleEvery through the port schedule facets (orchestrator.ts:448-495). |
 | `fibers` | GAP | No agent uses the SDK/Think fiber primitive (fleet pin: no runFiber/startFiber in agent sources). The only fiber surface, src/services/durableFibers.ts, is home-grown and NOT durable: live records sit in an in-memory Map (activeFibers, :32), checkpoints are written but never read back, and the onFiberRecovered hook its header advertises (:9) exists nowhere else in src/. Owner: programme backlog (no slice yet). |
+| `skills` | GAP | Turn-capable — this class's chat turn is exactly the surface skills tools would appear on. No agent class overrides getSkills() — zero occurrences in src/ (fleet pin in the S4 suite) — so no skill catalog exists and Think's skills tools (activate_skill / read_skill_resource) never appear in any turn. The adapter is present in the pinned SDK: @cloudflare/think 0.23.0's shipped types expose Think.getSkills() returning SkillSource[] (workspace / R2 / code-manifest sources; the default returns none), and PortThink neither overrides nor blocks the hook, so adoption is a per-class override plus a source. Whether the port's adapter-driven turn surfaces Think's skills tools end-to-end is unverified — the repo's Node harness stubs @cloudflare/think (#2003), so the hook is pinned against the package's shipped types (tests/mesh_tool_registry_s14_2417.test.ts), never exercised. Owner: programme backlog (owner addition #2225 comment 6517280689 — adoption is a separate owner-sequenced decision). |
 
 ### ResearchAgent
 
@@ -181,6 +194,7 @@ AiSearchAgent's unthreaded session login for turn-tool/RPC callers
 | `websockets` | NOT-APPLICABLE | No WebSocket surface of its own: it defines no onConnect/onMessage and no socket client connects to it (fleet pin: onConnect exists only in TickerAgent). |
 | `sdk-scheduling` | NOT-APPLICABLE | No SDK scheduler use: the file contains no this.schedule/this.scheduleEvery call (fleet pin: such calls exist only in OrchestratorAgent and TickerAgent). |
 | `fibers` | GAP | No agent uses the SDK/Think fiber primitive (fleet pin: no runFiber/startFiber in agent sources). The only fiber surface, src/services/durableFibers.ts, is home-grown and NOT durable: live records sit in an in-memory Map (activeFibers, :32), checkpoints are written but never read back, and the onFiberRecovered hook its header advertises (:9) exists nowhere else in src/. Owner: programme backlog (no slice yet). |
+| `skills` | GAP | Turn-capable via portHooks; its turns are driven remotely by the orchestrator. No agent class overrides getSkills() — zero occurrences in src/ (fleet pin in the S4 suite) — so no skill catalog exists and Think's skills tools (activate_skill / read_skill_resource) never appear in any turn. The adapter is present in the pinned SDK: @cloudflare/think 0.23.0's shipped types expose Think.getSkills() returning SkillSource[] (workspace / R2 / code-manifest sources; the default returns none), and PortThink neither overrides nor blocks the hook, so adoption is a per-class override plus a source. Whether the port's adapter-driven turn surfaces Think's skills tools end-to-end is unverified — the repo's Node harness stubs @cloudflare/think (#2003), so the hook is pinned against the package's shipped types (tests/mesh_tool_registry_s14_2417.test.ts), never exercised. Owner: programme backlog (owner addition #2225 comment 6517280689 — adoption is a separate owner-sequenced decision). |
 
 ### TradingAgent
 
@@ -197,6 +211,7 @@ AiSearchAgent's unthreaded session login for turn-tool/RPC callers
 | `websockets` | NOT-APPLICABLE | No WebSocket surface of its own: it defines no onConnect/onMessage and no socket client connects to it (fleet pin: onConnect exists only in TickerAgent). |
 | `sdk-scheduling` | NOT-APPLICABLE | No SDK scheduler use: the file contains no this.schedule/this.scheduleEvery call (fleet pin: such calls exist only in OrchestratorAgent and TickerAgent). |
 | `fibers` | GAP | No agent uses the SDK/Think fiber primitive (fleet pin: no runFiber/startFiber in agent sources). The only fiber surface, src/services/durableFibers.ts, is home-grown and NOT durable: live records sit in an in-memory Map (activeFibers, :32), checkpoints are written but never read back, and the onFiberRecovered hook its header advertises (:9) exists nowhere else in src/. Owner: programme backlog (no slice yet). |
+| `skills` | GAP | Its turn mechanism is wired (portHooks set lazily via tradingTurnHooks()), so a turn surface exists for the hook to serve. No agent class overrides getSkills() — zero occurrences in src/ (fleet pin in the S4 suite) — so no skill catalog exists and Think's skills tools (activate_skill / read_skill_resource) never appear in any turn. The adapter is present in the pinned SDK: @cloudflare/think 0.23.0's shipped types expose Think.getSkills() returning SkillSource[] (workspace / R2 / code-manifest sources; the default returns none), and PortThink neither overrides nor blocks the hook, so adoption is a per-class override plus a source. Whether the port's adapter-driven turn surfaces Think's skills tools end-to-end is unverified — the repo's Node harness stubs @cloudflare/think (#2003), so the hook is pinned against the package's shipped types (tests/mesh_tool_registry_s14_2417.test.ts), never exercised. Owner: programme backlog (owner addition #2225 comment 6517280689 — adoption is a separate owner-sequenced decision). |
 
 ### PaymentsAgent
 
@@ -213,6 +228,7 @@ AiSearchAgent's unthreaded session login for turn-tool/RPC callers
 | `websockets` | NOT-APPLICABLE | No WebSocket surface of its own: it defines no onConnect/onMessage and no socket client connects to it (fleet pin: onConnect exists only in TickerAgent). |
 | `sdk-scheduling` | NOT-APPLICABLE | No SDK scheduler use: the file contains no this.schedule/this.scheduleEvery call (fleet pin: such calls exist only in OrchestratorAgent and TickerAgent). |
 | `fibers` | GAP | No agent uses the SDK/Think fiber primitive (fleet pin: no runFiber/startFiber in agent sources). The only fiber surface, src/services/durableFibers.ts, is home-grown and NOT durable: live records sit in an in-memory Map (activeFibers, :32), checkpoints are written but never read back, and the onFiberRecovered hook its header advertises (:9) exists nowhere else in src/. Owner: programme backlog (no slice yet). |
+| `skills` | GAP | No turn runs on this class (portHooks deliberately unset), so there is no live surface for skills tools today; the class is a Think subclass and inherits the hook — GAP, not NOT-APPLICABLE, on the fibers precedent: the capability is available to the class and unadopted. No agent class overrides getSkills() — zero occurrences in src/ (fleet pin in the S4 suite) — so no skill catalog exists and Think's skills tools (activate_skill / read_skill_resource) never appear in any turn. The adapter is present in the pinned SDK: @cloudflare/think 0.23.0's shipped types expose Think.getSkills() returning SkillSource[] (workspace / R2 / code-manifest sources; the default returns none), and PortThink neither overrides nor blocks the hook, so adoption is a per-class override plus a source. Whether the port's adapter-driven turn surfaces Think's skills tools end-to-end is unverified — the repo's Node harness stubs @cloudflare/think (#2003), so the hook is pinned against the package's shipped types (tests/mesh_tool_registry_s14_2417.test.ts), never exercised. Owner: programme backlog (owner addition #2225 comment 6517280689 — adoption is a separate owner-sequenced decision). |
 
 ### ScreenerAgent
 
@@ -229,6 +245,7 @@ AiSearchAgent's unthreaded session login for turn-tool/RPC callers
 | `websockets` | NOT-APPLICABLE | No WebSocket surface of its own: it defines no onConnect/onMessage and no socket client connects to it (fleet pin: onConnect exists only in TickerAgent). |
 | `sdk-scheduling` | NOT-APPLICABLE | No SDK scheduler use: the file contains no this.schedule/this.scheduleEvery call (fleet pin: such calls exist only in OrchestratorAgent and TickerAgent). |
 | `fibers` | GAP | No agent uses the SDK/Think fiber primitive (fleet pin: no runFiber/startFiber in agent sources). The only fiber surface, src/services/durableFibers.ts, is home-grown and NOT durable: live records sit in an in-memory Map (activeFibers, :32), checkpoints are written but never read back, and the onFiberRecovered hook its header advertises (:9) exists nowhere else in src/. Owner: programme backlog (no slice yet). |
+| `skills` | GAP | No turn path (portHooks unset), so there is no live surface for skills tools today; the class is a Think subclass and inherits the hook — GAP, not NOT-APPLICABLE, on the fibers precedent: the capability is available to the class and unadopted. No agent class overrides getSkills() — zero occurrences in src/ (fleet pin in the S4 suite) — so no skill catalog exists and Think's skills tools (activate_skill / read_skill_resource) never appear in any turn. The adapter is present in the pinned SDK: @cloudflare/think 0.23.0's shipped types expose Think.getSkills() returning SkillSource[] (workspace / R2 / code-manifest sources; the default returns none), and PortThink neither overrides nor blocks the hook, so adoption is a per-class override plus a source. Whether the port's adapter-driven turn surfaces Think's skills tools end-to-end is unverified — the repo's Node harness stubs @cloudflare/think (#2003), so the hook is pinned against the package's shipped types (tests/mesh_tool_registry_s14_2417.test.ts), never exercised. Owner: programme backlog (owner addition #2225 comment 6517280689 — adoption is a separate owner-sequenced decision). |
 
 ### ScheduledAgent
 
@@ -245,6 +262,7 @@ AiSearchAgent's unthreaded session login for turn-tool/RPC callers
 | `websockets` | NOT-APPLICABLE | No WebSocket surface of its own: it defines no onConnect/onMessage and no socket client connects to it (fleet pin: onConnect exists only in TickerAgent). |
 | `sdk-scheduling` | NOT-APPLICABLE | Deliberately never the SDK scheduler (class header: driven by onCron(), "never via the SDK scheduler"); the scheduling it owns is recorded under runtime scheduling. |
 | `fibers` | GAP | No agent uses the SDK/Think fiber primitive (fleet pin: no runFiber/startFiber in agent sources). The only fiber surface, src/services/durableFibers.ts, is home-grown and NOT durable: live records sit in an in-memory Map (activeFibers, :32), checkpoints are written but never read back, and the onFiberRecovered hook its header advertises (:9) exists nowhere else in src/. Owner: programme backlog (no slice yet). |
+| `skills` | GAP | No turn path and no port hooks by design, so there is no live surface for skills tools today; the class is a Think subclass and inherits the hook — GAP, not NOT-APPLICABLE, on the fibers precedent: the capability is available to the class and unadopted. No agent class overrides getSkills() — zero occurrences in src/ (fleet pin in the S4 suite) — so no skill catalog exists and Think's skills tools (activate_skill / read_skill_resource) never appear in any turn. The adapter is present in the pinned SDK: @cloudflare/think 0.23.0's shipped types expose Think.getSkills() returning SkillSource[] (workspace / R2 / code-manifest sources; the default returns none), and PortThink neither overrides nor blocks the hook, so adoption is a per-class override plus a source. Whether the port's adapter-driven turn surfaces Think's skills tools end-to-end is unverified — the repo's Node harness stubs @cloudflare/think (#2003), so the hook is pinned against the package's shipped types (tests/mesh_tool_registry_s14_2417.test.ts), never exercised. Owner: programme backlog (owner addition #2225 comment 6517280689 — adoption is a separate owner-sequenced decision). |
 
 ### ReportAssetAgent
 
@@ -261,6 +279,7 @@ AiSearchAgent's unthreaded session login for turn-tool/RPC callers
 | `websockets` | NOT-APPLICABLE | No WebSocket surface of its own: it defines no onConnect/onMessage and no socket client connects to it (fleet pin: onConnect exists only in TickerAgent). |
 | `sdk-scheduling` | NOT-APPLICABLE | No SDK scheduler use: the file contains no this.schedule/this.scheduleEvery call (fleet pin: such calls exist only in OrchestratorAgent and TickerAgent). |
 | `fibers` | GAP | No agent uses the SDK/Think fiber primitive (fleet pin: no runFiber/startFiber in agent sources). The only fiber surface, src/services/durableFibers.ts, is home-grown and NOT durable: live records sit in an in-memory Map (activeFibers, :32), checkpoints are written but never read back, and the onFiberRecovered hook its header advertises (:9) exists nowhere else in src/. Owner: programme backlog (no slice yet). |
+| `skills` | GAP | RPC-only with no turn path, so there is no live surface for skills tools today; the class is a Think subclass and inherits the hook — GAP, not NOT-APPLICABLE, on the fibers precedent: the capability is available to the class and unadopted. No agent class overrides getSkills() — zero occurrences in src/ (fleet pin in the S4 suite) — so no skill catalog exists and Think's skills tools (activate_skill / read_skill_resource) never appear in any turn. The adapter is present in the pinned SDK: @cloudflare/think 0.23.0's shipped types expose Think.getSkills() returning SkillSource[] (workspace / R2 / code-manifest sources; the default returns none), and PortThink neither overrides nor blocks the hook, so adoption is a per-class override plus a source. Whether the port's adapter-driven turn surfaces Think's skills tools end-to-end is unverified — the repo's Node harness stubs @cloudflare/think (#2003), so the hook is pinned against the package's shipped types (tests/mesh_tool_registry_s14_2417.test.ts), never exercised. Owner: programme backlog (owner addition #2225 comment 6517280689 — adoption is a separate owner-sequenced decision). |
 
 ### BrowserAgent
 
@@ -277,6 +296,7 @@ AiSearchAgent's unthreaded session login for turn-tool/RPC callers
 | `websockets` | NOT-APPLICABLE | No WebSocket surface of its own: it defines no onConnect/onMessage and no socket client connects to it (fleet pin: onConnect exists only in TickerAgent). |
 | `sdk-scheduling` | NOT-APPLICABLE | No SDK scheduler use: the file contains no this.schedule/this.scheduleEvery call (fleet pin: such calls exist only in OrchestratorAgent and TickerAgent). |
 | `fibers` | GAP | No agent uses the SDK/Think fiber primitive (fleet pin: no runFiber/startFiber in agent sources). The only fiber surface, src/services/durableFibers.ts, is home-grown and NOT durable: live records sit in an in-memory Map (activeFibers, :32), checkpoints are written but never read back, and the onFiberRecovered hook its header advertises (:9) exists nowhere else in src/. Owner: programme backlog (no slice yet). |
+| `skills` | GAP | portHooks deliberately unset — no chat behavior was ever configured, so there is no live surface for skills tools today; the class is a Think subclass and inherits the hook — GAP, not NOT-APPLICABLE, on the fibers precedent: the capability is available to the class and unadopted. No agent class overrides getSkills() — zero occurrences in src/ (fleet pin in the S4 suite) — so no skill catalog exists and Think's skills tools (activate_skill / read_skill_resource) never appear in any turn. The adapter is present in the pinned SDK: @cloudflare/think 0.23.0's shipped types expose Think.getSkills() returning SkillSource[] (workspace / R2 / code-manifest sources; the default returns none), and PortThink neither overrides nor blocks the hook, so adoption is a per-class override plus a source. Whether the port's adapter-driven turn surfaces Think's skills tools end-to-end is unverified — the repo's Node harness stubs @cloudflare/think (#2003), so the hook is pinned against the package's shipped types (tests/mesh_tool_registry_s14_2417.test.ts), never exercised. Owner: programme backlog (owner addition #2225 comment 6517280689 — adoption is a separate owner-sequenced decision). |
 
 ### SlackAgent
 
@@ -293,6 +313,7 @@ AiSearchAgent's unthreaded session login for turn-tool/RPC callers
 | `websockets` | NOT-APPLICABLE | No WebSocket surface of its own: it defines no onConnect/onMessage and no socket client connects to it (fleet pin: onConnect exists only in TickerAgent). |
 | `sdk-scheduling` | NOT-APPLICABLE | No SDK scheduler use: the file contains no this.schedule/this.scheduleEvery call (fleet pin: such calls exist only in OrchestratorAgent and TickerAgent). |
 | `fibers` | GAP | No agent uses the SDK/Think fiber primitive (fleet pin: no runFiber/startFiber in agent sources). The only fiber surface, src/services/durableFibers.ts, is home-grown and NOT durable: live records sit in an in-memory Map (activeFibers, :32), checkpoints are written but never read back, and the onFiberRecovered hook its header advertises (:9) exists nowhere else in src/. Owner: programme backlog (no slice yet). |
+| `skills` | GAP | No chat transcript and no turn runs on this class, so there is no live surface for skills tools today; the class is a Think subclass and inherits the hook — GAP, not NOT-APPLICABLE, on the fibers precedent: the capability is available to the class and unadopted. No agent class overrides getSkills() — zero occurrences in src/ (fleet pin in the S4 suite) — so no skill catalog exists and Think's skills tools (activate_skill / read_skill_resource) never appear in any turn. The adapter is present in the pinned SDK: @cloudflare/think 0.23.0's shipped types expose Think.getSkills() returning SkillSource[] (workspace / R2 / code-manifest sources; the default returns none), and PortThink neither overrides nor blocks the hook, so adoption is a per-class override plus a source. Whether the port's adapter-driven turn surfaces Think's skills tools end-to-end is unverified — the repo's Node harness stubs @cloudflare/think (#2003), so the hook is pinned against the package's shipped types (tests/mesh_tool_registry_s14_2417.test.ts), never exercised. Owner: programme backlog (owner addition #2225 comment 6517280689 — adoption is a separate owner-sequenced decision). |
 
 ### AiSearchAgent
 
@@ -309,6 +330,7 @@ AiSearchAgent's unthreaded session login for turn-tool/RPC callers
 | `websockets` | NOT-APPLICABLE | No WebSocket surface of its own: it defines no onConnect/onMessage and no socket client connects to it (fleet pin: onConnect exists only in TickerAgent). |
 | `sdk-scheduling` | NOT-APPLICABLE | No SDK scheduler use: the file contains no this.schedule/this.scheduleEvery call (fleet pin: such calls exist only in OrchestratorAgent and TickerAgent). |
 | `fibers` | GAP | No agent uses the SDK/Think fiber primitive (fleet pin: no runFiber/startFiber in agent sources). The only fiber surface, src/services/durableFibers.ts, is home-grown and NOT durable: live records sit in an in-memory Map (activeFibers, :32), checkpoints are written but never read back, and the onFiberRecovered hook its header advertises (:9) exists nowhere else in src/. Owner: programme backlog (no slice yet). |
+| `skills` | GAP | Turn-capable via portHooks — the namespace search is already a model turn tool as well as a direct method. No agent class overrides getSkills() — zero occurrences in src/ (fleet pin in the S4 suite) — so no skill catalog exists and Think's skills tools (activate_skill / read_skill_resource) never appear in any turn. The adapter is present in the pinned SDK: @cloudflare/think 0.23.0's shipped types expose Think.getSkills() returning SkillSource[] (workspace / R2 / code-manifest sources; the default returns none), and PortThink neither overrides nor blocks the hook, so adoption is a per-class override plus a source. Whether the port's adapter-driven turn surfaces Think's skills tools end-to-end is unverified — the repo's Node harness stubs @cloudflare/think (#2003), so the hook is pinned against the package's shipped types (tests/mesh_tool_registry_s14_2417.test.ts), never exercised. Owner: programme backlog (owner addition #2225 comment 6517280689 — adoption is a separate owner-sequenced decision). |
 
 ### TickerAgent
 
@@ -325,6 +347,7 @@ AiSearchAgent's unthreaded session login for turn-tool/RPC callers
 | `websockets` | IMPLEMENTED | The fleet's one real WebSocket lifecycle implementation: onConnect (:96) reads header carriers into per-connection state, onMessage (:122) handles subscribe/unsubscribe/ping, onClose is inherited; protocol messages are disabled (shouldSendProtocolMessages returns false) because clients are plain WebSockets, not useAgent clients. |
 | `sdk-scheduling` | IMPLEMENTED | this.scheduleEvery in onStart (ticker-agent.ts:89). |
 | `fibers` | GAP | No agent uses the SDK/Think fiber primitive (fleet pin: no runFiber/startFiber in agent sources). The only fiber surface, src/services/durableFibers.ts, is home-grown and NOT durable: live records sit in an in-memory Map (activeFibers, :32), checkpoints are written but never read back, and the onFiberRecovered hook its header advertises (:9) exists nowhere else in src/. Owner: programme backlog (no slice yet). |
+| `skills` | GAP | portHooks never set and no turn ever runs (class header), so there is no live surface for skills tools today; the class is a Think subclass and inherits the hook — GAP, not NOT-APPLICABLE, on the fibers precedent: the capability is available to the class and unadopted. No agent class overrides getSkills() — zero occurrences in src/ (fleet pin in the S4 suite) — so no skill catalog exists and Think's skills tools (activate_skill / read_skill_resource) never appear in any turn. The adapter is present in the pinned SDK: @cloudflare/think 0.23.0's shipped types expose Think.getSkills() returning SkillSource[] (workspace / R2 / code-manifest sources; the default returns none), and PortThink neither overrides nor blocks the hook, so adoption is a per-class override plus a source. Whether the port's adapter-driven turn surfaces Think's skills tools end-to-end is unverified — the repo's Node harness stubs @cloudflare/think (#2003), so the hook is pinned against the package's shipped types (tests/mesh_tool_registry_s14_2417.test.ts), never exercised. Owner: programme backlog (owner addition #2225 comment 6517280689 — adoption is a separate owner-sequenced decision). |
 
 ### SandboxAgent
 
@@ -341,6 +364,7 @@ AiSearchAgent's unthreaded session login for turn-tool/RPC callers
 | `websockets` | NOT-APPLICABLE | No WebSocket surface of its own: it defines no onConnect/onMessage and no socket client connects to it (fleet pin: onConnect exists only in TickerAgent). |
 | `sdk-scheduling` | NOT-APPLICABLE | No SDK scheduler use: the file contains no this.schedule/this.scheduleEvery call (fleet pin: such calls exist only in OrchestratorAgent and TickerAgent). |
 | `fibers` | GAP | No agent uses the SDK/Think fiber primitive (fleet pin: no runFiber/startFiber in agent sources). The only fiber surface, src/services/durableFibers.ts, is home-grown and NOT durable: live records sit in an in-memory Map (activeFibers, :32), checkpoints are written but never read back, and the onFiberRecovered hook its header advertises (:9) exists nowhere else in src/. Owner: programme backlog (no slice yet). |
+| `skills` | GAP | portHooks deliberately unset and no chat behavior defined, so there is no live surface for skills tools today; the class is a Think subclass and inherits the hook — GAP, not NOT-APPLICABLE, on the fibers precedent: the capability is available to the class and unadopted. No agent class overrides getSkills() — zero occurrences in src/ (fleet pin in the S4 suite) — so no skill catalog exists and Think's skills tools (activate_skill / read_skill_resource) never appear in any turn. The adapter is present in the pinned SDK: @cloudflare/think 0.23.0's shipped types expose Think.getSkills() returning SkillSource[] (workspace / R2 / code-manifest sources; the default returns none), and PortThink neither overrides nor blocks the hook, so adoption is a per-class override plus a source. Whether the port's adapter-driven turn surfaces Think's skills tools end-to-end is unverified — the repo's Node harness stubs @cloudflare/think (#2003), so the hook is pinned against the package's shipped types (tests/mesh_tool_registry_s14_2417.test.ts), never exercised. Owner: programme backlog (owner addition #2225 comment 6517280689 — adoption is a separate owner-sequenced decision). |
 
 ### SessionStore
 
@@ -357,6 +381,7 @@ AiSearchAgent's unthreaded session login for turn-tool/RPC callers
 | `websockets` | NOT-APPLICABLE | No WebSocket surface: its only door is the fetch op protocol. |
 | `sdk-scheduling` | NOT-APPLICABLE | Not an Agents SDK Agent, so the SDK scheduler aspect does not apply. |
 | `fibers` | NOT-APPLICABLE | Not an Agent class; the Fibers aspect does not apply. |
+| `skills` | NOT-APPLICABLE | Not an Agents SDK Agent subclass (extends plain DurableObject): the Skills aspect is defined for Think/Agent harnesses — there is no getSkills hook to override and no model turn for skills tools to serve. |
 
 ### OptionsScannerMCP
 
@@ -373,6 +398,7 @@ AiSearchAgent's unthreaded session login for turn-tool/RPC callers
 | `websockets` | NOT-APPLICABLE | MCP transport, not the Agent WebSocket lifecycle. |
 | `sdk-scheduling` | NOT-APPLICABLE | No SDK scheduler use: this surface has no scheduler role. |
 | `fibers` | NOT-APPLICABLE | Not an Agent class; the Fibers aspect does not apply. |
+| `skills` | NOT-APPLICABLE | An McpAgent server: it serves tools to other harnesses rather than consuming a harness tool set, and Think's getSkills adapter does not apply to it. The class is also out of mesh scope per #2225. |
 
 ## 6. Coverage: what round 1 pins, and what later rounds add
 
@@ -403,6 +429,15 @@ on. Later rounds should add, in owning-slice order:
   or an explicit programme decision to keep the GAP) — currently
   unowned in the backlog; the matrix keeps it visible until a slice
   claims it.
+- The `skills` aspect (S14, #2417): classified from source facts —
+  no `getSkills` override anywhere in `src/` (fleet pin in the S4
+  suite), and the adapter's presence in the pinned Think pinned
+  against the package's shipped type declarations in
+  `tests/mesh_tool_registry_s14_2417.test.ts` (the Node harness
+  stubs the package, #2003, so no runtime pin can load the real
+  hook). Adoption, if the owner sequences it, re-classifies these
+  cells in that slice's PR; the registry's `agent-skills` family
+  carries the matching tool-inventory record.
 
 ## 7. Corrections to the survey §2 (recorded so the survey is not cited stale)
 
