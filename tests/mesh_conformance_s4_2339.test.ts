@@ -49,10 +49,12 @@ const S3_SUITE = "tests/mesh_identity_sweep_s3_2327.test.ts";
 
 // ---------------------------------------------------------------------------
 // Aspects — G7's two sets (#2225; yardstick: the owner's Agents SDK
-// reference set, #2225 comment 6491152513).
+// reference set, #2225 comment 6491152513), plus Skills, added by
+// S14 (#2417) from the owner's Agents SDK Skills addition (#2225
+// comment 6517280689).
 // Runtime: durable identity, state, connections, scheduling, recovery.
 // Agent-class: State (SDK API), Sessions, Routing, WebSockets,
-// Scheduling (SDK API), Fibers.
+// Scheduling (SDK API), Fibers, Skills.
 // ---------------------------------------------------------------------------
 
 const ASPECTS = [
@@ -67,6 +69,7 @@ const ASPECTS = [
   "websockets",
   "sdk-scheduling",
   "fibers",
+  "skills",
 ] as const;
 type Aspect = (typeof ASPECTS)[number];
 
@@ -113,6 +116,27 @@ const FIBERS_GAP = GAP(
   "No agent uses the SDK/Think fiber primitive (fleet pin below: no runFiber/startFiber in agent sources). The only fiber surface, src/services/durableFibers.ts, is home-grown and NOT durable: live records sit in an in-memory Map (activeFibers, :32), checkpoints are written but never read back, and the onFiberRecovered hook its header advertises (:9) exists nowhere else in src/. Judged against the real SDK primitive per the reference set, this row is a GAP, never an implemented cell.",
 );
 
+/**
+ * The Skills cell for every PortThink agent (S14, #2417; owner
+ * addition #2225 comment 6517280689). The per-agent note states the
+ * class's turn posture; the shared core states the fleet fact. The
+ * GAP-vs-NOT-APPLICABLE call, per cell: every PortThink class is a
+ * Think subclass and inherits the hook, so the capability is
+ * available to the class and unadopted — GAP on the fibers
+ * precedent, even where no turn runs on the class today. The two
+ * non-Agent roster entries are NOT-APPLICABLE (no harness exists
+ * for the aspect to apply to).
+ */
+const SKILLS_GAP_CORE =
+  "No agent class overrides getSkills() — zero occurrences in src/ (fleet pin below) — so no skill catalog exists and Think's skills tools (activate_skill / read_skill_resource) never appear in any turn. The adapter is present in the pinned SDK: @cloudflare/think 0.23.0's shipped types expose Think.getSkills() returning SkillSource[] (workspace / R2 / code-manifest sources; the default returns none), and PortThink neither overrides nor blocks the hook, so adoption is a per-class override plus a source. Whether the port's adapter-driven turn surfaces Think's skills tools end-to-end is unverified — the repo's Node harness stubs @cloudflare/think (#2003), so the hook is pinned against the package's shipped types (tests/mesh_tool_registry_s14_2417.test.ts), never exercised.";
+const SKILLS_GAP = (turnNote: string): MatrixCell =>
+  GAP(
+    "programme backlog (owner addition #2225 comment 6517280689 — adoption is a separate owner-sequenced decision; no slice yet)",
+    `${turnNote} ${SKILLS_GAP_CORE}`,
+  );
+const SKILLS_NO_TURN_NOTE =
+  "so there is no live surface for skills tools today; the class is a Think subclass and inherits the hook — GAP, not NOT-APPLICABLE, on the fibers precedent: the capability is available to the class and unadopted.";
+
 // ---------------------------------------------------------------------------
 // The classification. Roster order == registry order (pinned).
 // Facts verified against current main at the S4 base; the mesh
@@ -156,6 +180,7 @@ const MATRIX: MatrixRow[] = [
         "this.schedule / this.scheduleEvery through the port schedule facets (orchestrator.ts:448-495).",
       ),
       fibers: FIBERS_GAP,
+      skills: SKILLS_GAP("Turn-capable — this class’s chat turn is exactly the surface skills tools would appear on."),
     },
   },
   {
@@ -187,6 +212,7 @@ const MATRIX: MatrixRow[] = [
       websockets: NA("No WebSocket surface of its own: it defines no onConnect/onMessage and no socket client connects to it (fleet pin below: onConnect exists only in TickerAgent)."),
       "sdk-scheduling": NA("No SDK scheduler use: the file contains no this.schedule/this.scheduleEvery call (fleet pin below: such calls exist only in OrchestratorAgent and TickerAgent)."),
       fibers: FIBERS_GAP,
+      skills: SKILLS_GAP("Turn-capable via portHooks; its turns are driven remotely by the orchestrator."),
     },
   },
   {
@@ -219,6 +245,7 @@ const MATRIX: MatrixRow[] = [
       websockets: NA("No WebSocket surface of its own: it defines no onConnect/onMessage and no socket client connects to it (fleet pin below: onConnect exists only in TickerAgent)."),
       "sdk-scheduling": NA("No SDK scheduler use: the file contains no this.schedule/this.scheduleEvery call (fleet pin below: such calls exist only in OrchestratorAgent and TickerAgent)."),
       fibers: FIBERS_GAP,
+      skills: SKILLS_GAP("Its turn mechanism is wired (portHooks set lazily via tradingTurnHooks()), so a turn surface exists for the hook to serve."),
     },
   },
   {
@@ -249,6 +276,7 @@ const MATRIX: MatrixRow[] = [
       websockets: NA("No WebSocket surface of its own: it defines no onConnect/onMessage and no socket client connects to it (fleet pin below: onConnect exists only in TickerAgent)."),
       "sdk-scheduling": NA("No SDK scheduler use: the file contains no this.schedule/this.scheduleEvery call (fleet pin below: such calls exist only in OrchestratorAgent and TickerAgent)."),
       fibers: FIBERS_GAP,
+      skills: SKILLS_GAP(`No turn runs on this class (portHooks deliberately unset), ${SKILLS_NO_TURN_NOTE}`),
     },
   },
   {
@@ -277,6 +305,7 @@ const MATRIX: MatrixRow[] = [
       websockets: NA("No WebSocket surface of its own: it defines no onConnect/onMessage and no socket client connects to it (fleet pin below: onConnect exists only in TickerAgent)."),
       "sdk-scheduling": NA("No SDK scheduler use: the file contains no this.schedule/this.scheduleEvery call (fleet pin below: such calls exist only in OrchestratorAgent and TickerAgent)."),
       fibers: FIBERS_GAP,
+      skills: SKILLS_GAP(`No turn path (portHooks unset), ${SKILLS_NO_TURN_NOTE}`),
     },
   },
   {
@@ -308,6 +337,7 @@ const MATRIX: MatrixRow[] = [
         "Deliberately never the SDK scheduler (class header: driven by onCron(), 'never via the SDK scheduler'); the scheduling it owns is recorded under runtime scheduling.",
       ),
       fibers: FIBERS_GAP,
+      skills: SKILLS_GAP(`No turn path and no port hooks by design, ${SKILLS_NO_TURN_NOTE}`),
     },
   },
   {
@@ -332,6 +362,7 @@ const MATRIX: MatrixRow[] = [
       websockets: NA("No WebSocket surface of its own: it defines no onConnect/onMessage and no socket client connects to it (fleet pin below: onConnect exists only in TickerAgent)."),
       "sdk-scheduling": NA("No SDK scheduler use: the file contains no this.schedule/this.scheduleEvery call (fleet pin below: such calls exist only in OrchestratorAgent and TickerAgent)."),
       fibers: FIBERS_GAP,
+      skills: SKILLS_GAP(`RPC-only with no turn path, ${SKILLS_NO_TURN_NOTE}`),
     },
   },
   {
@@ -358,6 +389,7 @@ const MATRIX: MatrixRow[] = [
       websockets: NA("No WebSocket surface of its own: it defines no onConnect/onMessage and no socket client connects to it (fleet pin below: onConnect exists only in TickerAgent)."),
       "sdk-scheduling": NA("No SDK scheduler use: the file contains no this.schedule/this.scheduleEvery call (fleet pin below: such calls exist only in OrchestratorAgent and TickerAgent)."),
       fibers: FIBERS_GAP,
+      skills: SKILLS_GAP(`portHooks deliberately unset — no chat behavior was ever configured, ${SKILLS_NO_TURN_NOTE}`),
     },
   },
   {
@@ -390,6 +422,7 @@ const MATRIX: MatrixRow[] = [
       websockets: NA("No WebSocket surface of its own: it defines no onConnect/onMessage and no socket client connects to it (fleet pin below: onConnect exists only in TickerAgent)."),
       "sdk-scheduling": NA("No SDK scheduler use: the file contains no this.schedule/this.scheduleEvery call (fleet pin below: such calls exist only in OrchestratorAgent and TickerAgent)."),
       fibers: FIBERS_GAP,
+      skills: SKILLS_GAP(`No chat transcript and no turn runs on this class, ${SKILLS_NO_TURN_NOTE}`),
     },
   },
   {
@@ -417,6 +450,7 @@ const MATRIX: MatrixRow[] = [
       websockets: NA("No WebSocket surface of its own: it defines no onConnect/onMessage and no socket client connects to it (fleet pin below: onConnect exists only in TickerAgent)."),
       "sdk-scheduling": NA("No SDK scheduler use: the file contains no this.schedule/this.scheduleEvery call (fleet pin below: such calls exist only in OrchestratorAgent and TickerAgent)."),
       fibers: FIBERS_GAP,
+      skills: SKILLS_GAP("Turn-capable via portHooks — the namespace search is already a model turn tool as well as a direct method."),
     },
   },
   {
@@ -451,6 +485,7 @@ const MATRIX: MatrixRow[] = [
       ),
       "sdk-scheduling": IMPL("this.scheduleEvery in onStart (ticker-agent.ts:89)."),
       fibers: FIBERS_GAP,
+      skills: SKILLS_GAP(`portHooks never set and no turn ever runs (class header), ${SKILLS_NO_TURN_NOTE}`),
     },
   },
   {
@@ -479,6 +514,7 @@ const MATRIX: MatrixRow[] = [
       websockets: NA("No WebSocket surface of its own: it defines no onConnect/onMessage and no socket client connects to it (fleet pin below: onConnect exists only in TickerAgent)."),
       "sdk-scheduling": NA("No SDK scheduler use: the file contains no this.schedule/this.scheduleEvery call (fleet pin below: such calls exist only in OrchestratorAgent and TickerAgent)."),
       fibers: FIBERS_GAP,
+      skills: SKILLS_GAP(`portHooks deliberately unset and no chat behavior defined, ${SKILLS_NO_TURN_NOTE}`),
     },
   },
   {
@@ -505,6 +541,7 @@ const MATRIX: MatrixRow[] = [
       websockets: NA("No WebSocket surface: its only door is the fetch op protocol."),
       "sdk-scheduling": NA("Not an Agents SDK Agent, so the SDK scheduler aspect does not apply."),
       fibers: NA("Not an Agent class; the Fibers aspect does not apply."),
+      skills: NA("Not an Agents SDK Agent subclass (extends plain DurableObject): the Skills aspect is defined for Think/Agent harnesses — there is no getSkills hook to override and no model turn for skills tools to serve."),
     },
   },
   {
@@ -533,6 +570,7 @@ const MATRIX: MatrixRow[] = [
       websockets: NA("MCP transport, not the Agent WebSocket lifecycle."),
       "sdk-scheduling": NA("No SDK scheduler use: this surface has no scheduler role."),
       fibers: NA("Not an Agent class; the Fibers aspect does not apply."),
+      skills: NA("An McpAgent server: it serves tools to other harnesses rather than consuming a harness tool set, and Think’s getSkills adapter does not apply to it. The class is also out of mesh scope per #2225."),
     },
   },
 ];
@@ -870,5 +908,13 @@ describe("fleet fact pins (#2339)", () => {
     expect(read("src/services/durableFibers.ts")).toContain(
       "activeFibers = new Map",
     );
+  });
+
+  it("no agent source overrides getSkills — the skills GAP fact (S14, #2417)", () => {
+    for (const row of MATRIX) {
+      expect(agentSource(row.className), row.className).not.toContain(
+        "getSkills",
+      );
+    }
   });
 });
