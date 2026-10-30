@@ -278,6 +278,25 @@ for (const [name, make] of ADAPTERS) {
       expect(p.comparisonLedger.listOutcomes("run-1").map((r) => r.id)).toEqual(["3", "2", "1"]);
     });
 
+    it("total order (#2367): rows tied on (created_at, arm, candidate) order by id, independent of insertion order", () => {
+      const p = make();
+      p.comparisonLedger.ensureTable();
+      const q = make();
+      q.comparisonLedger.ensureTable();
+      const rec = (s: EvidenceSatellitePorts, id: string) =>
+        s.comparisonLedger.recordOutcome({
+          id, runId: "run-1", arm: "llm", candidateId: "c1", structure: "spread",
+          symbol: "AAPL", status: "ranked", provenance: "panel",
+          createdAt: "2026-10-29T00:00:00.000Z",
+        });
+      rec(p, "z-row");
+      rec(p, "a-row");
+      rec(q, "a-row");
+      rec(q, "z-row");
+      expect(p.comparisonLedger.listOutcomes("run-1").map((r) => r.id)).toEqual(["a-row", "z-row"]);
+      expect(q.comparisonLedger.listOutcomes("run-1").map((r) => r.id)).toEqual(["a-row", "z-row"]);
+    });
+
     it("runId filter: unfiltered lists all runs; filtered lists one", () => {
       const p = make();
       p.comparisonLedger.ensureTable();

@@ -14,8 +14,12 @@
  *
  * The reader's sort lives in code, not SQL (the legacy
  * reader's contract: created_at, then arm, then
- * candidate_id) — both adapters apply the identical
- * comparator, exported here so it cannot drift.
+ * candidate_id, then id) — both adapters apply the identical
+ * comparator, exported here so it cannot drift. The id key
+ * (#2367) makes the order TOTAL: id is the table's primary
+ * key, so no two distinct rows compare equal, and a list's
+ * order depends only on the stored rows — never on the
+ * storage scan order feeding the sort.
  */
 
 export interface ComparisonOutcomeRow {
@@ -42,7 +46,14 @@ export interface ComparisonOutcomeInput {
   createdAt: string;
 }
 
-/** The reader's in-code sort (legacy comparisonRunner). */
+/**
+ * The reader's in-code sort (legacy comparisonRunner),
+ * extended by #2367 with id as the final tie-break so the
+ * order is total: rows tied on (created_at, arm,
+ * candidate_id) — routine when a run records its outcomes
+ * inside one millisecond — order by their primary key
+ * instead of by whatever order storage returned them in.
+ */
 export function compareComparisonOutcomeRows(
   a: ComparisonOutcomeRow,
   b: ComparisonOutcomeRow,
@@ -50,7 +61,8 @@ export function compareComparisonOutcomeRows(
   return (
     String(a.created_at).localeCompare(String(b.created_at)) ||
     String(a.arm).localeCompare(String(b.arm)) ||
-    String(a.candidate_id).localeCompare(String(b.candidate_id))
+    String(a.candidate_id).localeCompare(String(b.candidate_id)) ||
+    String(a.id).localeCompare(String(b.id))
   );
 }
 
