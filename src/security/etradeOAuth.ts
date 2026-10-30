@@ -838,7 +838,16 @@ export async function renewAllStoredETradeTokens(env: Env): Promise<{ renewed: n
         skipped++;
         continue;
       }
-      const result = await renewETradeAccessToken(env, token.userLogin, match[1]);
+      // Issue #2442 S3: each listed login resolves to its session
+      // identity via the alias record before renewal, so a token stored
+      // under an internal-id or alias-login key renews exactly as the
+      // panel renewal renews it. Resolution happens after the skip
+      // checks, so skipped entries cost no alias lookup. Unresolvable
+      // yields an empty identity, keeping today's login-only lookup;
+      // unknown logins resolve to nothing and fail closed, never
+      // sideways to another login's token. Skip rules unchanged.
+      const identity = await etradeIdentityFromLogin(env, token.userLogin);
+      const result = await renewETradeAccessToken(env, token.userLogin, match[1], identity);
       if (result) renewed++;
       else failed++;
     } catch {

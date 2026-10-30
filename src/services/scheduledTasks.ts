@@ -633,7 +633,15 @@ export class ScheduledTasksService {
     const user = targetUser || this.userLogin;
 
     try {
-      const storedTokens = await getStoredTokens(this.env, user, targetEnv);
+      // Issue #2442 S3: the run-as login resolves to its session identity
+      // via the alias record before the token read, so tokens stored
+      // under internal-id or alias-login keys resolve exactly as the
+      // panel seam resolves them. The login is already trusted here —
+      // it is the schedule's owner login — and an unresolvable login
+      // yields an empty identity, keeping today's login-only lookup
+      // (the helper never throws: a store blip falls back to {}).
+      const identity = await etradeIdentityFromLogin(this.env, user);
+      const storedTokens = await getStoredTokens(this.env, user, targetEnv, identity);
       if (!storedTokens) {
         return {
           success: true,
@@ -647,7 +655,7 @@ export class ScheduledTasksService {
         };
       }
 
-      const renewed = await renewETradeAccessToken(this.env, user, targetEnv);
+      const renewed = await renewETradeAccessToken(this.env, user, targetEnv, identity);
       if (!renewed) {
         this.audit("etrade.token_auto_renew_failed", {
           userLogin: user,

@@ -14,7 +14,7 @@
 
 import { unauthenticatedResponse } from "./routeIdentity";
 import { resolveEnvironmentConfig } from "../../config/environment";
-import { getValidTokens } from "../../security/etradeOAuth";
+import { getValidTokens, etradeIdentityFromLogin } from "../../security/etradeOAuth";
 import { ETradeRestClient } from "../../trading";
 import type { EtradeBrokerRouteContext } from "./etradeBroker";
 
@@ -23,7 +23,12 @@ export async function handleEtradeDiagnostics(request: Request, sessionId: strin
     const userLogin = request.headers.get("x-user-login");
     if (!userLogin) return unauthenticatedResponse();
     const envConfig = resolveEnvironmentConfig(ctx.env, requestedEnv);
-    const valid = await getValidTokens(ctx.env, userLogin, requestedEnv);
+    // Issue #2442 S3: the diagnostics verdict resolves identity via
+    // the alias record, so it agrees with the panel instead of missing
+    // internal-id and alias-login keys. The client leg below is
+    // untouched here; S2 (#2441) owns the client.
+    const identity = await etradeIdentityFromLogin(ctx.env, userLogin);
+    const valid = await getValidTokens(ctx.env, userLogin, requestedEnv, identity);
     const client = new ETradeRestClient(ctx.env, userLogin, requestedEnv);
 
     let accounts: any[] = [];

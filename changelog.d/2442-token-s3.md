@@ -1,0 +1,2 @@
+### Fixed
+- Pass E*TRADE token identity through the remaining S0 consumers (#2442 S3): scheduled auto-renew, schedule-create preflight, autopilot balance-snapshot verdict, broker diagnostics verdict, and the Worker 03:00 renewal pass now resolve the trusted login via the alias record, so tokens stored under internal-id or alias-login keys resolve exactly as the panel seam resolves them. Unresolvable logins keep today's login-only lookup and fail closed; the logout-revoke gap is untouched (owner decision pending).
