@@ -113,12 +113,16 @@ import {
   SESSION_TTL,
   setSessionCookie,
 } from "./session";
-import { sessionStore } from "./session";
+import {
+  isSessionPortsEnabled,
+  sessionFamilyPorts,
+  sessionStore,
+  wiredMembershipStore,
+} from "./session";
 import {
   AUTH_OUTCOME_PARAM,
   authOutcomeLoginUrl,
 } from "./authOutcome";
-import { createKvMembershipStore } from "./iaaaMembershipStore";
 import {
   parseBootstrapListWithGenesis,
   resolveIaaaTenant,
@@ -391,6 +395,9 @@ export function createKvBindingStore(kv: KvLike): IdentityBindingStore {
 
 /** Test seam: the binding store used by the wired callback. Defaults to Kv-backed. */
 export function createWiredBindingStore(env: Env): IdentityBindingStore {
+  // #2433 (step 5b): flag-on composes through the session
+  // family's binding port; flag-off is today's Kv store.
+  if (isSessionPortsEnabled(env)) return sessionFamilyPorts(env).bindings;
   return createKvBindingStore(sessionStore(env));
 }
 
@@ -625,7 +632,7 @@ export async function completeWiredLogin(
   // the migrated (derived) id, and post-login bootstrap matching
   // sees it too — migration precedes provisioning by construction.
   const migrationDeps: MigrationDeps = options?.migration ?? {
-    membershipStore: createKvMembershipStore(sessionStore(env)),
+    membershipStore: wiredMembershipStore(env),
     aliasKv: sessionStore(env),
   };
   const bindingResult = await resolveProviderBinding(
@@ -695,7 +702,7 @@ export async function completeWiredLogin(
         {
           kv,
           bindingStore: store,
-          membershipStore: createKvMembershipStore(kv),
+          membershipStore: wiredMembershipStore(env),
           // #1760: post-login alias/bootstrap/genesis audit events
           // use the same audit store as the login-success event
           // below, when the caller supplied one.
