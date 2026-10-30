@@ -96,6 +96,13 @@ function parseRequest(raw: string | null): AccessRequest | null {
   }
 }
 
+/**
+ * #2433 (step 5b): this Kv factory remains the flag-off and
+ * adapter-internal construction. Env-level composition goes
+ * through session.ts wiredAccessRequestStore(env), which
+ * returns the session family's access-request port when
+ * SESSION_PORTS_ENABLED is on and this factory when off.
+ */
 export function createAccessRequestStore(kv: KvLike): AccessRequestStore {
   async function readIndex(): Promise<string[]> {
     const raw = await kv.get(INDEX_KEY);
