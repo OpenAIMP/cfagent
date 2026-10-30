@@ -333,10 +333,17 @@ The loop is a cycle *around* the stack, and it writes back through the
 repository — never around it:
 
 1. **Observe** — the evidence plane records runs, traces, outcomes.
-2. **Evaluate** — golden-task evals per door on a schedule (G13; harness
-   absent today), calibration scoring, QA sweeps, self-healing signals
-   (note: `handleQAFailure` has no caller today — a signal with no loop
-   attached).
+2. **Evaluate** — golden-task evals per door (G13; the harness
+   landed as S18, #2439 — tasks declared as data in
+   `src/services/meshGoldenTasks.ts`, driven through the real
+   door paths, scored results recorded in
+   `agent_mesh_eval_results` for the proposal pipeline to read),
+   calibration scoring, QA sweeps, self-healing signals
+   (note: `handleQAFailure` was dispositioned by #2439 as
+   superseded — issue filing lives in `scripts/qa-smoke.mjs`
+   and the supervised diagnosis in `POST /api/qa/investigate`;
+   the function is deprecated in place with no caller, by
+   design).
 3. **Propose** — findings become §5 issues through the proposal pipeline;
    the platform files its own change proposals with the same evidence bar
    as any lane's.
