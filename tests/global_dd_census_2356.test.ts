@@ -108,7 +108,6 @@ function aboveLayerCounts(pattern: RegExp): Map<string, number> {
 const STORAGE_ALLOW_LIST: Array<[string, number, string]> = [
   ["src/agents/research-agent.ts", 21, "#2361 step 4e"],
   ["src/agents/orchestrator.ts", 4, "remainder: ADR-out ai-chat lift (3) + G-7 mas_settings CREATE (1)"],
-  ["src/agents/routes/payments.ts", 8, "#2360 step 4d-2"],
   ["src/agents/orchestrator/reportDispatch.ts", 3, "#2390 step 4g (mas_settings read/write doors)"],
   ["src/services/learnings.ts", 7, "R-1 gated — NOT step 4c (two-host question open)"],
   ["src/services/screeningFlags.ts", 4, "G-7 (mas_settings)"],
@@ -246,8 +245,9 @@ describe("global D-D census: surface 1 — storage-shaped sites above the layer"
     // (#2359) retires 55 more (scheduledReports 24,
     // orchestrator 13 of 17, reportDispatch 4 of 7, presets 4,
     // autopilot 3+1, reports 3, chatTurnHelpers 1,
-    // reportSemanticIndex 1, screenerPresetResolution 1) → 54.
-    expect(total).toBe(54);
+    // reportSemanticIndex 1, screenerPresetResolution 1) → 54;
+    // step 4d-2 (#2360) retires the payments route's 8 → 46.
+    expect(total).toBe(46);
   });
 
   for (const file of STEP4C_SERVICE_FILES) {
@@ -409,9 +409,6 @@ const PORTED_TABLE_WRITERS: Record<string, { layer: string[]; bypass?: Record<st
   mas_watchlists: { layer: ["src/data/ormSchema.ts"] },
   mas_transactions: {
     layer: ["src/data/doSqliteOrmAdapters.ts", "src/data/ormSchema.ts"],
-    bypass: {
-      "src/agents/routes/payments.ts": "#2360 step 4d-2 (audit R-2)",
-    },
   },
   mas_trades: { layer: ["src/data/ormFacade.ts"] },
   mas_categories: { layer: ["src/data/ormFacade.ts"] },
