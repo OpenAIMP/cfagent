@@ -85,11 +85,14 @@ describe("issue #781: stub-ORM elimination", () => {
   it("source pin: no stub-ORM fallback pattern anywhere in src/", () => {
     const srcRoot = fileURLToPath(new URL("../src", import.meta.url));
     // The stub signature is an exec that ignores its query and returns a
-    // bare empty array. Legitimate adapters also construct a DatabaseORM
-    // over an exec object (research-agent.ts, screener-agent.ts) — but
-    // theirs forward to the DO's real ctx.storage.sql and return actual
-    // rows ([...stmt]), never a bare []. These patterns discriminate on
-    // exactly that.
+    // bare empty array. Legitimate adapters elsewhere construct a
+    // DatabaseORM over an exec object — but theirs forward to real
+    // storage and return actual rows ([...stmt]), never a bare [].
+    // These patterns discriminate on exactly that. (Comment updated
+    // by #2361: the two agent shims this note once named are retired —
+    // research-agent's was dead code, screener-agent's is now the
+    // standard direct construction over ctx.storage.sql. No pattern
+    // or assertion changed.)
     const patterns = [
       /exec\s*:\s*\([^)]*\)\s*=>\s*(?:\{\s*return\s*)?\[\s*\]/,
       /exec\s*\([^)]*\)\s*\{\s*return\s*\[\s*\]\s*;?\s*\}/,
