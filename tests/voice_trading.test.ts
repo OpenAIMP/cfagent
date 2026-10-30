@@ -11,6 +11,37 @@ import {
 } from "../src/trading/voice/agent";
 import type { AgentScheduleItem, Env, VoiceTradingTurnRequest } from "../src/types";
 import type { NLQSchedulingPort } from "../src/agents/nlq";
+import { ETradeRestClient } from "../src/trading/etrade/client";
+
+/**
+ * §7 adaptation (#2389): voice approvals now settle through the
+ * broker client's placeOrder — the platform no longer settles
+ * locally. Tests whose subject is the voice channel stub that
+ * placement seam with a broker-confirmed result (restored by the
+ * file's afterEach restoreAllMocks); the voice flows stay real.
+ */
+function stubBrokerPlacement() {
+  return vi.spyOn(ETradeRestClient.prototype, "placeOrder").mockImplementation(async (params: any) => ({
+    success: true,
+    orderId: params.orderId,
+    executionId: "et_order_voice",
+    brokerOrderRef: "et_order_voice",
+    authorizerDid: params.userLogin,
+    status: "executed",
+    symbol: params.symbol,
+    action: params.action,
+    quantity: params.quantity,
+    executionPrice: params.limitPrice ?? 100,
+    totalSettled: (params.limitPrice ?? 100) * params.quantity,
+    didAttestation: {
+      proposerDid: "did:agent:openaimp:trading",
+      authorizerDid: params.userLogin,
+      signature: ["sig", "0xbrokervoice"].join("_"),
+    },
+    message: "E*TRADE Execution Confirmed: Broker Order ID et_order_voice",
+    timestamp: new Date().toISOString(),
+  }) as any);
+}
 
 // Lightweight Mock WebSocket implementation for Vitest node environment
 class MockDuplexWebSocket {
@@ -551,6 +582,7 @@ describe("Cloudflare Voice Trading Agent (E*TRADE Desk)", () => {
     });
 
     it("verbally confirms order using spaced-out voice characters e.g. 'Confirm order 6 d 7 3 7 3 4 3'", async () => {
+      stubBrokerPlacement();
       const service = new ETradeVoiceTradingService(mockEnv, orm, sessionId);
 
       const orderId = "ord_6d737343";
@@ -587,6 +619,7 @@ describe("Cloudflare Voice Trading Agent (E*TRADE Desk)", () => {
     });
 
     it("verbally executes order upon receiving explicit confirmation: 'Confirm order <orderId>'", async () => {
+      stubBrokerPlacement();
       const service = new ETradeVoiceTradingService(mockEnv, orm, sessionId);
 
       // Stage an order in SQLite
@@ -628,6 +661,7 @@ describe("Cloudflare Voice Trading Agent (E*TRADE Desk)", () => {
     });
 
     it("verbally executes the most recent preview when trader says 'Approve order'", async () => {
+      stubBrokerPlacement();
       const service = new ETradeVoiceTradingService(mockEnv, orm, sessionId);
 
       const orderId = "ord_recent_preview_555";
@@ -751,6 +785,7 @@ describe("Cloudflare Voice Trading Agent (E*TRADE Desk)", () => {
     });
 
     it("handles trade drafting and confirmation over WebSocket", async () => {
+      stubBrokerPlacement();
       const ws = new MockDuplexWebSocket();
       await handleVoiceWebSocketConnection(ws as any, mockEnv, orm, sessionId);
 
