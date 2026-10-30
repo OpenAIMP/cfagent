@@ -140,7 +140,7 @@ export async function generateReportStage(
   input: UnifiedReportInput
 ): Promise<UnifiedReportOutput> {
   const generationId = `${input.type}:${input.trigger}:${input.timestamp}`;
-  const { codedMessage } = await import("../errors/errorAspects");
+  const { codedMessage, hasOutcomeCodePrefix } = await import("../outcomes/outcomeAspects");
 
   try {
     // Issue #680: delegate to ReportAssetAgent (single owner for PDF gen).
@@ -190,7 +190,7 @@ export async function generateReportStage(
       generationId,
       pdfStatus: "failed",
       // Issue #1252 (R4): the recorded error carries its catalog code.
-      pdfError: message.startsWith("[REPORT_") ? message : codedMessage("REPORT_001", message),
+      pdfError: hasOutcomeCodePrefix(message) ? message : codedMessage("FAILURE_REPORT_PDF_GENERATION", message),
     };
   }
 }

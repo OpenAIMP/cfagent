@@ -34,7 +34,7 @@ import type {
 import { recordScreeningActivity } from "../../services/screeningActivity";
 import { recordJobOutcome } from "../../services/jobOutcomes";
 import type { NLQSchedulingPort, NLQStockScreenPort } from "../nlq";
-import { codedMessage } from "../../errors/errorAspects";
+import { codedMessage } from "../../outcomes/outcomeAspects";
 import { executeMCPTool } from "../../mcp";
 import { executeNaturalLanguageQuery } from "../nlq";
 import {
@@ -742,7 +742,7 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
       const userLogin = typeof payload.userLogin === "string" ? payload.userLogin : ctx.sessionKey();
       if (!outcome || typeof outcome !== "object") throw new Error("followup.report job requires an outcome payload.");
       if (outcome.pdfStatus === "failed") {
-        result = { status: "skipped", reason: codedMessage("REPORT_001", outcome.pdfError || undefined) };
+        result = { status: "skipped", reason: codedMessage("FAILURE_REPORT_PDF_GENERATION", outcome.pdfError || undefined) };
       } else if (outcome.canonicalReportId) {
         // Consolidation C4 (#1329): serve's schedulable content for
         // runs whose artifact is a canonical row (discovery, goal) —
@@ -755,11 +755,11 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
           findCanonicalReport: (id: string) => ctx.getOrm().reports.findById(id),
         });
         if (!checked.verified) {
-          throw new Error(codedMessage("REPORT_003", checked.reason));
+          throw new Error(codedMessage("FAILURE_REPORT_ARTIFACT_MISSING", checked.reason));
         }
         result = { status: "ready", artifacts: [], canonicalReportId: outcome.canonicalReportId };
       } else if (!outcome.pdfKeys || outcome.pdfKeys.length === 0) {
-        result = { status: "skipped", reason: codedMessage("REPORT_003", "The run produced no report artifact key.") };
+        result = { status: "skipped", reason: codedMessage("FAILURE_REPORT_ARTIFACT_MISSING", "The run produced no report artifact key.") };
       } else {
         const port = ctx.followupReportPort();
         const artifacts: Array<{ key: string; fileName: string; kind?: "pdf" | "xlsx" | "csv" }> = [];
@@ -772,7 +772,7 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
           else missing.push(key);
         }
         if (artifacts.length === 0) {
-          throw new Error(codedMessage("REPORT_003", `Report artifact(s) referenced by the run are missing from storage: ${missing.join(", ")}`));
+          throw new Error(codedMessage("FAILURE_REPORT_ARTIFACT_MISSING", `Report artifact(s) referenced by the run are missing from storage: ${missing.join(", ")}`));
         }
         // Issue #1191 (#1173 R3): adopt the run's XLSX alongside the
         // PDF so deliveries carry text + PDF + XLSX. persistRun only
@@ -785,7 +785,7 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
         if (outcome.xlsxKey && outcome.xlsxStatus !== "failed") {
           artifacts.push({ key: outcome.xlsxKey, fileName: "screener-report.xlsx", kind: "xlsx" });
         } else if (outcome.xlsxStatus === "failed") {
-          xlsxNote = codedMessage("REPORT_002", outcome.xlsxError || undefined);
+          xlsxNote = codedMessage("FAILURE_REPORT_XLSX_GENERATION", outcome.xlsxError || undefined);
         }
         // Issue #1346: adopt the run's CSV on the same terms as the
         // XLSX (outcome's word is the evidence; the delivery port's
@@ -795,7 +795,7 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
         if (outcome.csvKey && outcome.csvStatus !== "failed") {
           artifacts.push({ key: outcome.csvKey, fileName: "screener-report.csv", kind: "csv" });
         } else if (outcome.csvStatus === "failed") {
-          csvNote = codedMessage("REPORT_001", outcome.csvError || undefined);
+          csvNote = codedMessage("FAILURE_REPORT_PDF_GENERATION", outcome.csvError || undefined);
         }
         const perFormat: Record<string, string> = {
           pdf: artifacts.some((a) => a.kind === "pdf") ? "adopted" : "missing",
@@ -875,11 +875,11 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
           const to = outcome.emailTo ?? config.channels.email.to;
           if (!to) throw new Error("Email delivery is not configured (SCREENER_EMAIL_TO is unset).");
           if (!isEmailAllowed(config, to, outcome)) {
-            throw new Error(codedMessage("DELIVER_001", `recipient ${to}`));
+            throw new Error(codedMessage("FAILURE_DELIVERY_RECIPIENT_NOT_ALLOWED", `recipient ${to}`));
           }
         }
         const delivery = await ctx.followupDeliveryPort().deliver({ channel, userLogin, outcome, artifacts });
-        if (!delivery.ok) throw new Error(codedMessage("DELIVER_002", delivery.error || `Delivery via ${channel} failed.`));
+        if (!delivery.ok) throw new Error(codedMessage("FAILURE_DELIVERY_CHANNEL_FAILED", delivery.error || `Delivery via ${channel} failed.`));
         result = { status: "sent", channel, detail: delivery.detail };
       }
     } else if (job.capability === "followup.notify") {
@@ -904,7 +904,7 @@ export async function executeAsyncJob(ctx: AsyncJobsContext, { jobId }: AsyncJob
         const to = outcome.emailTo ?? config.channels.email.to;
         if (!to) throw new Error("Email notification is not configured (SCREENER_EMAIL_TO is unset).");
         if (!isEmailAllowed(config, to, outcome)) {
-          throw new Error(codedMessage("DELIVER_001", `notification recipient ${to}`));
+          throw new Error(codedMessage("FAILURE_DELIVERY_RECIPIENT_NOT_ALLOWED", `notification recipient ${to}`));
         }
       }
       const text = formatLifecycleNotification(

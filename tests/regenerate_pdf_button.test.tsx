@@ -95,7 +95,7 @@ describe("Issue #1325 — RegeneratePdfButton", () => {
   it("failed regeneration surfaces the coded error and does not refresh", async () => {
     mockRegenerate(502, {
       pdfStatus: "failed",
-      pdfError: "REPORT_002: PDF generation failed for the stored run",
+      pdfError: "FAILURE_REPORT_XLSX_GENERATION: PDF generation failed for the stored run",
       timestamp: "2026-10-25T12:00:00.000Z",
     });
     const onRegenerated = vi.fn();
@@ -104,12 +104,12 @@ describe("Issue #1325 — RegeneratePdfButton", () => {
       regenerateButton()!.click();
     });
     await flush();
-    expect(container.textContent || "").toContain("REPORT_002");
+    expect(container.textContent || "").toContain("FAILURE_REPORT_XLSX_GENERATION");
     expect(onRegenerated).not.toHaveBeenCalled();
   });
 
   it("404 surfaces a business message, not a crash", async () => {
-    mockRegenerate(404, { error: "REPORT_003: no stored screener run to regenerate" });
+    mockRegenerate(404, { error: "FAILURE_REPORT_ARTIFACT_MISSING: no stored screener run to regenerate" });
     const onRegenerated = vi.fn();
     await render(<RegeneratePdfButton onRegenerated={onRegenerated} />);
     await act(async () => {

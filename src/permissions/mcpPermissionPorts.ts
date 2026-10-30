@@ -56,7 +56,7 @@
  *   the principal is a follow-up, not a launch requirement.
  */
 
-import { BusinessError } from "../errors/errorAspects";
+import { BusinessError } from "../outcomes/outcomeAspects";
 import {
   newTraceContext,
   sessionRefFor,
@@ -65,8 +65,8 @@ import {
 } from "../observability/observabilityPorts";
 import { createExecutionStore, type ExecutionRecord, type ExecutionSeal } from "./executionStore";
 
-/** Stable business-error code for a refused tool call (see errorCatalog.json). */
-export const MCP_PERMISSION_DENIED_CODE = "MCP_001";
+/** Stable business-error code for a refused tool call (see outcomeCatalog.json). */
+export const MCP_PERMISSION_DENIED_CODE = "FAILURE_MCP_PERMISSION_DENIED";
 
 /** Audit event type for a refused tool call (durable trail, via context.audit). */
 export const MCP_PERMISSION_DENIED_AUDIT = "mcp.permission_denied";
@@ -415,7 +415,7 @@ function denialStreamEvent(
  * Authorize one tool call. On allow, returns the decision. On
  * deny, audits (durable trail, with the authenticated login for
  * review), streams a denial event (counts/outcomes only), and
- * throws BusinessError MCP_001 — a business error, never a
+ * throws BusinessError FAILURE_MCP_PERMISSION_DENIED — a business error, never a
  * technical leak. The sink write is best-effort: a sink failure
  * never changes the decision.
  */

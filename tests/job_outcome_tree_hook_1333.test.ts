@@ -76,13 +76,13 @@ describe("job-tree outcome hook (#1333)", () => {
       trigger: "scheduled",
       success: false,
       pdfKeys: [],
-      error: "[AUTH_003] E*TRADE connection missing",
+      error: "[FAILURE_AUTH_NO_SESSION] E*TRADE connection missing",
       thesis: "NASDAQ100",
     };
     await recordScreenerRunMainJob(makeCtx(sql), outcome, "alice");
     const rows = listJobOutcomes(sql, 50);
     expect(rows).toHaveLength(1);
     expect(rows[0].status).toBe("failed");
-    expect(rows[0].codedError).toContain("[AUTH_003]");
+    expect(rows[0].codedError).toContain("[FAILURE_AUTH_NO_SESSION]");
   });
 });

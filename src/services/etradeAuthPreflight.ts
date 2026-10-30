@@ -6,7 +6,7 @@
  * access tokens expire at midnight ET and can only be renewed BEFORE
  * expiry. The one automatic renewal (a 23:00 ET cron) is fire-and-
  * forget, so a single missed/failed renewal turned into six identical
- * scheduled-screen failures overnight (AUTH_002), curable only by a
+ * scheduled-screen failures overnight (FAILURE_AUTH_TOKEN_EXPIRED), curable only by a
  * manual reconnect nobody was told to perform.
  *
  * This module gives scheduled runs a pre-flight:
@@ -33,7 +33,7 @@ import {
   isTokenExpiredEt,
   renewETradeAccessToken,
 } from "../security/etradeOAuth";
-import { codedMessage } from "../errors/errorAspects";
+import { codedMessage } from "../outcomes/outcomeAspects";
 import { deliverScreenerToSlackA2A } from "./screenerSlackDelivery";
 import type { ScreenerRunOutcome } from "./screenerFollowups";
 import {
@@ -168,12 +168,12 @@ export async function fireAuthEpisodeAlertOnce(
 }
 
 /** The user-facing blocked message recorded on the run (expired).
- *  Issue #1252 (#1173 R4): rendered through the error catalog
- *  (AUTH_002) so the run record, the alert, and the logs carry the
+ *  Issue #1252 (#1173 R4): rendered through the outcome catalog
+ *  (FAILURE_AUTH_TOKEN_EXPIRED) so the run record, the alert, and the logs carry the
  *  same code. */
 export function authBlockedMessage(alerted: boolean): string {
   return codedMessage(
-    "AUTH_002",
+    "FAILURE_AUTH_TOKEN_EXPIRED",
     "the access token is past its midnight-ET expiry and automatic " +
       "renewal failed. Reconnect your account in Settings to resume " +
       "scheduled runs. " +
@@ -184,10 +184,10 @@ export function authBlockedMessage(alerted: boolean): string {
 }
 
 /** The user-facing blocked message recorded on the run (no session, #1200).
- *  Issue #1252: catalog code AUTH_003. */
+ *  Issue #1252: catalog code FAILURE_AUTH_NO_SESSION. */
 export function authMissingMessage(alerted: boolean): string {
   return codedMessage(
-    "AUTH_003",
+    "FAILURE_AUTH_NO_SESSION",
     "no stored session exists for this account in PROD mode. Connect " +
       "your E*TRADE account in Settings to resume scheduled runs. " +
       (alerted
@@ -252,11 +252,11 @@ export async function guardScheduledETradeAuth(
       const text =
         pre.reason === "no-session"
           ? `⚠️ ${codedMessage(
-              "AUTH_003",
+              "FAILURE_AUTH_NO_SESSION",
               `scheduled ${opts.label} is blocked. Runs stay blocked (quietly) until you connect.`
             )}${traceBlock ? `\n${traceBlock}` : ""}`
           : `⚠️ ${codedMessage(
-              "AUTH_002",
+              "FAILURE_AUTH_TOKEN_EXPIRED",
               `scheduled ${opts.label} is blocked. Runs stay blocked (quietly) until you reconnect.`
             )}${traceBlock ? `\n${traceBlock}` : ""}`;
       const sends: Array<Promise<unknown>> = [];
@@ -300,7 +300,7 @@ export async function guardScheduledETradeAuth(
   } catch (err) {
     // The guard must never take a run down with it: on any internal
     // failure the run proceeds and the pipeline's own auth surfacing
-    // (AUTH_002) owns the error, exactly as before #1174.
+    // (FAILURE_AUTH_TOKEN_EXPIRED) owns the error, exactly as before #1174.
     console.warn(
       "[etradeAuthPreflight] guard error (proceeding without it):",
       err instanceof Error ? err.message : String(err)

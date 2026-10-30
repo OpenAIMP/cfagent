@@ -121,11 +121,11 @@ describe("Issue #1326 — RunDetailView", () => {
       reportUrl: undefined,
       pdfKey: undefined,
       pdfStatus: "failed",
-      pdfError: "REPORT_002: PDF generation failed for the stored run",
+      pdfError: "FAILURE_REPORT_XLSX_GENERATION: PDF generation failed for the stored run",
     };
     await render(<RunDetailView run={run} confirmations={[]} confirmationsLoading={false} />);
     const text = container.textContent || "";
-    expect(text).toContain("REPORT_002");
+    expect(text).toContain("FAILURE_REPORT_XLSX_GENERATION");
     expect(container.querySelector('a[href*="report.pdf"]')).toBeNull();
   });
 
@@ -133,11 +133,11 @@ describe("Issue #1326 — RunDetailView", () => {
     const run: RunDetailRun = {
       ...baseRun,
       xlsxStatus: "failed",
-      xlsxError: "[REPORT_002] The XLSX report could not be generated. — blob store down",
+      xlsxError: "[FAILURE_REPORT_XLSX_GENERATION] The XLSX report could not be generated. — blob store down",
     };
     await render(<RunDetailView run={run} confirmations={[]} confirmationsLoading={false} />);
     const text = container.textContent || "";
-    expect(text).toContain("REPORT_002");
+    expect(text).toContain("FAILURE_REPORT_XLSX_GENERATION");
     expect(text).toContain("XLSX unavailable");
     expect(container.querySelector(".ui-notice")).not.toBeNull();
   });

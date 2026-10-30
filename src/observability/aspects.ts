@@ -20,7 +20,7 @@
  * These are the unified interceptors the AOP doc's Phase 1
  * calls for, built on the port (one schema, one sink, one
  * trace context). The two legacy aspect modules
- * (src/aspects/loggingAspect.ts, src/errors/errorAspects.ts)
+ * (src/aspects/loggingAspect.ts, src/outcomes/outcomeAspects.ts)
  * keep serving their existing call sites unchanged in this
  * slice — consolidating them into re-export shims is a
  * follow-up, not a churn event (incremental refactoring only).

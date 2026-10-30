@@ -18,7 +18,7 @@ import {
   type DiscoveryReportArtifactOutcome,
   type DiscoveryReportInput,
 } from "../trading";
-import { codedMessage } from "../errors/errorAspects";
+import { codedMessage } from "../outcomes/outcomeAspects";
 
 export interface DiscoveryReportStorage {
   get<T = unknown>(key: string): Promise<T | undefined>;
@@ -47,8 +47,8 @@ export async function generateAndStoreDiscoveryReport(args: {
     return {
       ...outcome,
       pdfError: message,
-      xlsxError: codedMessage("REPORT_002", message),
-      csvError: codedMessage("REPORT_004", message),
+      xlsxError: codedMessage("FAILURE_REPORT_XLSX_GENERATION", message),
+      csvError: codedMessage("FAILURE_REPORT_CSV_GENERATION", message),
     };
   }
   const { withRetry } = await import("./resilience");
@@ -91,7 +91,7 @@ export async function generateAndStoreDiscoveryReport(args: {
     outcome.xlsxKey = key;
     outcome.xlsxStatus = "generated";
   } catch (err) {
-    outcome.xlsxError = codedMessage("REPORT_002", err instanceof Error ? err.message : String(err));
+    outcome.xlsxError = codedMessage("FAILURE_REPORT_XLSX_GENERATION", err instanceof Error ? err.message : String(err));
     console.error("[DiscoveryReport] XLSX generation failed:", outcome.xlsxError);
   }
 
@@ -107,7 +107,7 @@ export async function generateAndStoreDiscoveryReport(args: {
     outcome.csvKey = key;
     outcome.csvStatus = "generated";
   } catch (err) {
-    outcome.csvError = codedMessage("REPORT_004", err instanceof Error ? err.message : String(err));
+    outcome.csvError = codedMessage("FAILURE_REPORT_CSV_GENERATION", err instanceof Error ? err.message : String(err));
     console.error("[DiscoveryReport] CSV generation failed:", outcome.csvError);
   }
 

@@ -5,7 +5,7 @@
  * single assembly point, stated in the unified service's summary, and
  * bannered on the PDF — instead of today's console.warn-only handling
  * in the scheduled gate. Zero evaluated stays a coded failure
- * (SCREEN_003, pinned by the scheduled_tasks suite).
+ * (FAILURE_SCREEN_NO_CONTRACTS_EVALUATED, pinned by the scheduled_tasks suite).
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -70,7 +70,7 @@ describe("optionsPartialQualification (#1290)", () => {
     expect(partial?.topSkipReason).toBeUndefined();
   });
 
-  it("zero evaluated with coverage present still stamps (the gate turns it into SCREEN_003)", () => {
+  it("zero evaluated with coverage present still stamps (the gate turns it into FAILURE_SCREEN_NO_CONTRACTS_EVALUATED)", () => {
     const partial = optionsPartialQualification(
       coverage({ evaluated: 0, errors: 4 }),
       [{ symbol: "AAPL", reason: "Token Missing: No active session for user in [PROD] mode" }]

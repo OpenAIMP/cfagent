@@ -42,7 +42,7 @@ describe("autonomousMarketScreen preflight-blocked failure path (#1369)", () => 
     (service as any).publishScreenerEvent = publish;
     (service as any).guardScheduledAuth = async () => ({
       blocked: true,
-      error: "⚠️ [AUTH_003] E*TRADE connection missing — scheduled stock screen is blocked.",
+      error: "⚠️ [FAILURE_AUTH_NO_SESSION] E*TRADE connection missing — scheduled stock screen is blocked.",
     });
     // Issue #1527: a blocked run attempts the Yahoo fallback first,
     // so the failure path here is the fallback failing — not the

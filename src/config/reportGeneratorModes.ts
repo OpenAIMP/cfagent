@@ -95,7 +95,7 @@
  *   reaches the renderers only through that dispatch.
  * - Goal-screen deltas hold: own pagination at y below 56,
  *   100-hit cap, Yahoo-fallback provenance line, per-format
- *   REPORT_001 with the run still succeeding, key family
+ *   FAILURE_REPORT_PDF_GENERATION with the run still succeeding, key family
  *   goal_screen with R2 goals mapping. The asset owner's
  *   accepted types are exactly the three pipeline types.
  * - Tabular deltas hold: the screener agent keeps per-run +
@@ -173,12 +173,12 @@ export const REPORT_GENERATOR_1731_PINS: readonly ReportGeneratorPin[] = [
   {
     id: "R-2",
     finding:
-      "Goal-screen artifacts bypass the unified pipeline: a fourth self-contained pdf-lib renderer (own pagination below y 56, 100-hit cap, Yahoo-fallback provenance line), called directly, never through the asset owner or the pipeline stage; own key family (goal_screen with R2 goals mapping); per-format REPORT_001 failure with the run still succeeding. Blob store shared; store leg unified via the store stage in the scheduled path, generate leg NOT.",
+      "Goal-screen artifacts bypass the unified pipeline: a fourth self-contained pdf-lib renderer (own pagination below y 56, 100-hit cap, Yahoo-fallback provenance line), called directly, never through the asset owner or the pipeline stage; own key family (goal_screen with R2 goals mapping); per-format FAILURE_REPORT_PDF_GENERATION failure with the run still succeeding. Blob store shared; store leg unified via the store stage in the scheduled path, generate leg NOT.",
     resolution: "pinned",
     reason:
       "The asset owner accepts exactly the three pipeline types, so routing goal-screen through it would require a fourth asset type plus a fourth pipeline type plus a content-model mapping for goal-screen hits — new-engine work the scan does not prove required. The flip that must NOT happen: forcing goal-screen through the pipeline dispatch (before this slice it would silently render as an options report; after the dispatch hardening it is refused, which is the honest outcome) or deleting the direct path (which would leave goal-screen runs with no PDF at all). The per-format failure contract is the shared #1278 report policy applied to goal-screen artifacts, not a second failure model.",
     defaultBehavior:
-      "Goal-screen PDF/XLSX/CSV keep generating directly with per-format REPORT_001 and the run succeeding; keys stay in the goal_screen family; the blob seam and the scheduled-path canonical-row write stay unified. No fourth pipeline type is invented in this slice.",
+      "Goal-screen PDF/XLSX/CSV keep generating directly with per-format FAILURE_REPORT_PDF_GENERATION and the run succeeding; keys stay in the goal_screen family; the blob seam and the scheduled-path canonical-row write stay unified. No fourth pipeline type is invented in this slice.",
   },
   {
     id: "R-3",

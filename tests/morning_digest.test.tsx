@@ -167,14 +167,14 @@ describe("Issue #1328 — MorningDigest", () => {
     const p = props([
       run({
         success: false,
-        error: "QUOTE_001: E*TRADE quote fetch failed for the universe",
+        error: "FAILURE_QUOTE_AUTH_MISSING: E*TRADE quote fetch failed for the universe",
         reportUrl: "/api/screener/report.pdf?key=abc",
         xlsxKey: "screener:xlsx:abc",
       }),
     ]);
     await render(<MorningDigest {...p} />);
     const text = container.textContent || "";
-    expect(text).toContain("QUOTE_001");
+    expect(text).toContain("FAILURE_QUOTE_AUTH_MISSING");
     expect(container.querySelector('a[href*="report.pdf"]')).not.toBeNull();
     expect(container.querySelector('a[href*="report.xlsx"]')).not.toBeNull();
   });

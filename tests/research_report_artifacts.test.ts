@@ -319,7 +319,7 @@ describe("ResearchAgent research artifact storage (#2167)", () => {
     expect(outcome.xlsxStatus).toBe("failed");
     expect(outcome.xlsxKey).toBeUndefined();
     expect(outcome.xlsxError).toContain("r2 unavailable");
-    expect(outcome.xlsxError).toContain("REPORT_002");
+    expect(outcome.xlsxError).toContain("FAILURE_REPORT_XLSX_GENERATION");
     expect(outcome.csvStatus).toBe("generated");
     expect(outcome.csvKey).toBeTruthy();
   });
@@ -328,7 +328,7 @@ describe("ResearchAgent research artifact storage (#2167)", () => {
     const outcome = await makeAgent(new CsvFailingStorage()).generateAndStoreResearchArtifacts(report());
     expect(outcome.csvStatus).toBe("failed");
     expect(outcome.csvKey).toBeUndefined();
-    expect(outcome.csvError).toContain("REPORT_004");
+    expect(outcome.csvError).toContain("FAILURE_REPORT_CSV_GENERATION");
     expect(outcome.xlsxStatus).toBe("generated");
     expect(outcome.xlsxKey).toBeTruthy();
   });
