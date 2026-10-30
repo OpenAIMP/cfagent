@@ -695,10 +695,23 @@ function funnelCallSites(): Array<[string, string, string]> {
   return out.sort((a, b) => a.join("|").localeCompare(b.join("|")));
 }
 
-/** [file, funnel function, bucket] — the step-5 population (audit §2.3). */
+/** [file, funnel function, bucket] — the step-5 population (audit §2.3).
+ *  Step 5b (#2433) delta, honestly recorded: server.ts's three
+ *  sessions-bucket list sites RETIRE into session.ts's
+ *  listSessionFamilyEntries factory (one new listStoreEntries
+ *  site there); the family's composition root
+ *  (src/data/createSessionPorts.ts) is a NEW funnel composition
+ *  site (2x createStoreKv + 2x listStoreEntries, bucket
+ *  "sessions" — its env and namespace factory functions);
+ *  session.ts's own createStoreKv site REMAINS (the flag-off
+ *  branch still calls the funnel from inside the factory). */
 const STEP5_FUNNEL_SITES: Array<[string, string, string]> = [
   ["src/agents/routes/adminTenantQueues.ts", "listStoreEntries", "sessions"],
   ["src/agents/routes/adminTenantQueues.ts", "listStoreEntries", "sessions"],
+  ["src/data/createSessionPorts.ts", "createStoreKv", "sessions"],
+  ["src/data/createSessionPorts.ts", "createStoreKv", "sessions"],
+  ["src/data/createSessionPorts.ts", "listStoreEntries", "sessions"],
+  ["src/data/createSessionPorts.ts", "listStoreEntries", "sessions"],
   ["src/payments/draftOwners.ts", "consumeStoreKey", "payments"],
   ["src/payments/draftOwners.ts", "createStoreKv", "payments"],
   ["src/security/apiKeys.ts", "createStoreKv", "api_keys"],
@@ -710,10 +723,8 @@ const STEP5_FUNNEL_SITES: Array<[string, string, string]> = [
   ["src/security/publicOAuth.ts", "createStoreKv", "<dynamic>"],
   ["src/security/publicOAuth.ts", "createStoreKv", "public"],
   ["src/security/session.ts", "createStoreKv", "sessions"],
+  ["src/security/session.ts", "listStoreEntries", "sessions"],
   ["src/server.ts", "listStoreEntries", "etrade"],
-  ["src/server.ts", "listStoreEntries", "sessions"],
-  ["src/server.ts", "listStoreEntries", "sessions"],
-  ["src/server.ts", "listStoreEntries", "sessions"],
   ["src/services/agenticPayments.ts", "consumeStoreKey", "payments"],
   ["src/services/agenticPayments.ts", "createStoreKv", "payments"],
   ["src/trading/channels/intake.ts", "consumeStoreKey", "slack_principal_links"],
@@ -737,5 +748,78 @@ describe("global D-D census: step 5 — kv_store writer set (#2432)", () => {
     const re = /CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?\s+kv_store(?![\w])/gi;
     const actual = SRC_FILES.filter((f) => re.test(STRIPPED.get(f)!)).sort();
     expect(actual).toEqual(["src/security/sessionStore.ts"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Step 5b (#2433) — session/identity family port composition
+// ---------------------------------------------------------------------------
+//
+// The "composes ports" evidence for 5b: the family's factories
+// route through the composition root / wired helpers as an
+// exact [file, function, count] set (definition sites counted,
+// comments stripped). A factory that stops composing ports —
+// or a new composition site — fails here.
+
+const STEP5B_PORT_FUNCTIONS = [
+  "createSessionPorts",
+  "sessionFamilyPorts",
+  "wiredMembershipStore",
+  "wiredAccessRequestStore",
+  "listSessionFamilyEntries",
+] as const;
+
+function step5bPortSites(): Array<[string, string, number]> {
+  const out: Array<[string, string, number]> = [];
+  for (const f of SRC_FILES) {
+    const text = STRIPPED.get(f)!;
+    for (const fn of STEP5B_PORT_FUNCTIONS) {
+      const n = (text.match(new RegExp(`\\b${fn}\\s*\\(`, "g")) ?? []).length;
+      if (n > 0) out.push([f, fn, n]);
+    }
+  }
+  return out.sort((a, b) => a.join("|").localeCompare(b.join("|")));
+}
+
+const STEP5B_PORT_SITES: Array<[string, string, number]> = [
+  ["src/data/createSessionPorts.ts", "createSessionPorts", 1],
+  ["src/security/iaaaLogin.ts", "sessionFamilyPorts", 1],
+  ["src/security/iaaaLogin.ts", "wiredMembershipStore", 2],
+  ["src/security/session.ts", "createSessionPorts", 1],
+  ["src/security/session.ts", "listSessionFamilyEntries", 1],
+  ["src/security/session.ts", "sessionFamilyPorts", 10],
+  ["src/security/session.ts", "wiredAccessRequestStore", 1],
+  ["src/security/session.ts", "wiredMembershipStore", 1],
+  ["src/server.ts", "listSessionFamilyEntries", 3],
+  ["src/server.ts", "wiredAccessRequestStore", 1],
+  ["src/server.ts", "wiredMembershipStore", 10],
+];
+
+describe("global D-D census: step 5b — session family port composition sites (#2433)", () => {
+  it("the family's factories compose ports at exactly the pinned sites", () => {
+    expect(step5bPortSites()).toEqual(STEP5B_PORT_SITES);
+  });
+
+  it("sessions-bucket funnel use outside the factories is exactly the named remainder", () => {
+    // Outside the family's factories (session.ts) and its
+    // composition root (createSessionPorts.ts), the only
+    // remaining funnel-for-"sessions" sites are the audit
+    // family's (5d) and the admin-tenant-queues route's
+    // ctx-injected listing seams (its ctx overrides remain
+    // the composition point there). Any NEW outside-factory
+    // consumer for this family's bucket fails here.
+    const factories = new Set([
+      "src/security/session.ts",
+      "src/data/createSessionPorts.ts",
+    ]);
+    const rest = funnelCallSites().filter(
+      ([f, , bucket]) => bucket === "sessions" && !factories.has(f),
+    );
+    expect(rest).toEqual([
+      ["src/agents/routes/adminTenantQueues.ts", "listStoreEntries", "sessions"],
+      ["src/agents/routes/adminTenantQueues.ts", "listStoreEntries", "sessions"],
+      ["src/security/iaaaAuditStore.ts", "createStoreSender", "sessions"],
+      ["src/security/iaaaAuditStore.ts", "listStoreEntries", "sessions"],
+    ]);
   });
 });
