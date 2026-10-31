@@ -38,6 +38,14 @@
  * family to the dedicated settings port's adapter under the
  * G-7 ruling; the statements live on in the layer, in the
  * settings adapter (doSqliteOrmAdapters.ts).
+ *
+ * #2524 count update: 67 -> 71 — the scan-run adapter gained
+ * FOUR statements (updateXlsxKey + updateCsvKey, each mirroring
+ * updatePdfKey's summary+result updates) when the options-report
+ * recording fix added XLSX/CSV backfills to the ScanRunStore
+ * port. The statements live IN the data layer, behind the port,
+ * exactly where ADR D-D requires them; the pin rule (gitops §7)
+ * updates the pin in the same PR rather than shrinking the fix.
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -60,7 +68,9 @@ const FAMILY_FILES = [
 
 const ADAPTER_FILES: Array<[string, number]> = [
   // [file, exec sites at the step-2 landing — the audit's 69]
-  ["src/data/doSqliteScanRunAdapter.ts", 12],
+  // 12 at step 2; 16 since #2524: updateXlsxKey + updateCsvKey
+  // backfills mirror updatePdfKey (summary+result each).
+  ["src/data/doSqliteScanRunAdapter.ts", 16],
   ["src/data/doSqliteDiscoveryRunAdapter.ts", 8],
   ["src/data/doSqliteDiscoverySetupAdapter.ts", 9],
   ["src/data/doSqliteDiscoveryAlertAdapter.ts", 4],
@@ -99,7 +109,7 @@ describe("#2337 D-D census — options/discovery family entries (shrink-only)", 
     }
   });
 
-  it("the family's statements live in the data layer's adapters (67 sites)", () => {
+  it("the family's statements live in the data layer's adapters (71 sites)", () => {
     let total = 0;
     for (const [file, expected] of ADAPTER_FILES) {
       const text = readFileSync(file, "utf8");
@@ -107,6 +117,6 @@ describe("#2337 D-D census — options/discovery family entries (shrink-only)", 
       expect(count, `${file} holds the family's statements`).toBe(expected);
       total += count;
     }
-    expect(total).toBe(67);
+    expect(total).toBe(71);
   });
 });
