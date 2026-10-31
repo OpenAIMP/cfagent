@@ -144,6 +144,29 @@ describe("commercial store endpoints (#2015)", () => {
     expect(anon?.status).toBe(401);
   });
 
+  it("operator upsert audit carries previous → new effective tier (#2522)", async () => {
+    const { ctx } = await setup();
+    // First upsert: no prior row → previous Free, new PayPerUse.
+    const first = await call(ctx, "POST", "/payments/agentic/commercial/account", "op1", {
+      userId: "u1", tenantId: "t1", tier: "PayPerUse", creditsUSD: 0, includedRuns: 0,
+    });
+    expect(first?.status).toBe(200);
+    const firstAudit = (ctx.audit as any).mock.calls.find(([t]: [string]) => t === "commercial.account.upserted");
+    expect(firstAudit).toBeDefined();
+    expect(firstAudit[2].previousEffectiveTier).toBe("Free");
+    expect(firstAudit[2].newEffectiveTier).toBe("PayPerUse");
+    // Second upsert: PayPerUse → Subscribed (operator grant, so
+    // it survives even with no subscription row).
+    const second = await call(ctx, "POST", "/payments/agentic/commercial/account", "op1", {
+      userId: "u1", tenantId: "t1", tier: "Subscribed", creditsUSD: 0, includedRuns: 0,
+    });
+    expect(second?.status).toBe(200);
+    const audits = (ctx.audit as any).mock.calls.filter(([t]: [string]) => t === "commercial.account.upserted");
+    expect(audits).toHaveLength(2);
+    expect(audits[1][2].previousEffectiveTier).toBe("PayPerUse");
+    expect(audits[1][2].newEffectiveTier).toBe("Subscribed");
+  });
+
   it("credits adjust with a floor; tenant settings are operator-only", async () => {
     const { ctx } = await setup();
     await call(ctx, "POST", "/payments/agentic/commercial/account", "op1", {

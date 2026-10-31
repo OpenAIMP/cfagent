@@ -150,6 +150,30 @@ export function resolveEffectiveTier(
   return account.tier;
 }
 
+/**
+ * Issue #2522 (slice 3, #2405 Phase 1.3): the tier transition for
+ * audit payloads. Pure: both sides are the same
+ * resolveEffectiveTier rule applied to the before/after rows, so
+ * an audit row can state previous → new effective tier without
+ * re-implementing the rule. Callers read the before rows, run
+ * their mutation, read the after rows, and audit this pair.
+ * Cancel-at-period-end is the unchanged case: periodEndMs is
+ * untouched by cancel, so previous and new are equal — the audit
+ * states the effective tier at cancel time, not a change.
+ */
+export function resolveTierTransition(
+  previousAccount: { tier: StoreTier; tierSource?: TierSource | null } | null,
+  previousSubscriptions: Array<{ periodEndMs: number }>,
+  nextAccount: { tier: StoreTier; tierSource?: TierSource | null } | null,
+  nextSubscriptions: Array<{ periodEndMs: number }>,
+  nowMs: number,
+): { previousEffectiveTier: StoreTier; newEffectiveTier: StoreTier } {
+  return {
+    previousEffectiveTier: resolveEffectiveTier(previousAccount, previousSubscriptions, nowMs),
+    newEffectiveTier: resolveEffectiveTier(nextAccount, nextSubscriptions, nowMs),
+  };
+}
+
 /** Repurchase stacking: a new period starts at the latest paid-through instant, never earlier. */
 export function nextPeriodStartMs(existingPeriodEndsMs: number[], nowMs: number): number {
   return Math.max(nowMs, ...existingPeriodEndsMs);

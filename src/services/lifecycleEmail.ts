@@ -39,18 +39,31 @@ import {
   type LifecycleStore,
   type NotificationPreferences,
 } from "../data/lifecyclePorts";
+import type { StoreTier } from "../data/commercialPorts";
 
 /** Minimal injected mail transport (cfpay A2A or env.EMAIL behind it). */
 export interface EmailSender {
   send(input: { to: string; subject: string; body: string }): Promise<{ ok: boolean; error?: string }>;
 }
 
-export function buildWelcomeEmail(userId: string): { subject: string; body: string } {
+/**
+ * Issue #2522 (slice 3, #2405 Phase 1.3): the tier-limited digest
+ * cap. ONLY Subscribed receives the full digest; Free and
+ * PayPerUse receive the first LIMITED_DIGEST_ITEM_CAP items plus
+ * one factual cap line. PayPerUse → limited by the #1076 ads-edge
+ * reasoning: a cent-scale one-off purchase must not confer an
+ * ongoing benefit. This is a slice decision, recorded on #2522
+ * for owner override — not a price, not a marketing claim.
+ */
+export const LIMITED_DIGEST_ITEM_CAP = 3;
+
+export function buildWelcomeEmail(userId: string, tier: StoreTier = "Free"): { subject: string; body: string } {
   return {
     subject: "Welcome to the screener service",
     body: [
       `Hello ${userId},`,
       "",
+      `Your current tier is ${tier}.`,
       "Your account has been provisioned. You can use the screener service with your current access.",
       "You can change your notification preferences at any time; digest mail is opt-in and off by default.",
       "Security mail about your account cannot be turned off.",
@@ -61,14 +74,19 @@ export function buildWelcomeEmail(userId: string): { subject: string; body: stri
 export function buildDigestEmail(
   userId: string,
   items: string[],
+  tier: StoreTier = "Free",
   unsubscribeUrl?: string,
 ): { subject: string; body: string } {
+  const shown = tier === "Subscribed" ? items : items.slice(0, LIMITED_DIGEST_ITEM_CAP);
   const lines = [
     `Hello ${userId},`,
     "",
     "Your daily digest:",
-    ...items.map((item) => `- ${item}`),
+    ...shown.map((item) => `- ${item}`),
   ];
+  if (shown.length < items.length) {
+    lines.push("", `Showing ${shown.length} of ${items.length} digest items for your current tier.`);
+  }
   if (unsubscribeUrl) {
     lines.push("", `To stop digest mail only, use this link: ${unsubscribeUrl}`);
     lines.push("Security mail about your account is unaffected by that link.");
@@ -86,12 +104,14 @@ export async function sendWelcomeBestEffort(input: {
   email: string;
   userId: string;
   preferences?: NotificationPreferences;
+  /** Effective tier for content selection; defaults to Free (limited). */
+  tier?: StoreTier;
 }): Promise<{ sent: boolean; reason?: string }> {
   try {
     if (input.preferences && !input.preferences.welcomeEnabled) {
       return { sent: false, reason: "welcome-opted-out" };
     }
-    const { subject, body } = buildWelcomeEmail(input.userId);
+    const { subject, body } = buildWelcomeEmail(input.userId, input.tier ?? "Free");
     const result = await input.sender.send({ to: input.email, subject, body });
     if (!result.ok) {
       console.error(`[lifecycle] welcome send failed for ${input.userId}: ${result.error ?? "unknown error"}`);
@@ -123,6 +143,8 @@ export async function sendDailyDigest(input: {
   items: string[];
   unsubscribeUrl?: string;
   nowMs?: number;
+  /** Effective tier for content selection; defaults to Free (limited). */
+  tier?: StoreTier;
 }): Promise<DigestSendResult> {
   const nowMs = input.nowMs ?? Date.now();
   const preferences = await input.store.getPreferences(input.userId, input.tenantId);
@@ -132,7 +154,7 @@ export async function sendDailyDigest(input: {
     return { sent: false, reason: "already-sent-today" };
   }
   if (input.items.length === 0) return { sent: false, reason: "empty-skipped" };
-  const { subject, body } = buildDigestEmail(input.userId, input.items, input.unsubscribeUrl);
+  const { subject, body } = buildDigestEmail(input.userId, input.items, input.tier ?? "Free", input.unsubscribeUrl);
   let result: { ok: boolean; error?: string };
   try {
     result = await input.sender.send({ to: input.email, subject, body });

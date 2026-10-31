@@ -132,7 +132,7 @@ import {
 } from "../../data/journalPorts";
 import { postJournalBestEffort } from "../../services/journalPosting";
 import type { D1CommercialAdapter } from "../../data/d1CommercialAdapter";
-import { toCommercialAccount } from "../../data/commercialPorts";
+import { toCommercialAccount, type StoreTier } from "../../data/commercialPorts";
 import {
   createSubscriptionAdapter,
   ensureSubscriptionSchema,
@@ -151,7 +151,7 @@ import {
 } from "../../services/refundService";
 import { PaymentGatewayService } from "../../services/payments";
 import type { D1SubscriptionAdapter } from "../../data/d1SubscriptionAdapter";
-import { resolveEffectiveTier } from "../../data/subscriptionPorts";
+import { resolveEffectiveTier, resolveTierTransition } from "../../data/subscriptionPorts";
 import {
   NO_ACCOUNT_PAID_MESSAGE,
   resolvePlatformIdentity,
@@ -641,6 +641,32 @@ export async function handleAgenticPaymentsRoutes(
     }
     return adapter;
   };
+  // Issue #2522: email content selection resolves the effective
+  // tier the same way the premium gate does (src/agents/routes/
+  // premium.ts resolvePremiumTier) — two indexed D1 point reads,
+  // on send routes only, never on a hot path. The premium resolver
+  // is deliberately NOT refactored here: slice 2's tested path
+  // stays untouched, and the duplicated 8 lines are the cheaper
+  // risk. Fail direction: unbound → Free (no rows can exist
+  // without a store); present-but-failing → THROW, and the caller
+  // refuses with a typed 503 — mail must never go out on an
+  // unknown tier.
+  const resolveEmailTier = async (userId: string): Promise<StoreTier> => {
+    const store = createCommercialAdapter(ctx.env as { AGENT_DB?: unknown });
+    const subs = createSubscriptionAdapter(ctx.env as { AGENT_DB?: unknown });
+    if (!store || !subs) return "Free";
+    // A fresh DB may hold lifecycle tables but no commercial
+    // tables yet (the welcome is a provisioning trigger and can
+    // precede any account route): ensure first, so "no rows"
+    // reads as Free instead of a missing-table throw. An ensure
+    // failure throws, and the caller maps it to the typed 503 —
+    // the same fail direction as a read failure.
+    await ensureCommercialSchema(store.db);
+    await ensureSubscriptionSchema(subs.db);
+    const account = await store.getAccount(userId);
+    const subscriptions = await subs.listSubscriptions(userId);
+    return resolveEffectiveTier(account, subscriptions, Date.now());
+  };
   // Issue #2208: lifecycle store (referral credits, notification
   // preferences, digest guard). Same fail-closed shape as the
   // commercial store: unbound AGENT_DB is a 503, never a silent
@@ -834,8 +860,15 @@ export async function handleAgenticPaymentsRoutes(
       if (subs instanceof Response) return subs;
       const ensured = await ensureStores(store, subs);
       if (ensured) return ensured;
+      // Issue #2522: tier-change audit — read the before rows so
+      // the audit can state previous → new effective tier. The
+      // upsert changes no subscription rows, so the after side
+      // reuses the same subscription list.
+      const upsertUserId = typeof body.userId === "string" ? body.userId : "";
+      const previousAccount = await store.getAccount(upsertUserId);
+      const previousSubscriptions = await subs.listSubscriptions(upsertUserId);
       const record = await store.upsertAccount({
-        userId: typeof body.userId === "string" ? body.userId : "",
+        userId: upsertUserId,
         tenantId: typeof body.tenantId === "string" ? body.tenantId : "",
         tier: body.tier,
         // An operator write is an operator grant: it survives a
@@ -844,7 +877,14 @@ export async function handleAgenticPaymentsRoutes(
         creditsUSD: body.creditsUSD,
         includedRuns: body.includedRuns,
       });
-      ctx.audit("commercial.account.upserted", "payments", { userId: record.id, tenantId: record.tenantId, tier: record.tier });
+      const transition = resolveTierTransition(previousAccount, previousSubscriptions, record, previousSubscriptions, Date.now());
+      ctx.audit("commercial.account.upserted", "payments", {
+        userId: record.id,
+        tenantId: record.tenantId,
+        tier: record.tier,
+        previousEffectiveTier: transition.previousEffectiveTier,
+        newEffectiveTier: transition.newEffectiveTier,
+      });
       return Response.json({ record });
     } catch (err: any) {
       const message = err.message || "Failed to upsert commercial account";
@@ -1533,6 +1573,10 @@ export async function handleAgenticPaymentsRoutes(
       if (!evidence.paymentIntentId) {
         return Response.json({ error: "Paid checkout carries no payment intent; no subscription activated." }, { status: 402 });
       }
+      // Issue #2522: tier-change audit — capture the before rows
+      // (identity.stored is the pre-activation account row) so
+      // the audit can state previous → new effective tier.
+      const previousSubscriptions = await subs.listSubscriptions(login);
       const { subscription, account } = await activateSubscription({
         subs,
         store,
@@ -1544,6 +1588,18 @@ export async function handleAgenticPaymentsRoutes(
         stripeSessionId: evidence.sessionId,
         stripePaymentIntentId: evidence.paymentIntentId,
       });
+      // The activation creates the row that flips the effective
+      // tier, so the new side is computed from the returned
+      // account + a fresh subscription read, BEFORE this audit
+      // (the route previously computed effectiveTier only after it).
+      const activatedSubscriptions = await subs.listSubscriptions(login);
+      const activationTransition = resolveTierTransition(
+        identity.stored,
+        previousSubscriptions,
+        account,
+        activatedSubscriptions,
+        Date.now(),
+      );
       ctx.audit("commercial.subscription.activated", "payments", {
         userId: login,
         tenantId,
@@ -1553,6 +1609,8 @@ export async function handleAgenticPaymentsRoutes(
         stripeSessionId: evidence.sessionId,
         stripePaymentIntentId: evidence.paymentIntentId,
         periodEndMs: subscription.periodEndMs,
+        previousEffectiveTier: activationTransition.previousEffectiveTier,
+        newEffectiveTier: activationTransition.newEffectiveTier,
       });
       // Issue #2155 follow-up: project the purchase into the D1
       // journal (Dr 1000 / Cr 2100 — the purchase is deferred
@@ -1610,10 +1668,17 @@ export async function handleAgenticPaymentsRoutes(
       if (ensured) return ensured;
       const canceled = await subs.cancelUnexpiredSubscriptions(targetUser, Date.now());
       const accessThroughMs = canceled.length > 0 ? Math.max(...canceled.map((s) => s.periodEndMs)) : null;
+      // Issue #2522: cancel-at-period-end changes no periodEndMs,
+      // so the effective tier is unchanged — the audit states the
+      // tier at cancel time (access continues to periodEnd),
+      // never a claimed change.
+      const cancelAccount = await store.getAccount(targetUser);
+      const cancelSubscriptions = await subs.listSubscriptions(targetUser);
       ctx.audit("commercial.subscription.canceled", "payments", {
         userId: targetUser,
         subscriptionIds: canceled.map((s) => s.id),
         accessThroughMs,
+        effectiveTier: resolveEffectiveTier(cancelAccount, cancelSubscriptions, Date.now()),
       });
       return Response.json({ userId: targetUser, canceled, accessThroughMs });
     } catch (err: any) {
@@ -1909,6 +1974,14 @@ export async function handleAgenticPaymentsRoutes(
           return { success: res.success, refundId: res.refundId, amountRefunded: res.amountRefunded, message: res.message };
         },
       };
+      // Issue #2522: tier-change audit — executeRefund may revoke
+      // or cancel subscriptions (dropping the effective tier),
+      // so the before rows are read from the refund record ahead
+      // of execution and the after rows after it.
+      const refundBefore = await ports.store.getRefund(refundId);
+      const refundUserId = refundBefore?.userId ?? null;
+      const refundBeforeAccount = refundUserId ? await store.getAccount(refundUserId) : null;
+      const refundBeforeSubscriptions = refundUserId ? await subs.listSubscriptions(refundUserId) : [];
       const record = await executeRefund(
         {
           policyStore: ports.policy,
@@ -1932,11 +2005,28 @@ export async function handleAgenticPaymentsRoutes(
         },
         { refundId },
       );
+      // When the refund carries no userId, no tier fields are
+      // claimed — the audit keeps exactly its previous shape.
+      const refundTransition = refundUserId
+        ? resolveTierTransition(
+            refundBeforeAccount,
+            refundBeforeSubscriptions,
+            await store.getAccount(refundUserId),
+            await subs.listSubscriptions(refundUserId),
+            Date.now(),
+          )
+        : null;
       ctx.audit("commercial.refund.executed", "payments", {
         refundId: record.id,
         gatewayRefundId: record.gatewayRefundId,
         amountUSD: record.amountUSD,
         entitlementConsequence: record.entitlementConsequence,
+        ...(refundTransition
+          ? {
+              previousEffectiveTier: refundTransition.previousEffectiveTier,
+              newEffectiveTier: refundTransition.newEffectiveTier,
+            }
+          : {}),
       });
       return Response.json({ refund: record });
     } catch (err: any) {
@@ -2538,11 +2628,25 @@ export async function handleAgenticPaymentsRoutes(
           preferences = undefined;
         }
       }
+      // Issue #2522: content selection by effective tier. A tier
+      // failure is a typed 503, NOT folded into send-failed:
+      // the welcome is best-effort about the SEND, but content
+      // selection must never guess a tier — sending a full
+      // welcome to a Free user (or a limited one to a
+      // Subscribed user) on an unknown tier is a wrong-tier
+      // send with no audit trail.
+      let tier: StoreTier;
+      try {
+        tier = await resolveEmailTier(body.userId);
+      } catch {
+        return Response.json({ error: "TierUnavailable: the tier store could not be read; welcome mail was not sent." }, { status: 503 });
+      }
       const result = await sendWelcomeBestEffort({
         sender,
         email: body.email,
         userId: body.userId,
         preferences,
+        tier,
       });
       return Response.json(result);
     } catch (err: any) {
@@ -2576,6 +2680,15 @@ export async function handleAgenticPaymentsRoutes(
       const unsubscribeUrl = secret
         ? `https://agent.openaimp.com/payments/agentic/commercial/lifecycle/unsubscribe?token=${await signUnsubscribeToken(secret, body.userId, body.tenantId)}`
         : undefined;
+      // Issue #2522: same fail direction as the welcome route —
+      // a tier-store failure refuses with a typed 503 before any
+      // send, never a default tier, never a guess.
+      let tier: StoreTier;
+      try {
+        tier = await resolveEmailTier(body.userId);
+      } catch {
+        return Response.json({ error: "TierUnavailable: the tier store could not be read; digest mail was not sent." }, { status: 503 });
+      }
       const result = await sendDailyDigest({
         store: lifecycle,
         sender,
@@ -2584,6 +2697,7 @@ export async function handleAgenticPaymentsRoutes(
         email: body.email,
         items,
         unsubscribeUrl,
+        tier,
       });
       return Response.json(result);
     } catch (err: any) {

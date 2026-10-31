@@ -597,6 +597,33 @@ export class ETradeAgenticPaymentService {
       return meteredGateRefusal(503, "MeteringUnavailable", "The usage meter failed; the paid result was not served. Retry the payment.");
     }
 
+    // Issue #2522: tier-decision audit. Best-effort, NEVER a gate
+    // condition: the meter row above is the authoritative per-call
+    // tier record, so an audit write failure warns and the call
+    // still serves — refusing a verified, metered payment over an
+    // audit row would be worse than a missing audit row.
+    try {
+      if (this.orm?.events) {
+        this.orm.events.create({
+          id: crypto.randomUUID(),
+          sessionId: userLogin,
+          type: "commercial.tier.decision",
+          agent: "payments",
+          payload: {
+            userLogin,
+            tier,
+            receiptId: verification.receipt.receiptId,
+            category: metered.category,
+            priceUSD,
+            protocol: verification.receipt.protocol,
+          },
+          createdAt: new Date().toISOString(),
+        });
+      }
+    } catch (err) {
+      console.warn(`[payments] tier-decision audit failed for ${resource}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
     // Attach x402 and MPP receipt headers
     const receiptHeader = Buffer.from(JSON.stringify(verification.receipt)).toString("base64");
     const headers = new Headers({
@@ -755,6 +782,31 @@ export class ETradeAgenticPaymentService {
       console.error(`[payments] metered gate refused ${resource}: usage meter failed: ${err instanceof Error ? err.message : String(err)}`);
       return meteredGateRefusal(503, "MeteringUnavailable", "The usage meter failed; the paid result was not served. Retry the payment.");
     }
+
+    // Issue #2522: tier-decision audit, same rule as the x402
+    // branch — best-effort, never a gate condition.
+    try {
+      if (this.orm?.events) {
+        this.orm.events.create({
+          id: crypto.randomUUID(),
+          sessionId: userLogin,
+          type: "commercial.tier.decision",
+          agent: "payments",
+          payload: {
+            userLogin,
+            tier,
+            receiptId: receipt.receiptId,
+            category: metered.category,
+            priceUSD,
+            protocol: receipt.protocol,
+          },
+          createdAt: new Date().toISOString(),
+        });
+      }
+    } catch (err) {
+      console.warn(`[payments] tier-decision audit failed for ${resource}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
     return result.withReceipt(
       new Response(JSON.stringify(data), { status: 200, headers: { "Content-Type": "application/json" } })
     ) as Response;
