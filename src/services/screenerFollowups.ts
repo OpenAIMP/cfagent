@@ -140,6 +140,13 @@ export interface ScreenerRunOutcome {
    */
   timestamp?: string;
   symbols?: string[];
+  /** The scan-store run id this outcome is about, when the producing
+   *  path carried it (run-result / HTTP options adapters). The serve
+   *  recorder stamps it into the canonical body so
+   *  mergeRunSummaries() can absorb the scan-store row into the
+   *  canonical row instead of listing the run twice. Absent on
+   *  outcomes that predate the stamp — the recorder skips it. */
+  scanRunId?: string;
   /** Consolidation C4 (#1329): false when the run's delivery stays on
    *  its direct path and the chain must NOT plan deliveries (discovery
    *  chains before #1236 notifications — the chain covered generate +
@@ -729,6 +736,7 @@ export function screenerOutcomeFromRunResult(
     summary: typeof result.summary === "string" ? result.summary : undefined,
     opportunities: asOpportunities(result.opportunities),
     providerFallback: asProviderFallback(result.providerFallback),
+    ...(typeof result.scanRunId === "string" && result.scanRunId ? { scanRunId: result.scanRunId } : {}),
     ...(typeof result.emailTo === "string" && result.emailTo.trim() !== "" ? { emailTo: result.emailTo.trim() } : {}),
     error: typeof result.error === "string" ? result.error : undefined,
     partial: asPartialQualification(result.partial),
@@ -991,16 +999,29 @@ export function screenerOutcomeFromHttpJob(
   }
   const data = (body.data ?? {}) as Record<string, unknown>;
   const pdfKey = typeof body.pdfKey === "string" ? body.pdfKey : pdfKeyFromReportUrl(body.reportUrl);
+  const statusOf = (v: unknown): "generated" | "failed" | "skipped" | undefined =>
+    v === "generated" || v === "failed" || v === "skipped" ? v : undefined;
+  const strOf = (v: unknown): string | undefined => (typeof v === "string" && v ? v : undefined);
+  const xlsxKey = strOf(body.xlsxKey) ?? strOf(data.xlsxKey);
+  const csvKey = strOf(body.csvKey) ?? strOf(data.csvKey);
   return {
     kind,
     trigger: "manual",
     success: true,
     pdfKeys: pdfKey ? [pdfKey] : [],
-    pdfStatus: pdfKey ? "generated" : undefined,
+    pdfStatus: statusOf(body.pdfStatus) ?? (pdfKey ? "generated" : undefined),
+    pdfError: strOf(body.pdfError) ?? strOf(data.pdfError),
+    xlsxKey,
+    xlsxStatus: statusOf(body.xlsxStatus) ?? statusOf(data.xlsxStatus) ?? (xlsxKey ? "generated" : undefined),
+    xlsxError: strOf(body.xlsxError) ?? strOf(data.xlsxError),
+    csvKey,
+    csvStatus: statusOf(body.csvStatus) ?? statusOf(data.csvStatus) ?? (csvKey ? "generated" : undefined),
+    csvError: strOf(body.csvError) ?? strOf(data.csvError),
     matchedCount: asNumber(body.matchedCount) ?? asNumber(data.matchedCount),
     totalScanned: asNumber(body.totalUnderlyingsScanned) ?? asNumber(body.totalScanned) ?? asNumber(data.totalScanned),
     thesis: typeof body.thesis === "string" ? body.thesis : undefined,
     summary: typeof body.summary === "string" ? body.summary : undefined,
     reportUrl: typeof body.reportUrl === "string" ? body.reportUrl : undefined,
+    ...(strOf(body.scanRunId) ?? strOf(data.scanRunId) ? { scanRunId: (strOf(body.scanRunId) ?? strOf(data.scanRunId))! } : {}),
   };
 }
