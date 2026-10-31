@@ -20,12 +20,18 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  # ── Job 1: read environment.config.json to determine target environment ──
+  # ── Job 1: read environment.config.json and check if git tree was already verified (#2497) ──
   load-environment:
     name: Load Active Environment
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
     outputs:
       target_env: ${{ steps.read-env.outputs.target_env }}
+      tree_already_verified: ${{ steps.dedup.outputs.tree_already_verified }}
+      verified_by_run_id: ${{ steps.dedup.outputs.verified_by_run_id }}
     steps:
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4
@@ -40,12 +46,63 @@ jobs:
           echo "Active environment: $TARGET_ENV"
           echo "target_env=$TARGET_ENV" >> $GITHUB_OUTPUT
 
+      - name: ⚡ Check if Git Tree Was Already Verified (#2497)
+        id: dedup
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          TREE_SHA=$(git rev-parse 'HEAD^{tree}')
+          echo "Current git tree SHA: $TREE_SHA"
+          VERIFIED="false"
+          MATCH_RUN=""
+
+          if [ "$EVENT_NAME" = "merge_group" ] || [ "$EVENT_NAME" = "push" ]; then
+            # 1. Direct tree_id match against recent successful runs of this workflow
+            MATCH_RUN=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?status=success&per_page=30" \
+              --jq ".workflow_runs[] | select(.head_commit.tree_id == \"$TREE_SHA\") | .id" 2>/dev/null | head -n 1 || true)
+
+            # 2. On merge_group at queue position 1, if the PR branch was not manually
+            #    rebased onto main, its pull_request run tested refs/pull/<N>/merge.
+            #    If refs/pull/<N>/merge has the identical git tree SHA ($TREE_SHA) AND
+            #    the PR head commit passed ci.yml after main's latest commit landed,
+            #    that pull_request run already verified this exact tree.
+            if [ -z "$MATCH_RUN" ] && [ "$EVENT_NAME" = "merge_group" ]; then
+              PR_NUM=$(echo "$REF_NAME" | sed -n 's|^gh-readonly-queue/[^/]*/pr-\([0-9][0-9]*\)-.*|\1|p')
+              if [ -n "$PR_NUM" ]; then
+                PR_JSON=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUM" 2>/dev/null || true)
+                PR_HEAD_SHA=$(echo "$PR_JSON" | jq -r '.head.sha // empty')
+                PR_MERGE_SHA=$(echo "$PR_JSON" | jq -r '.merge_commit_sha // empty')
+                if [ -n "$PR_HEAD_SHA" ] && [ -n "$PR_MERGE_SHA" ]; then
+                  MERGE_TREE=$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$PR_MERGE_SHA" --jq '.tree.sha // empty' 2>/dev/null || true)
+                  MAIN_TIME=$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq '.commit.committer.date // empty' 2>/dev/null || true)
+                  if [ "$MERGE_TREE" = "$TREE_SHA" ] && [ -n "$MAIN_TIME" ]; then
+                    MATCH_RUN=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$PR_HEAD_SHA&status=success&per_page=5" \
+                      --jq ".workflow_runs[] | select(.run_started_at > \"$MAIN_TIME\") | .id" 2>/dev/null | head -n 1 || true)
+                  fi
+                fi
+              fi
+            fi
+
+            if [ -n "$MATCH_RUN" ]; then
+              VERIFIED="true"
+              echo "Tree $TREE_SHA already verified by ci.yml run #$MATCH_RUN — skipping redundant test execution."
+            fi
+          fi
+
+          echo "tree_already_verified=$VERIFIED" >> "$GITHUB_OUTPUT"
+          echo "verified_by_run_id=$MATCH_RUN" >> "$GITHUB_OUTPUT"
+
   # ── Job 2: fast deterministic gates — typecheck + build ──
   # Fails in ~2 minutes on type errors instead of after the full suite.
-  # Runs in parallel with the test shards; the green path is unchanged.
+  # Runs in parallel with the test shards; skipped on merge_group/push when
+  # the exact git tree SHA was already verified by an earlier CI run (#2497).
   fast-gates:
     name: Fast gates (typecheck + build)
     runs-on: ubuntu-24.04
+    needs: load-environment
+    if: needs.load-environment.outputs.tree_already_verified != 'true'
     permissions:
       contents: read
     steps:
@@ -81,6 +138,7 @@ jobs:
     name: Tests (shard ${{ matrix.shard }}/4)
     runs-on: ubuntu-24.04
     needs: load-environment
+    if: needs.load-environment.outputs.tree_already_verified != 'true'
     # Links this job to the GitHub Environment, pulling ET_API_KEY /
     # ET_API_SECRET / ET_BASE_URL for the broker-dependent tests.
     environment: ${{ needs.load-environment.outputs.target_env }}
@@ -115,7 +173,8 @@ jobs:
   # `protectmain` requires a status check literally named
   # "Test & Build (Node 22) [<env>]" (ruleset 25543527, refs/heads/main).
   # Jobs 2-3 split that work across fast-gates + 4 test shards, so this job
-  # re-publishes the required name and fails unless every gate succeeded.
+  # re-publishes the required name and fails unless every gate succeeded
+  # (or the exact git tree SHA was already verified by an earlier CI run).
   # It must run on `if: always()`: a skipped job would make the required
   # check disappear, and GitHub treats a missing required check as blocking
   # at best and a skipped one as acceptable at worst (gitops §10).
@@ -129,12 +188,24 @@ jobs:
     steps:
       - name: Report gate results
         run: |
-          echo "load-environment: ${{ needs.load-environment.result }}"
-          echo "fast-gates:       ${{ needs.fast-gates.result }}"
-          echo "test-shard:       ${{ needs.test-shard.result }}"
+          echo "load-environment:      ${{ needs.load-environment.result }}"
+          echo "tree_already_verified: ${{ needs.load-environment.outputs.tree_already_verified }}"
+          echo "verified_by_run_id:    ${{ needs.load-environment.outputs.verified_by_run_id }}"
+          echo "fast-gates:            ${{ needs.fast-gates.result }}"
+          echo "test-shard:            ${{ needs.test-shard.result }}"
 
       - name: Fail unless every gate job succeeded
         run: |
+          if [ "${{ needs.load-environment.result }}" != "success" ]; then
+            echo "::error::load-environment did not succeed; the required check stays red."
+            exit 1
+          fi
+          if [ "${{ needs.load-environment.outputs.tree_already_verified }}" = "true" ] && \
+             [ "${{ needs.fast-gates.result }}" = "skipped" ] && \
+             [ "${{ needs.test-shard.result }}" = "skipped" ]; then
+            echo "Git tree already verified by prior CI run #${{ needs.load-environment.outputs.verified_by_run_id }}. All gates passed."
+            exit 0
+          fi
           if [ "${{ needs.fast-gates.result }}" != "success" ] || \
              [ "${{ needs.test-shard.result }}" != "success" ]; then
             echo "::error::A gate job did not succeed; the required check stays red."

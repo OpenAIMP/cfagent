@@ -53,7 +53,7 @@ function runPolicyGate(
 ): { stdout: string; status: number } {
   try {
     const stdout = execFileSync(PYTHON_BIN, [SCRIPT_PATH, ...args], {
-      env: { ...process.env, ...env },
+      env: { ...process.env, GITHUB_EVENT_NAME: "pull_request", ...env },
       cwd,
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "pipe"],
@@ -756,6 +756,36 @@ describe("rewritten wrapper", () => {
     expect(res.stdout).toContain("(i) allowed rename: tests/tiny.test.ts -> tests/tiny2.test.ts");
     expect(res.status).toBe(0);
     expect(res.stdout).toContain("Policy gate passed");
+  });
+
+  it("passes on merge_group event without PR_BODY/PR_TITLE/PR_LABELS when tree checks pass (#2497)", () => {
+    runGit(tempRepoDir, ["checkout", "branch-fragment"]);
+    const res = runPolicyGate(
+      {
+        GITHUB_EVENT_NAME: "merge_group",
+        PR_TITLE: "",
+        PR_BODY: "",
+        PR_LABELS: "",
+      },
+      ["--base", "main", "--head", "branch-fragment"]
+    );
+    expect(res.status).toBe(0);
+    expect(res.stdout).toContain("Policy gate passed");
+  });
+
+  it("still rejects file deletions (i) on merge_group event (#2497)", () => {
+    const res = runPolicyGate(
+      {
+        GITHUB_EVENT_NAME: "merge_group",
+        PR_TITLE: "",
+        PR_BODY: "",
+        PR_LABELS: "",
+      },
+      ["--base", "main", "--head", "branch-src-deletion"]
+    );
+    expect(res.status).toBe(1);
+    expect(res.stdout).toContain("(i) no deletion");
+    expect(res.stdout).toContain("src/index.ts");
   });
 
   it("detects a stale branch through a merge commit via head resolution (f)", () => {

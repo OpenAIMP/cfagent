@@ -112,8 +112,10 @@ def evaluate_policy(
     """Run all policy gate evaluations and return any failure reasons."""
     labels = labels or []
     # Evaluate the branch tree, not a merge-commit tree (see
-    # resolve_effective_head). All diffs below use the resolved head.
-    head = resolve_effective_head(head)
+    # resolve_effective_head), except on merge_group where HEAD is already
+    # the queue-constructed target tree.
+    if os.environ.get("GITHUB_EVENT_NAME") != "merge_group":
+        head = resolve_effective_head(head)
 
     # Attribution reads the PR body and labels ONLY (owner direction
     # 2026-10-27, issue #1894). Commit messages are NOT fallback context:
@@ -595,6 +597,7 @@ def main() -> int:
     body = os.environ.get("PR_BODY") or ""
     title = os.environ.get("PR_TITLE") or ""
     labels = (os.environ.get("PR_LABELS") or "").split()
+    is_merge_group = os.environ.get("GITHUB_EVENT_NAME") == "merge_group"
 
     failures = evaluate_policy(
         base=args.base,
@@ -602,7 +605,7 @@ def main() -> int:
         title=title,
         body=body,
         labels=labels,
-        diff_only=args.diff_only,
+        diff_only=args.diff_only or is_merge_group,
     )
 
     if failures:

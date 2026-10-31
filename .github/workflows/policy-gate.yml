@@ -34,6 +34,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled, edited]
     branches: [main]
+  merge_group:
 
 permissions:
   contents: read
@@ -52,7 +53,7 @@ jobs:
     # a merged PR body (GitHub allows it) manufactured exactly that false red
     # on #2272. Skipping closed PRs keeps the merged record equal to the gate
     # that actually gated the merge.
-    if: github.event.pull_request.state == 'open'
+    if: github.event_name == 'merge_group' || github.event.pull_request.state == 'open'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out PR head

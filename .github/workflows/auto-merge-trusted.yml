@@ -45,6 +45,7 @@ jobs:
     steps:
       - name: Create short-lived GitHub App token
         id: app-token
+        continue-on-error: true
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           client-id: ${{ vars.AUTO_UPDATE_APP_CLIENT_ID }}
@@ -56,7 +57,7 @@ jobs:
 
       - name: Label eligible PR and enable auto-merge
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_IS_DRAFT: ${{ github.event.pull_request.draft }}
           PR_BODY: ${{ github.event.pull_request.body }}
