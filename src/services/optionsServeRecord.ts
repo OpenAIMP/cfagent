@@ -84,6 +84,84 @@ export function storeOptionsCanonicalReport(
   }
 }
 
+/**
+ * The single canonical recorder for options runs (issue #2528, slice 1).
+ * Every options channel must record through this function (or through
+ * `storeOptionsCanonicalReport`, its underlying seam) after generation,
+ * with the same field names, so Docs reads one row shape regardless of
+ * channel. It does not generate, deliver, or change report content —
+ * it only normalises the record: owner required, strategyMode carried
+ * when known, artifact keys/statuses/errors carried only when present.
+ * Legacy recorders in this file remain as thin callers during migration
+ * and are deprecated in place (superseded by recordUnifiedOptionsRun)
+ * once their call sites migrate; they are not deleted.
+ */
+export interface UnifiedOptionsRunRecord {
+  runId: string;
+  generationId: string;
+  title: string;
+  source: string;
+  summary: string;
+  trigger: "manual" | "scheduled" | "triggered" | "goal" | "agentic";
+  strategyMode?: "thesis" | "all" | "no-view";
+  symbol?: string;
+  thesis?: string;
+  scheduleId?: string;
+  goalId?: string;
+  scanRunId?: string;
+  userLogin: string;
+  createdAt?: string;
+  pdfKey?: string;
+  pdfStatus?: "generated" | "failed";
+  pdfError?: string;
+  xlsxKey?: string;
+  xlsxStatus?: "generated" | "failed";
+  xlsxError?: string;
+  csvKey?: string;
+  csvStatus?: "generated" | "failed";
+  csvError?: string;
+  reportUrl?: string;
+}
+
+export function recordUnifiedOptionsRun(
+  orm: OptionsCanonicalStore | null | undefined,
+  input: UnifiedOptionsRunRecord,
+  env?: { AI?: any; VECTOR_MEMORY?: any },
+): { reportId: string; created: boolean } | null {
+  return storeOptionsCanonicalReport(
+    orm,
+    {
+      runId: input.runId,
+      generationId: input.generationId,
+      title: input.title,
+      source: input.source,
+      summary: input.summary,
+      body: {
+        trigger: input.trigger,
+        strategyMode: input.strategyMode,
+        symbol: input.symbol,
+        thesis: input.thesis,
+        scheduleId: input.scheduleId,
+        goalId: input.goalId,
+        scanRunId: input.scanRunId,
+        ...(input.pdfKey ? { pdfKey: input.pdfKey } : {}),
+        ...(input.pdfStatus ? { pdfStatus: input.pdfStatus } : {}),
+        ...(input.pdfError ? { pdfError: input.pdfError } : {}),
+        ...(input.xlsxKey ? { xlsxKey: input.xlsxKey } : {}),
+        ...(input.xlsxStatus ? { xlsxStatus: input.xlsxStatus } : {}),
+        ...(input.xlsxError ? { xlsxError: input.xlsxError } : {}),
+        ...(input.csvKey ? { csvKey: input.csvKey } : {}),
+        ...(input.csvStatus ? { csvStatus: input.csvStatus } : {}),
+        ...(input.csvError ? { csvError: input.csvError } : {}),
+        ...(input.reportUrl ? { reportUrl: input.reportUrl } : {}),
+      },
+      createdAt: input.createdAt,
+      userLogin: input.userLogin,
+    },
+    env,
+  );
+}
+
 export interface OptionsRunOutcomeRecord {
   id: string;
   trigger: "manual" | "scheduled";
