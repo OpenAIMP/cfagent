@@ -225,7 +225,7 @@ describe("characterization 4a: submit", () => {
       "INSERT INTO mas_async_jobs (job_id, session_id, capability, display_name, status, payload_json, created_at, updated_at) VALUES (?, 'sess-1', 'task.draft', 'seeded', 'completed', '{}', ?, ?)",
     );
     for (let i = 0; i < 505; i++) {
-      const ts = new Date(Date.UTC(2026, 9, 1, 0, i)).toISOString();
+      const ts = new Date(Date.now() - (600 - i) * 1000).toISOString();
       insert.run(`cap-${String(i).padStart(3, "0")}`, ts, ts);
     }
     await submitAsyncJob(h.ctx, { capability: "task.draft", payload: { title: "new" } });
