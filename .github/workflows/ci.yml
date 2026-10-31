@@ -93,7 +93,7 @@ jobs:
             fi
             echo "$jobs_json" | jq -e '
               ([.jobs[] | select(.name == "Fast gates (typecheck + build)" and .conclusion == "success")] | length == 1) and
-              ([.jobs[] | select((.name | startswith("Tests (shard ")) and .conclusion == "success")] | length == 4)
+              ([.jobs[] | select((.name | test("^Tests (PR|MQ) \\(shard ")) and .conclusion == "success")] | length == 4)
             ' >/dev/null 2>&1
           }
 
@@ -181,12 +181,12 @@ jobs:
       - name: 🛡️ Verify Cloudflare Worker Configuration
         run: npx wrangler --version
 
-  # ── Job 3: test suite sharded across 4 parallel runners ──
-  test-shard:
-    name: Tests (shard ${{ matrix.shard }}/4)
+  # ── Job 3: test suite sharded across 4 parallel runners (Tests PR) ──
+  test-shard-pr:
+    name: Tests PR (shard ${{ matrix.shard }}/4)
     runs-on: ubuntu-24.04
-    needs: load-environment
-    if: needs.load-environment.outputs.tree_already_verified != 'true'
+    needs: [load-environment]
+    if: github.event_name != 'merge_group' && needs.load-environment.outputs.tree_already_verified != 'true'
     environment: ${{ needs.load-environment.outputs.target_env }}
     strategy:
       fail-fast: false
@@ -215,10 +215,46 @@ jobs:
       - name: 🧪 Execute Vitest Shard ${{ matrix.shard }}/4
         run: npx vitest run --shard=${{ matrix.shard }}/4 --reporter=verbose
 
+
+  # ── Job 3: test suite sharded across 4 parallel runners (Tests MQ) ──
+  test-shard-mq:
+    name: Tests MQ (shard ${{ matrix.shard }}/4)
+    runs-on: ubuntu-24.04
+    needs: [load-environment, fast-gates]
+    if: github.event_name == 'merge_group' && needs.load-environment.outputs.tree_already_verified != 'true'
+    environment: ${{ needs.load-environment.outputs.target_env }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    permissions:
+      contents: read
+    env:
+      APP_ENV: ${{ needs.load-environment.outputs.target_env }}
+      ET_API_KEY: ${{ secrets.ET_API_KEY }}
+      ET_API_SECRET: ${{ secrets.ET_API_SECRET }}
+      ET_BASE_URL: ${{ secrets.ET_BASE_URL }}
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "npm"
+
+      - name: 📦 Install Dependencies
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: 🧪 Execute Vitest Shard ${{ matrix.shard }}/4
+        run: npx vitest run --shard=${{ matrix.shard }}/4 --reporter=verbose
+
+
   # ── Job 4: the required check (ruleset name, do not rename) ──
   test-and-verify:
     name: Test & Build (Node 22) [${{ needs.load-environment.outputs.target_env }}]
-    needs: [load-environment, fast-gates, test-shard]
+    needs: [load-environment, fast-gates, test-shard-pr, test-shard-mq]
     if: always()
     runs-on: ubuntu-24.04
     permissions:
@@ -231,7 +267,8 @@ jobs:
           echo "verified_by_run_id:    ${{ needs.load-environment.outputs.verified_by_run_id }}"
           echo "docs_only:             ${{ needs.load-environment.outputs.docs_only }}"
           echo "fast-gates:            ${{ needs.fast-gates.result }}"
-          echo "test-shard:            ${{ needs.test-shard.result }}"
+          echo "test-shard-pr:         ${{ needs.test-shard-pr.result }}"
+          echo "test-shard-mq:         ${{ needs.test-shard-mq.result }}"
 
       - name: Fail unless every gate job succeeded
         run: |
@@ -241,7 +278,8 @@ jobs:
           fi
           if [ "${{ needs.load-environment.outputs.tree_already_verified }}" = "true" ] && \
              [ "${{ needs.fast-gates.result }}" = "skipped" ] && \
-             [ "${{ needs.test-shard.result }}" = "skipped" ]; then
+             [ "${{ needs.test-shard-pr.result }}" = "skipped" ] && \
+             [ "${{ needs.test-shard-mq.result }}" = "skipped" ]; then
             RUN_ID="${{ needs.load-environment.outputs.verified_by_run_id }}"
             if [ "$RUN_ID" = "docs-only" ]; then
               echo "Docs-only fast path verified. All gates passed."
@@ -253,9 +291,17 @@ jobs:
             fi
             exit 0
           fi
-          if [ "${{ needs.fast-gates.result }}" != "success" ] || \
-             [ "${{ needs.test-shard.result }}" != "success" ]; then
-            echo "::error::A gate job did not succeed; the required check stays red."
-            exit 1
+          if [ "${{ needs.fast-gates.result }}" = "success" ] && \
+             [ "${{ needs.test-shard-pr.result }}" = "success" ] && \
+             [ "${{ needs.test-shard-mq.result }}" = "skipped" ]; then
+            echo "PR event: fast-gates and test-shard-pr passed; test-shard-mq skipped as expected."
+            exit 0
           fi
-          echo "All gates passed."
+          if [ "${{ needs.fast-gates.result }}" = "success" ] && \
+             [ "${{ needs.test-shard-mq.result }}" = "success" ] && \
+             [ "${{ needs.test-shard-pr.result }}" = "skipped" ]; then
+            echo "merge_group event: fast-gates and test-shard-mq passed; test-shard-pr skipped as expected."
+            exit 0
+          fi
+          echo "::error::Unexpected gate results: fast-gates=${{ needs.fast-gates.result }}, test-shard-pr=${{ needs.test-shard-pr.result }}, test-shard-mq=${{ needs.test-shard-mq.result }}; the required check stays red."
+          exit 1
