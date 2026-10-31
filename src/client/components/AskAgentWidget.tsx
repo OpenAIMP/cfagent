@@ -20,6 +20,16 @@ interface MessageItem {
   timestamp: string;
 }
 
+/** Issue #2041 S2: one pending journey gate, as the route serves it. */
+interface PendingJourneyGate {
+  sagaId: string;
+  runRequestId: string;
+  family: string;
+  rail?: "stripe" | "x402";
+  promptedAt: string;
+  copy: { title: string; body: string; compensationLine: string };
+}
+
 export const TAB_QUICK_PROMPTS: Record<string, Array<{ label: string; prompt: string }>> = {
   autopilot: [
     { label: "⚡ Autopilot Policy", prompt: "Explain the active Autopilot execution policy limits and kill switch rules." },
@@ -106,6 +116,65 @@ export function AskAgentWidget({
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState("");
   const [isBusy, setIsBusy] = useState(false);
+  // Issue #2041 S2: pending journey gates, polled while the
+  // drawer is open (a decided gate drops out of the list, which
+  // IS the chat-surface dismissal — state-driven, no explicit
+  // action). No proactive push into a turn exists yet (that is
+  // #2376 WS work); the card is the chat surface for S2.
+  const [journeyGates, setJourneyGates] = useState<PendingJourneyGate[]>([]);
+  const [journeyGateNotice, setJourneyGateNotice] = useState("");
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    const loadGates = async () => {
+      try {
+        const res = await globalThis.fetch("/api/saga/journey-gates");
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as { gates?: PendingJourneyGate[] };
+        if (Array.isArray(data.gates)) setJourneyGates(data.gates);
+      } catch {
+        // Best-effort: a failed poll leaves the previous list.
+      }
+    };
+    void loadGates();
+    const timer = setInterval(loadGates, 30000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [isOpen]);
+
+  const answerJourneyGate = async (sagaId: string, decision: "approved" | "denied") => {
+    try {
+      const res = await globalThis.fetch("/api/saga/journey-decision", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sagaId, decision, surface: "chat" }),
+      });
+      const data = (await res.json().catch(() => null)) as {
+        accepted?: boolean;
+        superseded?: boolean;
+        decidedBy?: string;
+      } | null;
+      if (res.status === 409 || data?.superseded) {
+        setJourneyGateNotice(
+          `Already decided (by ${data?.decidedBy ?? "another surface"}) — this answer was refused as superseded.`,
+        );
+      } else if (res.ok && data?.accepted) {
+        setJourneyGateNotice(
+          decision === "approved"
+            ? "Journey approved — the saga will enter the trading leg."
+            : "Journey declined — the saga ends with no trades and no proposals.",
+        );
+      } else {
+        setJourneyGateNotice("Journey answer failed — please try again.");
+        return;
+      }
+      setJourneyGates((prev) => prev.filter((g) => g.sagaId !== sagaId));
+    } catch {
+      setJourneyGateNotice("Journey answer failed — please try again.");
+    }
+  };
   const [messages, setMessages] = useState<MessageItem[]>([
     {
       id: "welcome",
@@ -364,6 +433,37 @@ export function AskAgentWidget({
             )}
             <div ref={messagesEndRef} />
           </div>
+
+          {/* Issue #2041 S2: pending journey decisions */}
+          {journeyGates.length > 0 && (
+            <div style={{ padding: "var(--space-1-5) var(--space-3) var(--space-1)" }} role="status">
+              <div style={{ fontSize: "var(--font-size-caption)", fontWeight: 700, color: "var(--color-text-muted)", textTransform: "uppercase", letterSpacing: "0.03em", marginBottom: "0.35rem" }}>
+                Pending journey decisions:
+              </div>
+              {journeyGateNotice && (
+                <div style={{ fontSize: "var(--font-size-body)", color: "var(--color-text-muted)", marginBottom: "0.5rem" }}>
+                  {journeyGateNotice}
+                </div>
+              )}
+              {journeyGates.map((gate) => (
+                <div key={gate.sagaId} style={{ marginBottom: "0.75rem", fontSize: "var(--font-size-body)" }}>
+                  <div style={{ marginBottom: "0.25rem" }}>
+                    {gate.copy.title} — run {gate.runRequestId} ({gate.family})
+                  </div>
+                  <div style={{ color: "var(--color-text-muted)", marginBottom: "0.25rem" }}>{gate.copy.body}</div>
+                  <div style={{ color: "var(--color-text-muted)", marginBottom: "0.5rem" }}>{gate.copy.compensationLine}</div>
+                  <div style={{ display: "flex", gap: "var(--space-2)" }}>
+                    <Button type="button" onClick={() => void answerJourneyGate(gate.sagaId, "approved")}>
+                      Enter trading leg
+                    </Button>
+                    <Button type="button" onClick={() => void answerJourneyGate(gate.sagaId, "denied")}>
+                      Do not enter
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Quick Prompt Chips */}
           <div className="ask-agent-quick-prompts-wrap" style={{ padding: "var(--space-1-5) var(--space-3) var(--space-1)" }}>

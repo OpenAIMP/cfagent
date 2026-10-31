@@ -1148,7 +1148,7 @@ export const MESH_WORKFLOWS: MeshWorkflowEntry[] = [
     starters: [
       "No starter in S1 (#2041): the entry route is S4 work; no route or submission seam starts this workflow by default — the binding exists, uncalled.",
     ],
-    role: "Cross-domain paid-run journey: payment child → observed screen → (S2 journey gate) → (S4 trading leg); S1 ends at screen_completed.",
+    role: "Cross-domain paid-run journey: payment child → observed screen → journey gate (S2: all decision surfaces, first answer wins) → (S4 trading leg); S2 ends at the gate outcome (approved ends at the gate, trading leg stubbed).",
   },
 ];
 

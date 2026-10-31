@@ -35,6 +35,13 @@ import {
   approvePreviewedOrder,
   cancelPreviewedOrder,
 } from "../channels/approval";
+import {
+  deliverJourneyDecision,
+  findDecidedJourneyGate,
+  listPendingJourneyGates,
+  sagaAuditOwnerStub,
+  type SagaJourneyBinding,
+} from "../../workflows/sagaJourneyGate";
 import { ETradeEmailTradingService } from "../email/agent";
 import { ETradeWebhookService } from "../../services/tradingWebhooks";
 import { ETradeBrowserService } from "../../services/browserAgent";
@@ -953,7 +960,12 @@ export class ETradeSlackTradingService {
               actionId === "etrade_approve_options_order" ||
               actionId === "etrade_preview_options"
             ? "preview"
-            : "read";
+            // Issue #2041 S2: the journey gate authorizes proposals,
+            // not execution — preview tier. Per-order trade tier
+            // still applies at trade approval.
+            : actionId === "saga_journey_approve" || actionId === "saga_journey_deny"
+              ? "preview"
+              : "read";
       if (!tierAtLeast(this.principal.tier, requiredTier)) {
         return {
           success: false,
@@ -967,6 +979,114 @@ export class ETradeSlackTradingService {
     }
 
     const tradingService = new ETradeService(this.orm, this.env, this.identityLogin());
+
+    // Issue #2041 S2: saga journey-gate buttons. The button value
+    // carries the saga id (not an order id); the decider is the
+    // linked principal's login. Owner check first (pending gate
+    // for this login): a foreign or missing gate is refused here
+    // rather than sending an event the flow would refuse — the
+    // user gets an honest answer, not a false acceptance.
+    // Delivery goes through the single deliverJourneyDecision
+    // helper (same path as the panel/chat routes); the flow
+    // re-validates owner as defense in depth. The response_url
+    // edit IS the Slack-surface cleanup on the decide path.
+    if (actionId === "saga_journey_approve" || actionId === "saga_journey_deny") {
+      const sagaId = orderId;
+      const deciderLogin = this.identityLogin();
+      const decision = actionId === "saga_journey_approve" ? "approved" : "denied";
+      const editOriginal = async (text: string): Promise<void> => {
+        if (payload.response_url) {
+          await this.postResponseUrl(payload.response_url, {
+            text,
+            blocks: [{ type: "section", text: { type: "mrkdwn", text } }],
+            replace_original: true,
+          });
+        }
+      };
+      let pending = false;
+      let decidedBy: string | null = null;
+      try {
+        const stub = sagaAuditOwnerStub(this.env);
+        const gates = await listPendingJourneyGates(stub, deciderLogin);
+        pending = gates.some((g) => g.sagaId === sagaId);
+        if (!pending) {
+          const decided = await findDecidedJourneyGate(stub, sagaId);
+          decidedBy = decided?.decidingSurface ?? null;
+        }
+      } catch (err) {
+        return {
+          success: false,
+          actionId,
+          orderId: sagaId,
+          status: "error",
+          message: `Journey gate lookup failed: ${err instanceof Error ? err.message : String(err)}`,
+          timestamp,
+        };
+      }
+      if (decidedBy !== null) {
+        const text = `⏭️ Already decided (by ${decidedBy}) — this answer was refused as superseded.`;
+        await editOriginal(text);
+        return {
+          success: false,
+          actionId,
+          orderId: sagaId,
+          status: "superseded",
+          message: text,
+          timestamp,
+        };
+      }
+      if (!pending) {
+        return {
+          success: false,
+          actionId,
+          orderId: sagaId,
+          status: "error",
+          message: "No pending journey gate for this saga under your login.",
+          timestamp,
+        };
+      }
+      let result;
+      try {
+        result = await deliverJourneyDecision(
+          this.env.SAGA_WORKFLOW as unknown as SagaJourneyBinding,
+          { sagaId, decision: { sagaId, decision, deciderLogin, surface: "slack" } },
+        );
+      } catch (err) {
+        return {
+          success: false,
+          actionId,
+          orderId: sagaId,
+          status: "error",
+          message: `Journey decision could not be delivered: ${err instanceof Error ? err.message : String(err)}`,
+          timestamp,
+        };
+      }
+      if (!result.accepted) {
+        const text = `⏭️ Already decided (by ${result.decidedBy}) — this answer was refused as superseded.`;
+        await editOriginal(text);
+        return {
+          success: false,
+          actionId,
+          orderId: sagaId,
+          status: "superseded",
+          message: text,
+          timestamp,
+        };
+      }
+      const text =
+        decision === "approved"
+          ? "✅ Journey approved — the saga will enter the trading leg. Each trade will still ask for its own approval."
+          : "❌ Journey declined — the saga ends with no trades and no proposals.";
+      await editOriginal(text);
+      return {
+        success: true,
+        actionId,
+        orderId: sagaId,
+        status: "decided",
+        message: text,
+        timestamp,
+      };
+    }
 
     // 1. Approve & Execute Order on E*TRADE
     if (actionId === "etrade_approve_order") {

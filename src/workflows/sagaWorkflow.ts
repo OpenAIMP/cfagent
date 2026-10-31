@@ -14,16 +14,20 @@
  *     sagaWorkflowFlow.ts. The adapter is covered by typecheck,
  *     not by unit tests (same stance as the payment workflow).
  *
- * S1 scope ONLY: Leg 0 (payment child) + Leg 1 (observe the paid
- * screen to terminal). No journey gate (S2), no mid-run failure
- * credit (S3), no trading leg (S4), no entry route (S4). No route
- * calls this workflow yet by default: the entry route is S4, and
- * a route must NOT start a saga for free when monetization is on.
+ * S2 scope: Leg 0 (payment child) + Leg 1 (observe the paid
+ * screen to terminal) + Leg 2 (the journey gate after a completed
+ * screen). No trading leg yet (S4): an approved journey ends the
+ * saga at the gate. No mid-run failure credit (S3), no entry
+ * route (S4). No route calls this workflow yet by default: the
+ * entry route is S4, and a route must NOT start a saga for free
+ * when monetization is on.
  *
- * S1 defaults (not rulings): goal-only first family (Q5 default);
+ * S2 defaults (not rulings): goal-only first family (Q5 default);
  * mainnet excluded — the saga never reads MONETIZATION_NETWORK
  * and never overrides the payment leg's network (Q4 open);
- * workflow-only identity, no DO agent (Q8 open).
+ * workflow-only identity, no DO agent (Q8 open); journey wait
+ * 24h (Q2 open); instance-owner-only gate answers (G-APPROVER
+ * open, working default).
  *
  * Audit: the recordAudit dep posts saga rows to POST /api/audit/event
  * through the SEARCH_AGENT stub (the same endpoint the payment
@@ -52,6 +56,12 @@ import type { Env } from "../types";
 import { getServiceUserLogin, SHARED_ORCHESTRATOR_INSTANCE } from "../security/serviceIdentity";
 import type { WorkflowBindingLike } from "./cfWorkflowAdapter";
 import { sagaLegPort, type SagaLegBinding } from "./sagaLegPort";
+import {
+  editSlackJourneyPrompt,
+  postSlackJourneyPrompt,
+  type JourneyGatePrompt,
+  type JourneyPromptReceipts,
+} from "./sagaJourneyGate";
 import {
   runSagaWorkflowFlow,
   type SagaAuditEvent,
@@ -118,6 +128,9 @@ async function recordSagaAudit(env: Env, event: SagaAuditEvent): Promise<void> {
             ...(event.screenerWorkflowId ? { screenerWorkflowId: event.screenerWorkflowId } : {}),
             ...(event.reason ? { reason: event.reason } : {}),
             ...(event.existing !== undefined ? { existing: event.existing } : {}),
+            ...(event.decidingSurface ? { decidingSurface: event.decidingSurface } : {}),
+            ...(event.decision ? { decision: event.decision } : {}),
+            ...(event.withdraw ? { withdraw: event.withdraw } : {}),
           },
         }),
       }),
@@ -151,6 +164,10 @@ function adaptStep(step: WorkflowStep): SagaWorkflowStep {
   const s = step as unknown as {
     do<T>(name: string, callback: () => Promise<T>): Promise<T>;
     sleep(name: string, duration: string): Promise<void>;
+    waitForEvent(
+      name: string,
+      options: { type: string; timeout?: string },
+    ): Promise<{ payload: unknown }>;
   };
   return {
     do: (name, fn) => s.do(name, fn),
@@ -158,6 +175,7 @@ function adaptStep(step: WorkflowStep): SagaWorkflowStep {
     // label); ceiling to seconds. Poll granularity only —
     // deadlines are enforced by the flow's clock checks.
     sleep: (name, ms) => s.sleep(name, `${Math.max(1, Math.ceil(ms / 1000))} seconds`),
+    waitForEvent: (name, options) => s.waitForEvent(name, options),
   };
 }
 
@@ -181,7 +199,7 @@ export class CrossDomainSagaWorkflow extends ThinkWorkflow<any, SagaParams, Defa
     }
     if (params.family !== "goal") {
       throw new Error(
-        `Saga S1 is goal-only (Q5 default); family "${String(params.family)}" is not accepted yet.`,
+        `Saga is goal-only (Q5 default); family "${String(params.family)}" is not accepted yet.`,
       );
     }
     if (!params.screenerCommand || typeof params.screenerCommand.jobId !== "string" || !params.screenerCommand.jobId) {
@@ -199,6 +217,20 @@ export class CrossDomainSagaWorkflow extends ThinkWorkflow<any, SagaParams, Defa
     const deps = {
       legPort: sagaLegPort(bindings, params.sagaId),
       recordAudit: (auditEvent: SagaAuditEvent) => recordSagaAudit(this.env as Env, auditEvent),
+      // Prompt delivery (S2): Slack post via the gate module;
+      // panel and chat are state-driven off the prompted audit
+      // row, so they need no prompt action here.
+      deliverPrompts: (prompt: JourneyGatePrompt) =>
+        postSlackJourneyPrompt(this.env as Env, prompt),
+      // Withdrawal (S2): Slack edit-cleanup via the gate module;
+      // panel/chat dismissal is state-driven (a decided gate is
+      // no longer pending, so its card disappears on next poll).
+      withdrawPrompts: (receipts: JourneyPromptReceipts) =>
+        editSlackJourneyPrompt(
+          this.env as Env,
+          receipts,
+          "Journey-gate prompt closed — this saga's journey decision is recorded or expired.",
+        ),
       nowMs: () => Date.now(),
     };
     return runSagaWorkflowFlow(params, deps, adaptStep(step));

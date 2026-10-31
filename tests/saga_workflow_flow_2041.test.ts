@@ -1,20 +1,21 @@
 /**
- * Issue #2041 S1 — CrossDomainSagaWorkflow flow core, leg port, and
- * saga id derivation.
+ * Issue #2041 S1+S2 — CrossDomainSagaWorkflow flow core, leg port,
+ * journey gate, and saga id derivation.
  *
  * The flow module is pure TypeScript (type-only imports), so these
  * tests run in plain vitest with a fake step surface (do executes
  * immediately, sleep advances a virtual clock), a fake leg port, and
- * a fake audit dep — no worker runtime, no Think runtime, no
+ * fake audit/prompt deps — no worker runtime, no Think runtime, no
  * bindings, no network. The workflow class itself is a thin adapter
  * and is covered by typecheck, not by tests here.
  *
- * S1 scope ONLY: Leg 0 (payment child) + Leg 1 (observe the paid
- * screen to terminal). No journey gate (S2), no mid-run failure
- * credit (S3), no trading leg (S4), no entry route (S4).
+ * S1 scope: Leg 0 (payment child) + Leg 1 (observe the paid
+ * screen to terminal). S2 adds Leg 2 (the journey gate after a
+ * completed screen). No trading leg (S4), no mid-run failure
+ * credit (S3), no entry route (S4).
  *
  * Invariants pinned here:
- * - fail-closed identity (#1185) + goal-only family (S1 default);
+ * - fail-closed identity (#1185) + goal-only family (Q5 default);
  * - payment outcomes map to saga outcomes; the saga never starts
  *   a second screener (Leg 1 observes the payment outcome's
  *   screenerWorkflowId);
@@ -29,10 +30,18 @@
  *   leg instances instead of starting duplicates (G-REPLAY);
  * - leg instance ids are derived, never raw concatenations, and
  *   stay under the provider's 100-character ceiling (the #2129
- *   lesson, G-SAGA-ID).
+ *   lesson, G-SAGA-ID);
+ * - S2 journey gate (Q1 ruled: all decision surfaces, first
+ *   answer wins): owner-only decisions (working default,
+ *   G-APPROVER open); refused answers never decide; withdrawal
+ *   runs on BOTH decide and expire paths; denied/expired end
+ *   the saga with no trades and no proposals; approved ends at
+ *   the gate (trading leg is S4).
  */
 import { describe, expect, it } from "vitest";
 import {
+  SAGA_JOURNEY_WAIT_MS_DEFAULT,
+  SAGA_JOURNEY_WAIT_TIMEOUT,
   SAGA_PAYMENT_POLL_DEADLINE_MS_DEFAULT,
   SAGA_POLL_INTERVAL_MS_DEFAULT,
   SAGA_SCREEN_POLL_DEADLINE_MS_DEFAULT,
@@ -43,6 +52,11 @@ import {
   type SagaStep,
   type SagaWorkflowOutcome,
 } from "../src/workflows/sagaWorkflowFlow";
+import type {
+  JourneyGatePrompt,
+  JourneyPromptReceipts,
+  JourneyWithdrawResult,
+} from "../src/workflows/sagaJourneyGate";
 import {
   sagaLegInstanceId,
   sagaLegPort,
@@ -102,6 +116,48 @@ function fakeStep(clock: { ms: number }): SagaStep {
     async sleep(_name: string, ms: number): Promise<void> {
       clock.ms += ms;
     },
+    // Default: no journey event queued — the gate expires (the
+    // flow catches the throw). Gate tests override via gateStep.
+    async waitForEvent(): Promise<{ payload: unknown }> {
+      throw new Error("no journey event queued");
+    },
+  };
+}
+
+/** One queued waitForEvent answer: a payload, or a throw. */
+type WaitScriptEntry = { payload: unknown } | { throws: Error };
+
+/**
+ * Fake step with a scripted journey-gate wait: each waitForEvent
+ * consumes one entry (payload → resolved; throws → rejected).
+ * waitCalls records every wait (name + options) for first-wins
+ * pins. The queue never refills: exhaustion throws, so a test
+ * that loops forever fails instead of hanging.
+ */
+function gateStep(
+  clock: { ms: number },
+  script: WaitScriptEntry[],
+): SagaStep & { waitCalls: Array<{ name: string; options: { type: string; timeout?: string } }> } {
+  const waitCalls: Array<{ name: string; options: { type: string; timeout?: string } }> = [];
+  const queue = [...script];
+  return {
+    async do<T>(_name: string, fn: () => Promise<T>): Promise<T> {
+      return fn();
+    },
+    async sleep(_name: string, ms: number): Promise<void> {
+      clock.ms += ms;
+    },
+    async waitForEvent(
+      name: string,
+      options: { type: string; timeout?: string },
+    ): Promise<{ payload: unknown }> {
+      waitCalls.push({ name, options });
+      const next = queue.shift();
+      if (!next) throw new Error("waitForEvent script exhausted");
+      if ("throws" in next) throw next.throws;
+      return { payload: next.payload };
+    },
+    waitCalls,
   };
 }
 
@@ -136,9 +192,17 @@ function depsFor(
     auditThrowsOnCall?: number;
     clock?: { ms: number };
   } = {},
-): { deps: SagaDeps; auditEvents: SagaAuditEvent[]; clock: { ms: number } } {
+): {
+  deps: SagaDeps;
+  auditEvents: SagaAuditEvent[];
+  clock: { ms: number };
+  promptCalls: JourneyGatePrompt[];
+  withdrawCalls: JourneyPromptReceipts[];
+} {
   const auditEvents: SagaAuditEvent[] = [];
   const clock = opts.clock ?? { ms: 0 };
+  const promptCalls: JourneyGatePrompt[] = [];
+  const withdrawCalls: JourneyPromptReceipts[] = [];
   let call = 0;
   const deps: SagaDeps = {
     legPort,
@@ -149,9 +213,17 @@ function depsFor(
       }
       auditEvents.push(event);
     },
+    deliverPrompts: async (prompt: JourneyGatePrompt): Promise<JourneyPromptReceipts> => {
+      promptCalls.push(prompt);
+      return { slackSkipped: "test: no Slack" };
+    },
+    withdrawPrompts: async (receipts: JourneyPromptReceipts): Promise<JourneyWithdrawResult> => {
+      withdrawCalls.push(receipts);
+      return { slack: "skipped", panel: "state-driven", chat: "state-driven" };
+    },
     nowMs: () => clock.ms,
   };
-  return { deps, auditEvents, clock };
+  return { deps, auditEvents, clock, promptCalls, withdrawCalls };
 }
 
 function paymentStarted(screenerWorkflowId = "scr-wf-1"): SagaLegInstanceStatus {
@@ -212,7 +284,7 @@ describe("saga flow fail-closed (S1, #2041)", () => {
     ).rejects.toThrow(/Tenant mismatch/);
   });
 
-  it("throws for a non-goal family (S1 is goal-only, Q5 default)", async () => {
+  it("throws for a non-goal family (goal-only, Q5 default)", async () => {
     const legPort = new FakeLegPort();
     const { deps, clock } = depsFor(legPort);
     await expect(
@@ -244,27 +316,46 @@ describe("saga flow fail-closed (S1, #2041)", () => {
   });
 });
 
-describe("saga flow Leg 0/1 (S1, #2041)", () => {
-  it("started payment + completed screen ends screen_completed, and never starts a second screener", async () => {
+describe("saga flow Leg 0/1 (S1, #2041) and gate entry (S2)", () => {
+  it("started payment + completed screen reaches the gate; an owner approval ends journey_approved, and never starts a second screener", async () => {
     const legPort = new FakeLegPort();
     legPort.statuses["payment:pay-wf-1"] = [{ status: "running" }, paymentStarted()];
     legPort.statuses["screener:scr-wf-1"] = [{ status: "running" }, collation("Completed")];
-    const { deps, auditEvents, clock } = depsFor(legPort);
+    const { deps, auditEvents, clock, promptCalls, withdrawCalls } = depsFor(legPort);
+    const step = gateStep(clock, [
+      { payload: { sagaId: "saga-1", decision: "approved", deciderLogin: "u1login", surface: "slack" } },
+    ]);
     const outcome: SagaWorkflowOutcome = await runSagaWorkflowFlow(
       baseParams(),
       deps,
-      fakeStep(clock),
+      step,
     );
-    expect(outcome.status).toBe("screen_completed");
-    expect(outcome.code).toBe("SUCCESS_SAGA_SCREEN_COMPLETED");
+    expect(outcome.status).toBe("journey_approved");
+    expect(outcome.code).toBe("SUCCESS_SAGA_JOURNEY_APPROVED");
     expect(outcome.screenerWorkflowId).toBe("scr-wf-1");
     expect(outcome.rail).toBe("stripe");
+    // screen_completed is a milestone row now, NOT the terminal outcome.
     expect(auditTypes(auditEvents)).toEqual([
       "saga.started",
       "saga.payment_started",
       "saga.screen_completed",
+      "saga.journey_prompted",
+      "saga.journey_decided",
       "saga.ended",
+      "saga.journey_prompts_withdrawn",
     ]);
+    const decided = auditEvents.find((e) => e.type === "saga.journey_decided");
+    expect(decided?.decidingSurface).toBe("slack");
+    expect(decided?.decision).toBe("approved");
+    // The gate ran exactly once, with the ruled 24h provider timeout.
+    expect(step.waitCalls).toHaveLength(1);
+    expect(step.waitCalls[0].name).toBe("await-journey-decision");
+    expect(step.waitCalls[0].options.type).toBe("saga-journey-decision");
+    expect(step.waitCalls[0].options.timeout).toBe("24 hours");
+    // Prompts delivered, then withdrawn after the decision.
+    expect(promptCalls).toHaveLength(1);
+    expect(promptCalls[0].sagaId).toBe("saga-1");
+    expect(withdrawCalls).toHaveLength(1);
     // Exactly one leg start (payment); the screener is observed, never started.
     expect(legPort.starts).toHaveLength(1);
     expect(legPort.starts[0].leg).toBe("payment");
@@ -277,13 +368,29 @@ describe("saga flow Leg 0/1 (S1, #2041)", () => {
     expect(legPort.statusCalls.some((c) => c.leg === "screener" && c.workflowId === "scr-wf-1")).toBe(true);
   });
 
-  it("ReportGenerated collation also ends screen_completed", async () => {
+  it("ReportGenerated collation also reaches the gate; a denial ends journey_denied with no trades", async () => {
     const legPort = new FakeLegPort();
     legPort.statuses["payment:pay-wf-1"] = [paymentStarted()];
     legPort.statuses["screener:scr-wf-1"] = [collation("ReportGenerated")];
-    const { deps, clock } = depsFor(legPort);
-    const outcome = await runSagaWorkflowFlow(baseParams(), deps, fakeStep(clock));
-    expect(outcome.status).toBe("screen_completed");
+    const { deps, auditEvents, clock, withdrawCalls } = depsFor(legPort);
+    const step = gateStep(clock, [
+      { payload: { sagaId: "saga-1", decision: "denied", deciderLogin: "u1login", surface: "panel" } },
+    ]);
+    const outcome = await runSagaWorkflowFlow(baseParams(), deps, step);
+    expect(outcome.status).toBe("journey_denied");
+    expect(outcome.code).toBe("FAILURE_SAGA_JOURNEY_DENIED");
+    expect(auditTypes(auditEvents)).toEqual([
+      "saga.started",
+      "saga.payment_started",
+      "saga.screen_completed",
+      "saga.journey_prompted",
+      "saga.journey_decided",
+      "saga.ended",
+      "saga.journey_prompts_withdrawn",
+    ]);
+    // Denied ends the saga: no trading leg start, no second screener, prompts withdrawn.
+    expect(legPort.starts).toHaveLength(1);
+    expect(withdrawCalls).toHaveLength(1);
   });
 
   it.each(["payment_required", "coverage_required", "approval_rejected", "expired"])(
@@ -421,8 +528,11 @@ describe("saga flow Leg 0/1 (S1, #2041)", () => {
     legPort.statuses["payment:pay-wf-1"] = [paymentStarted()];
     legPort.statuses["screener:scr-wf-1"] = [collation("Completed")];
     const { deps, auditEvents, clock } = depsFor(legPort);
-    const outcome = await runSagaWorkflowFlow(baseParams(), deps, fakeStep(clock));
-    expect(outcome.status).toBe("screen_completed");
+    const step = gateStep(clock, [
+      { payload: { sagaId: "saga-1", decision: "approved", deciderLogin: "u1login", surface: "chat" } },
+    ]);
+    const outcome = await runSagaWorkflowFlow(baseParams(), deps, step);
+    expect(outcome.status).toBe("journey_approved");
     expect(legPort.starts).toHaveLength(1);
     const startedEvent = auditEvents.find((e) => e.type === "saga.payment_started");
     expect(startedEvent?.existing).toBe(true);
@@ -446,6 +556,11 @@ describe("saga flow Leg 0/1 (S1, #2041)", () => {
         sleeps += 1;
         clock.ms += ms;
       },
+      // Gate reached with no queued answer: expires (assertions
+      // here cover only the poll loop, not the gate outcome).
+      async waitForEvent(): Promise<{ payload: unknown }> {
+        throw new Error("no journey event queued");
+      },
     };
     await runSagaWorkflowFlow(baseParams(), deps, countingStep);
     expect(legPort.statusCalls.filter((c) => c.leg === "payment")).toHaveLength(3);
@@ -458,15 +573,166 @@ describe("saga flow Leg 0/1 (S1, #2041)", () => {
     legPort.statuses["payment:pay-wf-1"] = [paymentStarted()];
     legPort.statuses["screener:scr-wf-1"] = [collation("Completed")];
     const { deps, auditEvents, clock } = depsFor(legPort);
-    const outcome = await runSagaWorkflowFlow(baseParams({ rail: "x402" }), deps, fakeStep(clock));
+    const step = gateStep(clock, [
+      { payload: { sagaId: "saga-1", decision: "approved", deciderLogin: "u1login", surface: "panel" } },
+    ]);
+    const outcome = await runSagaWorkflowFlow(baseParams({ rail: "x402" }), deps, step);
     expect(outcome.rail).toBe("x402");
     expect(auditEvents.every((e) => e.rail === "x402")).toBe(true);
   });
 
-  it("exposes the S1 working defaults (Q2 stays open: Venus may change them)", () => {
+  it("exposes the S1/S2 working defaults (Q2 stays open: Venus may change them)", () => {
     expect(SAGA_POLL_INTERVAL_MS_DEFAULT).toBe(30_000);
     expect(SAGA_PAYMENT_POLL_DEADLINE_MS_DEFAULT).toBe(25 * 60 * 60 * 1000);
     expect(SAGA_SCREEN_POLL_DEADLINE_MS_DEFAULT).toBe(60 * 60 * 1000);
+    // S2: the journey wait is a working default, NOT a ruling (Q2 open).
+    expect(SAGA_JOURNEY_WAIT_MS_DEFAULT).toBe(24 * 60 * 60 * 1000);
+    expect(SAGA_JOURNEY_WAIT_TIMEOUT).toBe("24 hours");
+  });
+});
+
+describe("saga flow Leg 2 journey gate (S2, #2041)", () => {
+  /** A completed paid screen, ready to enter the gate. */
+  function completedScreen(over: Partial<SagaParams> = {}) {
+    const legPort = new FakeLegPort();
+    legPort.statuses["payment:pay-wf-1"] = [paymentStarted()];
+    legPort.statuses["screener:scr-wf-1"] = [collation("Completed")];
+    const bundle = depsFor(legPort);
+    return { legPort, params: baseParams(over), ...bundle };
+  }
+
+  it("a wait throw ends journey_expired, and prompts are still withdrawn", async () => {
+    const { legPort, params, deps, auditEvents, clock, withdrawCalls } = completedScreen();
+    const outcome = await runSagaWorkflowFlow(params, deps, fakeStep(clock));
+    expect(outcome.status).toBe("journey_expired");
+    expect(outcome.code).toBe("FAILURE_SAGA_JOURNEY_EXPIRED");
+    expect(auditTypes(auditEvents)).toEqual([
+      "saga.started",
+      "saga.payment_started",
+      "saga.screen_completed",
+      "saga.journey_prompted",
+      "saga.journey_expired",
+      "saga.ended",
+      "saga.journey_prompts_withdrawn",
+    ]);
+    // Expired ends the saga: no trading leg start, prompts withdrawn.
+    expect(legPort.starts).toHaveLength(1);
+    expect(withdrawCalls).toHaveLength(1);
+  });
+
+  it("a zero wait window expires without waiting (deadline is honored, not looped)", async () => {
+    const { params, deps, auditEvents, clock, promptCalls, withdrawCalls } = completedScreen({
+      journeyWaitMs: 0,
+    });
+    const step = gateStep(clock, []);
+    const outcome = await runSagaWorkflowFlow(params, deps, step);
+    expect(outcome.status).toBe("journey_expired");
+    expect(step.waitCalls).toHaveLength(0);
+    expect(promptCalls).toHaveLength(1);
+    expect(withdrawCalls).toHaveLength(1);
+    expect(auditTypes(auditEvents)).toContain("saga.journey_expired");
+  });
+
+  it("a non-owner answer is refused and never decides; the owner answer then decides", async () => {
+    const { deps, auditEvents, clock } = completedScreen();
+    const step = gateStep(clock, [
+      { payload: { sagaId: "saga-1", decision: "denied", deciderLogin: "someone-else", surface: "slack" } },
+      { payload: { sagaId: "saga-1", decision: "approved", deciderLogin: "u1login", surface: "panel" } },
+    ]);
+    const outcome = await runSagaWorkflowFlow(baseParams(), deps, step);
+    expect(outcome.status).toBe("journey_approved");
+    const refused = auditEvents.filter((e) => e.type === "saga.journey_decision_refused");
+    expect(refused).toHaveLength(1);
+    expect(refused[0].refusalReason).toBe("non_owner_decider");
+    const decided = auditEvents.filter((e) => e.type === "saga.journey_decided");
+    expect(decided).toHaveLength(1);
+    expect(decided[0].decidingSurface).toBe("panel");
+    expect(step.waitCalls).toHaveLength(2);
+  });
+
+  it("a malformed answer is refused and never decides; the owner answer then decides", async () => {
+    const { deps, auditEvents, clock } = completedScreen();
+    const step = gateStep(clock, [
+      { payload: { sagaId: "saga-1", decision: "maybe", deciderLogin: "u1login", surface: "chat" } },
+      { payload: { sagaId: "saga-1", decision: "approved", deciderLogin: "u1login", surface: "chat" } },
+    ]);
+    const outcome = await runSagaWorkflowFlow(baseParams(), deps, step);
+    expect(outcome.status).toBe("journey_approved");
+    const refused = auditEvents.filter((e) => e.type === "saga.journey_decision_refused");
+    expect(refused).toHaveLength(1);
+    expect(refused[0].refusalReason).toBe("malformed_decision_value");
+  });
+
+  it("an answer for another saga is refused and never decides", async () => {
+    const { deps, auditEvents, clock } = completedScreen();
+    const step = gateStep(clock, [
+      { payload: { sagaId: "saga-other", decision: "denied", deciderLogin: "u1login", surface: "slack" } },
+      { payload: { sagaId: "saga-1", decision: "approved", deciderLogin: "u1login", surface: "slack" } },
+    ]);
+    const outcome = await runSagaWorkflowFlow(baseParams(), deps, step);
+    expect(outcome.status).toBe("journey_approved");
+    const refused = auditEvents.filter((e) => e.type === "saga.journey_decision_refused");
+    expect(refused).toHaveLength(1);
+    expect(refused[0].refusalReason).toBe("saga_id_mismatch");
+  });
+
+  it("first answer wins: a second queued decision is never consumed", async () => {
+    const { deps, auditEvents, clock } = completedScreen();
+    const step = gateStep(clock, [
+      { payload: { sagaId: "saga-1", decision: "approved", deciderLogin: "u1login", surface: "slack" } },
+      { payload: { sagaId: "saga-1", decision: "denied", deciderLogin: "u1login", surface: "panel" } },
+    ]);
+    const outcome = await runSagaWorkflowFlow(baseParams(), deps, step);
+    expect(outcome.status).toBe("journey_approved");
+    expect(step.waitCalls).toHaveLength(1);
+    expect(auditEvents.filter((e) => e.type === "saga.journey_decided")).toHaveLength(1);
+  });
+
+  it("pre-gate outcomes never deliver or withdraw prompts", async () => {
+    const legPort = new FakeLegPort();
+    legPort.statuses["payment:pay-wf-1"] = [paymentOutcome("payment_required")];
+    const { deps, clock, promptCalls, withdrawCalls } = depsFor(legPort);
+    const outcome = await runSagaWorkflowFlow(baseParams(), deps, fakeStep(clock));
+    expect(outcome.status).toBe("payment_not_completed");
+    expect(promptCalls).toHaveLength(0);
+    expect(withdrawCalls).toHaveLength(0);
+  });
+
+  it("an audit-write failure at the prompted row propagates before any prompt is delivered", async () => {
+    const legPort = new FakeLegPort();
+    legPort.statuses["payment:pay-wf-1"] = [paymentStarted()];
+    legPort.statuses["screener:scr-wf-1"] = [collation("Completed")];
+    // Calls: 1 started, 2 payment_started, 3 screen_completed, 4 prompted.
+    const { deps, auditEvents, clock, promptCalls } = depsFor(legPort, { auditThrowsOnCall: 4 });
+    const step = gateStep(clock, [
+      { payload: { sagaId: "saga-1", decision: "approved", deciderLogin: "u1login", surface: "slack" } },
+    ]);
+    await expect(runSagaWorkflowFlow(baseParams(), deps, step)).rejects.toThrow(
+      /audit endpoint unavailable/,
+    );
+    expect(auditTypes(auditEvents)).toEqual([
+      "saga.started",
+      "saga.payment_started",
+      "saga.screen_completed",
+    ]);
+    expect(promptCalls).toHaveLength(0);
+  });
+
+  it("the delivered gate copy states leg entry, not trade approval, plus the rail policy", async () => {
+    const { deps, clock, promptCalls } = completedScreen();
+    const step = gateStep(clock, [
+      { payload: { sagaId: "saga-1", decision: "approved", deciderLogin: "u1login", surface: "slack" } },
+    ]);
+    await runSagaWorkflowFlow(baseParams(), deps, step);
+    expect(promptCalls).toHaveLength(1);
+    const copy = promptCalls[0].copy;
+    expect(copy.title).toBe("Enter the trading leg?");
+    expect(copy.body).toContain("ENTERING the trading leg");
+    expect(copy.body).toContain("NOT approval of any trade");
+    expect(copy.compensationLine).toContain("refund");
+    expect(promptCalls[0].sagaId).toBe("saga-1");
+    expect(promptCalls[0].runRequestId).toBe("run-1");
+    expect(promptCalls[0].rail).toBe("stripe");
   });
 });
 
