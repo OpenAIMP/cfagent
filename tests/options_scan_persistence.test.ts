@@ -724,6 +724,9 @@ describe("scan persistence wiring (issue #27)", () => {
         },
         list: async () => [],
         get: async () => null,
+        updatePdfKey: async () => false,
+        updateXlsxKey: async () => false,
+        updateCsvKey: async () => false,
         prune: async () => 0,
       };
       const result = await runOptionsStrategyAction(etrade as never, intent.action, intent.filters, {
@@ -1045,6 +1048,45 @@ describe("updatePdfKey (issue #1209: interactive scan-row PDF wiring)", () => {
 
   it("SqlScanRunStore stamps pdfKey after save", async () => {
     await expectUpdateContract(new SqlScanRunStore(new FakeScanSql(), { idFactory: idQueue("run-1") }));
+  });
+});
+
+describe("updateXlsxKey/updateCsvKey (issue #2524: scan-row XLSX/CSV wiring)", () => {
+  async function expectUpdateContract(store: ScanRunStore): Promise<void> {
+    const result = fabricatedResult("2026-10-15T14:30:00.000Z", [
+      { symbol: "AAA", gateBucket: "fit" },
+    ]);
+    // summarize() copies XLSX/CSV keys stamped at save time.
+    result.xlsxKey = "options:xlsx:saved";
+    result.csvKey = "options:csv:saved";
+    const saved = await store.save(result, { userLogin: "carol" });
+    expect(saved.xlsxKey).toBe("options:xlsx:saved");
+    expect(saved.csvKey).toBe("options:csv:saved");
+    expect((await store.list({ userLogin: "carol" }))[0].xlsxKey).toBe("options:xlsx:saved");
+
+    // Backfills stamp summary + result, mirroring updatePdfKey.
+    const plain = await store.save(fabricatedResult("2026-10-16T14:30:00.000Z", [{ symbol: "BBB", gateBucket: "fit" }]), { userLogin: "carol" });
+    expect(await store.updateXlsxKey(plain.id, "options:xlsx:k1", { userLogin: "carol" })).toBe(true);
+    expect(await store.updateCsvKey(plain.id, "options:csv:k1", { userLogin: "carol" })).toBe(true);
+    const got = await store.get(plain.id, { userLogin: "carol" });
+    expect(got!.xlsxKey).toBe("options:xlsx:k1");
+    expect(got!.result.xlsxKey).toBe("options:xlsx:k1");
+    expect(got!.csvKey).toBe("options:csv:k1");
+    expect(got!.result.csvKey).toBe("options:csv:k1");
+
+    // Unknown id, wrong user, and empty key all fail closed.
+    expect(await store.updateXlsxKey("missing", "options:xlsx:k2", { userLogin: "carol" })).toBe(false);
+    expect(await store.updateCsvKey(plain.id, "options:csv:k2", { userLogin: "dave" })).toBe(false);
+    expect(await store.updateXlsxKey(plain.id, "", { userLogin: "carol" })).toBe(false);
+    expect((await store.get(plain.id, { userLogin: "carol" }))!.xlsxKey).toBe("options:xlsx:k1");
+  }
+
+  it("InMemoryScanRunStore stamps xlsxKey/csvKey after save", async () => {
+    await expectUpdateContract(new InMemoryScanRunStore({ idFactory: idQueue("run-1", "run-2") }));
+  });
+
+  it("SqlScanRunStore stamps xlsxKey/csvKey after save", async () => {
+    await expectUpdateContract(new SqlScanRunStore(new FakeScanSql(), { idFactory: idQueue("run-1", "run-2") }));
   });
 });
 
