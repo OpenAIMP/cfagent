@@ -29,7 +29,7 @@ import {
 import { DatabaseORM } from "../src/orm";
 import { MockSqlStorage } from "./mock-sql";
 import type { Env, X402PaymentProof } from "../src/types";
-import { AgenticWalletStatusCommand } from "../src/mcp/agenticPaymentCommands";
+import { AgenticWalletStatusCommand } from "../src/mcps/openaimp/agenticPaymentCommands";
 import { executeNLQQuery, executeNLQQueryAsync } from "../src/agents/nlq";
 import { DynamicOptionsScreener } from "../src/trading/optionsScreener";
 

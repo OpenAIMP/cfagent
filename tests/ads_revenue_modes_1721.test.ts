@@ -23,7 +23,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { DatabaseORM } from "../src/orm";
 import { MockSqlStorage } from "./mock-sql";
-import { McpToolFactory } from "../src/mcp/commands";
+import { McpToolFactory } from "../src/mcps/openaimp/commands";
 import {
   handleAdsRevenueReferralsRoutes,
   handleReferralsAdsRoutes,

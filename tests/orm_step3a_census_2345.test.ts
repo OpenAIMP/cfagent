@@ -39,7 +39,7 @@ const SHIM_FILES = ["src/orm/index.ts", "src/orm/schema.ts"] as const;
 
 const CONSUMER_FILES = [
   "src/agents/mas.ts",
-  "src/mcp/commands.ts",
+  "src/mcps/openaimp/commands.ts",
   "src/agents/routes/memoryReset.ts",
   "src/security/storageRetention.ts",
   "src/agents/routes/adsRevenueReferrals.ts",

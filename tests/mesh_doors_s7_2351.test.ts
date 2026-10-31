@@ -48,9 +48,9 @@ import {
   BrowserScrapeTablesCommand,
   SlackSendPreTradeApprovalCommand,
   SlackDispatchTransactionSnapCommand,
-} from "../src/mcp/meshDoorCommands";
-import { McpToolFactory } from "../src/mcp/commands";
-import { MCP_TOOL_SCOPES } from "../src/permissions/mcpPermissionPorts";
+} from "../src/mcps/openaimp/meshDoorCommands";
+import { McpToolFactory } from "../src/mcps/openaimp/commands";
+import { MCP_TOOL_SCOPES } from "../src/mcps/openaimp/mcpPermissionPorts";
 import { McpAgentToolAdapter } from "../src/agents/mcpAdapter";
 import {
   submitAsyncJob,

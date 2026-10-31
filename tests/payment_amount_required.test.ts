@@ -3,7 +3,7 @@
  * or unparseable amount to $10 — `Number(body.amount) || 10` in
  * POST /payments/create (src/agents/routes/payments.ts) and
  * `Number(input.amount) || 10` in the MCP draft_payment command
- * (src/mcp/commands.ts). A create that never named an amount produced
+ * (src/mcps/openaimp/commands.ts). A create that never named an amount produced
  * a real $10 checkout session and a $10 ledger row; an amount-less
  * draft sat at $10 awaiting a human confirm into the same.
  *
@@ -74,7 +74,7 @@ vi.mock("agents/x402", () => {
 import { OrchestratorAgent } from "../src/agents/orchestrator";
 import { MockSqlStorage } from "./mock-sql";
 import { DatabaseORM } from "../src/orm";
-import { DraftPaymentCommand } from "../src/mcp/commands";
+import { DraftPaymentCommand } from "../src/mcps/openaimp/commands";
 import type { McpToolContext } from "../src/patterns/interfaces";
 import type { Env } from "../src/types";
 

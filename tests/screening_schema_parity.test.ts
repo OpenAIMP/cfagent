@@ -930,9 +930,9 @@ describe("#959 single definition site", () => {
       ["../src/agents/nlq/execution.ts", /parseStockScreenerFilter\(/],
       ["../src/agents/nlq/execution.ts", /parseOptionScreenerFilter\(/],
       ["../src/agents/nlqOptionsStrategy.ts", /parseScanRequestTemplate\(/],
-      ["../src/services/cloudflareWalletsScanner.ts", /optionScreenerFilterFields\./],
-      ["../src/mcp/agenticPaymentCommands.ts", /optionScreenerFilterFields\./],
-      ["../src/mcp/agenticPaymentCommands.ts", /parseOptionScreenerFilter\(/],
+      ["../src/mcps/scanner/cloudflareWalletsScanner.ts", /optionScreenerFilterFields\./],
+      ["../src/mcps/openaimp/agenticPaymentCommands.ts", /optionScreenerFilterFields\./],
+      ["../src/mcps/openaimp/agenticPaymentCommands.ts", /parseOptionScreenerFilter\(/],
       ["../src/trading/options/strategyRiskAgent.ts", /checkStrategyRequestFields\(/],
       ["../src/trading/options/strategyRiskAgent.ts", /checkNoViewRequestFields\(/],
     ];

@@ -6,7 +6,7 @@ This document provides a comprehensive architectural assessment of the API and M
 
 The application surfaces capabilities across four communication protocols:
 1. **REST & Edge HTTP Endpoints**: Managed via `src/server.ts` entrypoint serving web UI, authentication, trading integrations, webhook receivers, and Durable Object forwarding.
-2. **Model Context Protocol (MCP)**: JSON-RPC 2.0 server (`src/mcp/index.ts`) conforming to protocol version `2024-11-05`, exposing tools, resources, and prompts, as well as a pay-per-use x402 options scanner MCP (`/mcp/scanner`).
+2. **Model Context Protocol (MCP)**: JSON-RPC 2.0 server (`src/mcps/openaimp/index.ts`) conforming to protocol version `2024-11-05`, exposing tools, resources, and prompts, as well as a pay-per-use x402 options scanner MCP (`/mcp/scanner`).
 3. **Agent-to-Agent (A2A) Protocol**: Standard JSON-RPC agent discovery (`/.well-known/agent-card.json`) and task execution (`/a2a/*`).
 4. **Real-time WebSockets**: Bidirectional streaming for voice trading (`/voice/trade`) and live market quotes (`/api/market/quotes/ws`).
 
@@ -47,7 +47,7 @@ The application surfaces capabilities across four communication protocols:
    - Handles top-level HTTP routing, static asset serving, CORS checks, session validation, OAuth flow initiation, and webhook signature verification.
    - Forwards agent execution requests to Durable Objects (`SEARCH_AGENT`, `OPTIONS_SCANNER_MCP`, `SCHEDULED_AGENT`, etc.).
 
-2. **Model Context Protocol (MCP) Server (`src/mcp/`)**:
+2. **Model Context Protocol (MCP) Server (`src/mcps/openaimp/`)**:
    - Implements JSON-RPC 2.0 over HTTP at `/mcp` or `/api/mcp`.
    - Uses GoF Command (`IMcpToolCommand`), Factory (`McpToolFactory`), and Facade (`McpSystemFacade`) design patterns.
    - Requires session auth cookie or `Authorization: Bearer cfk_...` per-user API keys.
@@ -72,7 +72,7 @@ The application surfaces capabilities across four communication protocols:
 ### 2. Protocol & Specification Non-Compliance
 * **OpenAPI Spec Drift**: `/openapi.json` is generated via static builder (`src/security/openapiSpec.ts`) but does not automatically inspect or validate against all runtime routes in `src/server.ts`.
 * **MCP Specification Alignment**:
-  * Tool definitions expose schemas, but `tools/list` and `tools/call` handling in `src/mcp/index.ts` hardcodes capability responses rather than dynamically validating all tool inputs against Zod schemas.
+  * Tool definitions expose schemas, but `tools/list` and `tools/call` handling in `src/mcps/openaimp/index.ts` hardcodes capability responses rather than dynamically validating all tool inputs against Zod schemas.
   * Errors in MCP execution sometimes return HTTP 200 with `{ error: ... }` inside JSON-RPC result instead of standard JSON-RPC error codes (-32602, -32603) or proper transport statuses.
 * **REST Path Standard Violations**:
   * Mixed singular and plural route conventions (e.g., `/api/schedule/goals` vs `/api/schedules`, `/api/api-keys` vs `/api/social/brief`).
@@ -88,7 +88,7 @@ The application surfaces capabilities across four communication protocols:
 ### 4. Areas for Consolidation, Optimization & Reuse
 * **Broker & Market Data Consolidation**: Market quote HTTP and WebSocket handlers (`/api/market-data/quotes`, `/api/market/quotes`, `/api/foss/quotes`) duplicate logic across E*TRADE, Yahoo Finance, and Alpaca providers. Unifying under a provider-agnostic `MarketDataService` facade will streamline maintenance.
 * **Unified Webhook Verification Middleware**: Abstract signature verification into a generic higher-order middleware covering Slack, NLQ, Stripe, PayPal, and Lemon Squeezy.
-* **MCP & REST Handler Reuse**: MCP tool commands (`src/mcp/commands.ts`) duplicate business logic found in REST API routes. Wrapping domain services in reusable command objects allows REST routes to invoke the exact same command objects as MCP JSON-RPC calls.
+* **MCP & REST Handler Reuse**: MCP tool commands (`src/mcps/openaimp/commands.ts`) duplicate business logic found in REST API routes. Wrapping domain services in reusable command objects allows REST routes to invoke the exact same command objects as MCP JSON-RPC calls.
 
 ---
 
@@ -180,7 +180,7 @@ The following table lists all endpoints across the platform, categorized by **Pu
 
 ## MCP Capabilities Directory
 
-The MCP Server (`src/mcp/index.ts`) exposes **17 Tools**, **11 Resources**, and **4 Prompts** through the JSON-RPC 2.0 protocol (`2024-11-05`).
+The MCP Server (`src/mcps/openaimp/index.ts`) exposes **17 Tools**, **11 Resources**, and **4 Prompts** through the JSON-RPC 2.0 protocol (`2024-11-05`).
 
 ### MCP Tools & Commands
 

@@ -8,7 +8,7 @@
  * slice CONSUMES an existing switch instead of inventing one:
  * execute_durable_twap honors #1726's ETRADE_PREVIEW_MODE
  * (local | broker) for its per-slice previews — see
- * src/mcp/cloudflareAgentCommands.ts (DurableTWAPOrderCommand).
+ * src/mcps/openaimp/cloudflareAgentCommands.ts (DurableTWAPOrderCommand).
  * The think pair's one input gap is closed by a field, not a switch:
  * think_trade_validation now forwards accountBalanceUSD to the same
  * harness the REST route already used (see the same file).

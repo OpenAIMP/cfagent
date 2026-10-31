@@ -68,7 +68,7 @@ vi.mock("agents/x402", () => {
 import { OrchestratorAgent } from "../src/agents/orchestrator";
 import { MockSqlStorage } from "./mock-sql";
 import { DatabaseORM } from "../src/orm";
-import { DraftPaymentCommand, ConfirmPaymentDraftCommand } from "../src/mcp/commands";
+import { DraftPaymentCommand, ConfirmPaymentDraftCommand } from "../src/mcps/openaimp/commands";
 import type { McpToolContext } from "../src/patterns/interfaces";
 import type { Env } from "../src/types";
 

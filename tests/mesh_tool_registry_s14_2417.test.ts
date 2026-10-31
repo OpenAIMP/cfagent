@@ -49,7 +49,7 @@ import {
   getToolFamily,
   type MeshToolFamilyStatus,
 } from "../src/agents/registry";
-import { McpToolFactory } from "../src/mcp/commands";
+import { McpToolFactory } from "../src/mcps/openaimp/commands";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (rel: string) => readFileSync(resolve(root, rel), "utf8");
@@ -169,7 +169,7 @@ describe("degraded status evidence (#2417)", () => {
     expect(read("src/agents/sandbox-agent.ts")).toContain(
       "new ETradeSandboxService(undefined",
     );
-    expect(read("src/mcp/cloudflareAgentCommands.ts")).toContain(
+    expect(read("src/mcps/openaimp/cloudflareAgentCommands.ts")).toContain(
       "new ETradeSandboxService(undefined",
     );
     // wrangler.jsonc declares no Cloudflare Containers configuration.
@@ -269,8 +269,8 @@ describe("live status evidence — non-command families (#2417)", () => {
   });
 
   it("remote-mcp-servers: both outbound clients the family records exist — RemoteMcpClient and PublicMcpClient", () => {
-    expect(read("src/services/mcpClient.ts")).toContain("RemoteMcpClient");
-    expect(read("src/services/publicMcp.ts")).toContain(
+    expect(read("src/mcps/client/mcpClient.ts")).toContain("RemoteMcpClient");
+    expect(read("src/mcps/public/publicMcp.ts")).toContain(
       "class PublicMcpClient",
     );
     const family = getToolFamily("remote-mcp-servers");
@@ -296,7 +296,7 @@ describe("live status evidence — non-command families (#2417)", () => {
     expect(getToolFamily("core-mcp-commands")!.notes ?? "").toContain(
       "platformKnowledge",
     );
-    expect(read("src/mcp/commands.ts")).toContain("searchPlatformKnowledge");
+    expect(read("src/mcps/openaimp/commands.ts")).toContain("searchPlatformKnowledge");
   });
 
   it("payments-tools and screening-research-services: their defining modules exist", () => {

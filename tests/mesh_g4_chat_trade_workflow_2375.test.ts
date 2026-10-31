@@ -91,10 +91,10 @@ import {
   StartTradeApprovalCommand,
   DecideTradeApprovalCommand,
   GetTradeApprovalStatusCommand,
-} from "../src/mcp/meshDoorCommands";
-import { McpToolFactory } from "../src/mcp/commands";
+} from "../src/mcps/openaimp/meshDoorCommands";
+import { McpToolFactory } from "../src/mcps/openaimp/commands";
 import { ETradeRestClient } from "../src/trading/etrade/client";
-import { MCP_TOOL_SCOPES } from "../src/permissions/mcpPermissionPorts";
+import { MCP_TOOL_SCOPES } from "../src/mcps/openaimp/mcpPermissionPorts";
 import type { McpToolContext } from "../src/patterns/interfaces";
 import type { Env } from "../src/types";
 

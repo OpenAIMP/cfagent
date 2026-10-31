@@ -42,18 +42,18 @@ vi.mock("../src/services/marketDataResearch", async (importOriginal) => ({
 
 import { DatabaseORM } from "../src/orm";
 import { MockSqlStorage } from "./mock-sql";
-import { McpToolFactory } from "../src/mcp/commands";
+import { McpToolFactory } from "../src/mcps/openaimp/commands";
 import {
   DraftPaymentCommand,
   ConfirmPaymentDraftCommand,
   GetTransactionsCommand,
   GetPaymentGatewaysCommand,
-} from "../src/mcp/commands";
+} from "../src/mcps/openaimp/commands";
 import {
   PaidOptionsScreenerCommand,
   PaidMarketResearchCommand,
   AgenticWalletStatusCommand,
-} from "../src/mcp/agenticPaymentCommands";
+} from "../src/mcps/openaimp/agenticPaymentCommands";
 import {
   ETradeAgenticPaymentService,
   TRADING_PAID_SERVICES,

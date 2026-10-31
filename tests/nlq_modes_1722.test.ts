@@ -91,7 +91,7 @@ import {
   type McpChatNlqRouteContext,
 } from "../src/agents/routes/mcpChatNlq";
 import { executeNaturalLanguageQuery } from "../src/agents/nlq";
-import { McpToolFactory } from "../src/mcp/commands";
+import { McpToolFactory } from "../src/mcps/openaimp/commands";
 import {
   resolveNlqMode,
   levelsForNlq,

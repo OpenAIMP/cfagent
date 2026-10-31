@@ -131,11 +131,11 @@ import {
   type HttpDeliveryMode,
   type JobListEnvelope,
 } from "../src/config/asyncJobModes";
-import { handleMCPRequest } from "../src/mcp/index";
+import { handleMCPRequest } from "../src/mcps/openaimp/handler";
 import {
   GetAsyncJobCommand,
   ListAsyncJobsCommand,
-} from "../src/mcp/commands";
+} from "../src/mcps/openaimp/commands";
 import {
   ensureAsyncJobGraphColumns,
   getAsyncJob,

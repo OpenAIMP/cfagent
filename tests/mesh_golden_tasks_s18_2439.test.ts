@@ -409,7 +409,7 @@ import { InMemoryWorkflowAdapter } from "../src/workflows/inMemoryWorkflowAdapte
 import { InMemoryShardJobAdapter } from "../src/data/inMemoryShardJobAdapter";
 import { InMemoryMeshTraceStore } from "../src/data/inMemoryMeshTraceAdapter";
 import { recordWorkflowTraceHop } from "../src/observability/meshTrace";
-import { traceForMcp } from "../src/mcp/agentDbReadCommands";
+import { traceForMcp } from "../src/mcps/openaimp/agentDbReadCommands";
 import { newTraceContext, formatTraceparent } from "../src/observability/observabilityPorts";
 import type {
   ScreenerWorkflowDeps,
@@ -540,7 +540,7 @@ import {
   ProposeStockTradeCommand,
   StartTradeApprovalCommand,
   DecideTradeApprovalCommand,
-} from "../src/mcp/meshDoorCommands";
+} from "../src/mcps/openaimp/meshDoorCommands";
 import type { McpToolContext } from "../src/patterns/interfaces";
 import type { Env } from "../src/types";
 
@@ -884,7 +884,7 @@ import {
   ListScheduledGoalsCommand,
   TriggerScheduledGoalCommand,
   CheckPaymentBudgetCommand,
-} from "../src/mcp/meshDoorCommands";
+} from "../src/mcps/openaimp/meshDoorCommands";
 import type { ScheduledGoal, ScheduleTick } from "../src/schedule";
 import type { PaymentRecord } from "../src/payments/ledger";
 
@@ -1271,7 +1271,7 @@ function remainingExecutions(): GoldenTaskExecution[] {
         // (the #2250 suite's idiom); the command, its shaping,
         // and its audit are production code.
         const { AISearchAgentSearchCommand } = await import(
-          "../src/mcp/cloudflareAgentCommands"
+          "../src/mcps/openaimp/cloudflareAgentCommands"
         );
         const stub = {
           search: async (_query: string, _opts?: { callerLogin?: string; limit?: number }) => ({

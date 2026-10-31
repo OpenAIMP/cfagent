@@ -39,7 +39,7 @@ import {
   ThinkTradeValidationCommand,
   AISearchFinancialDocsCommand,
   DurableTWAPOrderCommand,
-} from "../src/mcp/cloudflareAgentCommands";
+} from "../src/mcps/openaimp/cloudflareAgentCommands";
 import { ETradeService } from "../src/services/etrade";
 import { ETradeThinkHarness } from "../src/services/thinkHarness";
 

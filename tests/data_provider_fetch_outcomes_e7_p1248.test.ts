@@ -67,7 +67,7 @@ import {
   type DataProviderRoutesContext,
 } from "../src/agents/routes/dataProviders";
 import { ETradeError, ETradeErrorCode } from "../src/aspects/errorCodes";
-import { PublicMcpClient, PublicMcpError } from "../src/services/publicMcp";
+import { PublicMcpClient, PublicMcpError } from "../src/mcps/public/publicMcp";
 import { PublicDataError } from "../src/services/publicData";
 import type { Env, ETradeQuote } from "../src/types";
 import { DataProvidersPanel } from "../src/client/DataProvidersPanel";

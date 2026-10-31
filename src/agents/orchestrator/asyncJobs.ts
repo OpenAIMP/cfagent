@@ -42,7 +42,7 @@ import {
 } from "../../security/serviceDispatch";
 import { getServiceUserLogin } from "../../security/serviceIdentity";
 import type { MembershipStore } from "../../security/authorization";
-import { executeMCPTool } from "../../mcp";
+import { executeMCPTool } from "../../mcps/openaimp";
 import { recordTraceHopBestEffort } from "../../data/createMeshTracePorts";
 import { childContextOfTraceparent } from "../../observability/meshTrace";
 import { executeNaturalLanguageQuery } from "../nlq";

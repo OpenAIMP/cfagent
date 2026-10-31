@@ -20,7 +20,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { DatabaseORM } from "../src/orm";
 import { MockSqlStorage } from "./mock-sql";
-import { McpToolFactory } from "../src/mcp/commands";
+import { McpToolFactory } from "../src/mcps/openaimp/commands";
 import { runRestTool } from "../src/agents/routes/restToolBridge";
 import { handleSchemaRoutes } from "../src/agents/routes/schema";
 import { handleAdsRevenueReferralsRoutes } from "../src/agents/routes/adsRevenueReferrals";

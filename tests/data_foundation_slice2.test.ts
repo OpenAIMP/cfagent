@@ -765,7 +765,7 @@ describe("port purity (#1676, R1/R9)", () => {
   it("domain modules never import drizzle-orm", () => {
     for (const file of [
       "../src/agents/scheduled-agent.ts",
-      "../src/mcp/goalChainCommands.ts",
+      "../src/mcps/openaimp/goalChainCommands.ts",
       "../src/agents/orchestrator/shardJobReconcile.ts",
     ]) {
       const text = readFileSync(resolve(__dirname, file), "utf8");
@@ -777,7 +777,7 @@ describe("port purity (#1676, R1/R9)", () => {
 describe("executor capture via runChain (#1676)", () => {
   it("onLegOutcome receives completed + submitted legs, never skipped/unimplemented", async () => {
     const { compileGoal } = await import("../src/orchestrate");
-    const { runChain } = await import("../src/mcp/goalChainCommands");
+    const { runChain } = await import("../src/mcps/openaimp/goalChainCommands");
     const chain = compileGoal("Create a NASDAQ100 screen and send it to Slack", {
       budgetCents: 5000,
       budgetCapCents: 10000,
@@ -828,7 +828,7 @@ describe("executor capture via runChain (#1676)", () => {
 
   it("a throwing callback never fails the run; a failed leg is reported, later legs are not", async () => {
     const { compileGoal } = await import("../src/orchestrate");
-    const { runChain } = await import("../src/mcp/goalChainCommands");
+    const { runChain } = await import("../src/mcps/openaimp/goalChainCommands");
     const chain = compileGoal("Create a NASDAQ100 screen and send it to Slack", {
       budgetCents: 5000,
       budgetCapCents: 10000,

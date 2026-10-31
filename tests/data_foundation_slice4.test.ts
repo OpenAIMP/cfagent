@@ -35,15 +35,16 @@ import { describe, it, expect } from "vitest";
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { handleMCPRequest, MCP_TOOLS } from "../src/mcp";
-import { McpToolFactory } from "../src/mcp/commands";
-import { ChainRunCommand } from "../src/mcp/goalChainCommands";
+import { handleMCPRequest } from "../src/mcps/openaimp/handler";
+import { MCP_TOOLS } from "../src/mcps/openaimp";
+import { McpToolFactory } from "../src/mcps/openaimp/commands";
+import { ChainRunCommand } from "../src/mcps/openaimp/goalChainCommands";
 import {
   chainStatusToMcpResult,
   jobsToMcpResult,
   auditToMcpResult,
   reportsToMcpResult,
-} from "../src/mcp/agentDbReadCommands";
+} from "../src/mcps/openaimp/agentDbReadCommands";
 import { MCP_TOOLS_CATALOG } from "../src/client/mcpEndpointsData";
 import {
   API_ENDPOINT_CATALOG,
@@ -568,7 +569,7 @@ describe("dashboard routes already exist (#1697)", () => {
 describe("port purity (#1697, R1/R9)", () => {
   it("the MCP read module never imports a store client, writes SQL, or touches auth material", () => {
     const text = readFileSync(
-      resolve(__dirname, "../src/mcp/agentDbReadCommands.ts"),
+      resolve(__dirname, "../src/mcps/openaimp/agentDbReadCommands.ts"),
       "utf8",
     );
     expect(text).not.toMatch(/drizzle-orm/);

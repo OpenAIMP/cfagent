@@ -37,7 +37,7 @@ import { UnifiedOptionsService } from "../src/trading/options/unifiedOptionsServ
 import { listScheduledReports } from "../src/services/scheduledReports";
 import { handlePremiumRoutes, type PremiumRouteContext } from "../src/agents/routes/premium";
 import { ETradeAgenticPaymentService } from "../src/services/agenticPayments";
-import { PaidOptionsScreenerCommand } from "../src/mcp/agenticPaymentCommands";
+import { PaidOptionsScreenerCommand } from "../src/mcps/openaimp/agenticPaymentCommands";
 import { resolveScheduleUpdate } from "../src/services/scheduleManagement";
 import type { Env } from "../src/types";
 
@@ -336,7 +336,7 @@ describe("#982 S2: one execution path for NLQ / MCP / premium", () => {
       "src/agents/nlq/execution.ts",
       "src/agents/nlqOptionsStrategy.ts",
       "src/agents/routes/premium.ts",
-      "src/mcp/agenticPaymentCommands.ts",
+      "src/mcps/openaimp/agenticPaymentCommands.ts",
     ]) {
       const text = readFileSync(rel, "utf8");
       expect(engineConstruction.test(text), `${rel} must not construct an options engine directly`).toBe(false);

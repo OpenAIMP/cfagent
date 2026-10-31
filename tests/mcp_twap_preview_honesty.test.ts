@@ -20,7 +20,7 @@ import { readFileSync } from "node:fs";
 import { DatabaseORM } from "../src/orm";
 import { MockSqlStorage } from "./mock-sql";
 import { ETradeDurableFiberService } from "../src/services/durableFibers";
-import { DurableTWAPOrderCommand } from "../src/mcp/cloudflareAgentCommands";
+import { DurableTWAPOrderCommand } from "../src/mcps/openaimp/cloudflareAgentCommands";
 import { ETradeService } from "../src/services/etrade";
 
 // #922 ([#913 S4]): these pins are about preview honesty, not live
@@ -178,7 +178,7 @@ describe("execute_durable_twap — honest TWAP previewer (MCP command)", () => {
   });
 
   it("source pin: fill semantics and the execution audit are gone", () => {
-    const cmdSrc = readFileSync("src/mcp/cloudflareAgentCommands.ts", "utf-8");
+    const cmdSrc = readFileSync("src/mcps/openaimp/cloudflareAgentCommands.ts", "utf-8");
     const svcSrc = readFileSync("src/services/durableFibers.ts", "utf-8");
     for (const src of [cmdSrc, svcSrc]) {
       expect(src).not.toContain("totalFilled");

@@ -85,7 +85,7 @@ export class SandboxAgent extends PortThink {
     if (!this.sandboxService) {
       // Constructed exactly as the MCP facade constructs the
       // service today (RunSandboxCommand in
-      // src/mcp/cloudflareAgentCommands.ts): no container backend.
+      // src/mcps/openaimp/cloudflareAgentCommands.ts): no container backend.
       // Passing a real container here is the ONLY change a future
       // enablement slice makes — see the header.
       this.sandboxService = new ETradeSandboxService(undefined, this.env);

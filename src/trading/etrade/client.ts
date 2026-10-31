@@ -34,7 +34,7 @@ import { propagateBrokerTokenRejection } from "../../security/brokerTokenRejecti
 import { assertSandboxUrlSafety } from "../../aspects/loggingAspect";
 import { ETradeError, ETradeErrorCode } from "../../aspects/errorCodes";
 import { AGENT_DIDS, getUserDid } from "../../agents/did";
-import { RemoteMcpClient } from "../../services/mcpClient";
+import { RemoteMcpClient } from "../../mcps/client/mcpClient";
 import { etradeOrderKind, etradePriceType, toETradeInstruments, validateTradingOrderLegs } from "./optionOrders";
 import type { OptionRequestBudget, TradingOrderLeg } from "../interfaces";
 

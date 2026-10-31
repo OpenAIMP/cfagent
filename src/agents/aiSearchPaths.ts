@@ -82,7 +82,7 @@ import {
   type AISearchResultItem,
 } from "../services/aiSearch";
 import { isKnowledgeServingEnabled } from "../services/knowledgeCorpus";
-import { RemoteMcpClient } from "../services/mcpClient";
+import { RemoteMcpClient } from "../mcps/client/mcpClient";
 import { AGENT_ERROR_CATALOG, AgentErrorCode } from "../aspects/errorCodes";
 import type { Env } from "../types";
 

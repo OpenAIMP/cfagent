@@ -15,7 +15,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 import type { IMcpToolCommand, McpToolContext } from "../patterns/interfaces";
-import { McpToolFactory } from "../mcp/commands";
+import { McpToolFactory } from "../mcps/openaimp/commands";
 import {
   chatNlqConfigErrorEvent,
   resolveChatNlqTurnMode,
@@ -26,7 +26,7 @@ import {
   authorizeMcpToolCall,
   createProductionMcpPermissionPort,
   executeWithPermissionGate,
-} from "../permissions/mcpPermissionPorts";
+} from "../mcps/openaimp/mcpPermissionPorts";
 
 export class McpAgentToolAdapter {
   /**
