@@ -464,6 +464,12 @@ export interface OpportunityScanResult {
    *  Optional — most producers render the report after saving the
    *  scan, and their summaries simply lack it (absent = no key). */
   pdfKey?: string;
+  /** The generated workbook/CSV storage keys, mirroring pdfKey:
+   *  stamped by producers that rendered them before the run was
+   *  saved, or backfilled onto the saved scan row afterwards.
+   *  Optional — absent = no key. */
+  xlsxKey?: string;
+  csvKey?: string;
   /** When this result was generated, ISO 8601 (issue #27). */
   generatedAt: string;
   /** The scan-model version that produced this result (issue #27);

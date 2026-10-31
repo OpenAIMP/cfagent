@@ -124,6 +124,47 @@ describe("recordOptionsServeReport", () => {
     });
   });
 
+  it("records per-format statuses and scanRunId in the canonical body; a failed leg records failed", async () => {
+    const orm = {
+      storeCanonicalReport: vi.fn(() => ({ reportId: "r3", created: true })),
+      getSql: () => sql,
+    };
+    await recordOptionsServeReport(
+      { orm: orm as any, storage: memoryStorage() },
+      {
+        kind: "options",
+        timestamp: "2026-10-28T14:00:00.000Z",
+        trigger: "manual",
+        success: true,
+        thesis: "bullish",
+        symbols: ["NVDA"],
+        totalScanned: 5,
+        matchedCount: 2,
+        summary: "5 scanned, 2 matched.",
+        pdfKeys: ["options/pdf/run-3"],
+        pdfStatus: "generated",
+        xlsxKey: "options/xlsx/run-3",
+        xlsxStatus: "failed",
+        xlsxError: "workbook render failed",
+        csvKey: "options/csv/run-3",
+        csvStatus: "generated",
+        scanRunId: "scan-uuid-3",
+        userLogin: OWNER,
+      } as any,
+    );
+    const body = orm.storeCanonicalReport.mock.calls[0][0].body;
+    expect(body).toMatchObject({
+      pdfKey: "options/pdf/run-3",
+      pdfStatus: "generated",
+      xlsxKey: "options/xlsx/run-3",
+      xlsxStatus: "failed",
+      xlsxError: "workbook render failed",
+      csvKey: "options/csv/run-3",
+      csvStatus: "generated",
+      scanRunId: "scan-uuid-3",
+    });
+  });
+
   it("records a failed run's coded error rather than a silent absence", async () => {
     const orm = {
       storeCanonicalReport: vi.fn(() => ({ reportId: "r2", created: true })),
