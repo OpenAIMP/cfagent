@@ -685,7 +685,18 @@ this path; revocation mid-run is entry-gate only (route requests re-validate the
 session; scheduled runs and workflow doors carry no session token to re-validate);
 Q7 is proposed as a decision record for CISO+CDO sign-off, not decided by this lane.
 **"As audited" status is withheld until #1968 merges and Q7 is signed off** — the
-code ships, the gate does not claim otherwise. Stage audit records belong in
+code ships, the gate does not claim otherwise. **Q7 implementation status
+(program #2178, landed):** S1 put the SHA-256 hash chain on `mas_events`
+(PR #2287); S2 enforces the blocking set per family — trade
+execution/approval, delivery claims, report store, guard decisions, E*TRADE
+token ops block when their own audit write fails (PR #2493). Retention, gap
+14's third leg, is answered here as ratified policy: `mas_events` rows are
+pruned after 365 days by the nightly retention pass
+(`src/security/storageRetention.ts`, `MAS_EVENTS_RETENTION_DAYS`, #786) —
+the implemented policy is adopted as the Q7 retention answer. What is NOT
+claimed: CISO+CDO sign-off on #945 is still pending, so the ship gate above
+still holds — no staged run ships as audited until that sign-off lands.
+Stage audit records belong in
 `mas_events`, **not** the #1743 Analytics Engine dataset (telemetry has no
 retention/tamper contract; building stage audit there would create a second audit
 system). Stage contracts use the #1743 stream only for operational visibility (new
