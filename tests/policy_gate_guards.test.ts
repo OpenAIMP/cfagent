@@ -2,7 +2,9 @@
  * Policy Gate Guards Tests (#1684)
  *
  * Verifies that scripts/ci/policy_gate.py reliably enforces:
- * - (a) linked issue presence
+ * - (a) linked issue presence, either owner form (issue #2511):
+ *   OpenAIMP/cfagent#N and Qunsultant/cfagent#N both pass, non-closing
+ *   form keeps passing, neither form still fails
  * - (b) lane label (lane:*)
  * - (c) agent hashtag (#<agent>-<id>)
  * - (d) CHANGELOG entry under ## [Unreleased]
@@ -468,6 +470,36 @@ describe("rewritten wrapper", () => {
       PR_LABELS: "lane:cto-mbshr",
     });
     expect(res.status).toBe(1);
+    expect(res.stdout).toContain("(a) linked issue");
+  });
+
+  it("accepts a Qunsultant-form linked issue reference, non-closing (issue #2511)", () => {
+    const res = runPolicyGate({
+      PR_TITLE: "feat: admin provisioning UI",
+      PR_BODY:
+        "Related: Qunsultant/cfagent#2511 (not closing: the issue closes only after live proof).\n\n## Agent\n#ceo-aimp\n\nProcess documentation impact: none",
+      PR_LABELS: "lane:ceo-aimp",
+    });
+    expect(res.stdout).not.toContain("(a) linked issue");
+  });
+
+  it("accepts an OpenAIMP-form linked issue reference, non-closing (issue #2511)", () => {
+    const res = runPolicyGate({
+      PR_TITLE: "feat: admin provisioning UI",
+      PR_BODY:
+        "Related: OpenAIMP/cfagent#2511 (not closing: the issue closes only after live proof).\n\n## Agent\n#ceo-aimp\n\nProcess documentation impact: none",
+      PR_LABELS: "lane:ceo-aimp",
+    });
+    expect(res.stdout).not.toContain("(a) linked issue");
+  });
+
+  it("still rejects a body with neither owner reference (issue #2511)", () => {
+    const res = runPolicyGate({
+      PR_TITLE: "feat: admin provisioning UI",
+      PR_BODY:
+        "No linked issue here.\n\n## Agent\n#ceo-aimp\n\nProcess documentation impact: none",
+      PR_LABELS: "lane:ceo-aimp",
+    });
     expect(res.stdout).toContain("(a) linked issue");
   });
 

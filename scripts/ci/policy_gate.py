@@ -129,12 +129,12 @@ def evaluate_policy(
     if not diff_only:
         # (a) Linked issue
         if not re.search(r"(?i)\b(fixes|closes|resolves)\s+#\d+", text) and not re.search(
-            r"OpenAIMP/cfagent#\d+", text
+            r"(OpenAIMP|Qunsultant)/cfagent#\d+", text
         ):
             failures.append(
                 "(a) linked issue: PR body/title has no "
                 "'Fixes #N' / 'Closes #N' / 'Resolves #N' "
-                "and no OpenAIMP/cfagent#N reference"
+                "and no OpenAIMP/cfagent#N or Qunsultant/cfagent#N reference"
             )
 
         # (b) Lane label
