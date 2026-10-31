@@ -7,7 +7,7 @@ import {
 } from "./scheduledA2aDispatch";
 import type { Env } from "../types";
 import type { CompiledChain, CompiledChainStep } from "../orchestrate";
-import type { ChainRunResult } from "../mcp/goalChainCommands";
+import type { ChainRunResult } from "../mcps/openaimp/goalChainCommands";
 import {
   approveSynthesizedInList,
   markSynthesizedFired,
@@ -1051,7 +1051,7 @@ export class ScheduledAgent extends PortThink {
     chainExecutor: (step: CompiledChainStep) => Promise<unknown>,
     project?: { chainId: string; tenantId: string; writer: string },
   ): Promise<ChainRunResult> {
-    const { runChain } = await import("../mcp/goalChainCommands");
+    const { runChain } = await import("../mcps/openaimp/goalChainCommands");
     return runChain(chain, {
       executeLeg: chainExecutor,
       budgetCheck: async () => true,
@@ -1062,7 +1062,7 @@ export class ScheduledAgent extends PortThink {
       // synthesized record id, matching slice 1's chain rows.
       ...(project
         ? {
-            onLegOutcome: (leg: import("../mcp/goalChainCommands").ChainLegResult) =>
+            onLegOutcome: (leg: import("../mcps/openaimp/goalChainCommands").ChainLegResult) =>
               projectRunLegs(this.env, {
                 tenantId: project.tenantId,
                 workspaceId: "primary",

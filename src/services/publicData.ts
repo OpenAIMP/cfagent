@@ -36,7 +36,7 @@ import type {
   ETradeOptionChainContract,
   ETradeQuote,
 } from "../types";
-import type { PublicMcpClient, PublicMcpTool } from "./publicMcp";
+import type { PublicMcpClient, PublicMcpTool } from "../mcps/public/publicMcp";
 import { withBreaker } from "../breakers/breakerDecorator";
 import { defaultBreakerRegistry } from "../breakers/createBreakerPorts";
 import type { CircuitBreaker } from "../breakers/breakerPorts";

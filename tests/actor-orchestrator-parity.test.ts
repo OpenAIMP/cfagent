@@ -30,7 +30,7 @@ import { ActorOrchestratorHarness, resolveMasMaxSteps, stubMcpContext } from "./
 import { legacyRowToSessionMessage } from "../src/actors/actorPorts";
 import { createAgentMcpTools } from "../src/agents/mcpAdapter";
 import { createMAS } from "../src/agents/mas";
-import { McpToolFactory } from "../src/mcp/commands";
+import { McpToolFactory } from "../src/mcps/openaimp/commands";
 import { getWorkersAIModel, resolveAiModelName } from "../src/agents/model";
 import { REST_APIS_CATALOG } from "../src/client/mcpEndpointsData";
 

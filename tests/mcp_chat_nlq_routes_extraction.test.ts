@@ -146,7 +146,7 @@ describe("handleMcpChatNlqRoutes behavior", () => {
     expect(body.endpoints.jsonrpc).toBe("/api/mcp");
   });
 
-  it("POST /mcp delegates JSON-RPC to handleMCPRequest (method-not-found stays JSON-RPC)", async () => {
+  it("POST /mcp delegates JSON-RPC to the MCP handler (method-not-found stays JSON-RPC)", async () => {
     const ctx = baseCtx();
     const url = new URL("https://agent.internal/mcp");
     const res = await handleMcpChatNlqRoutes(req("POST", "/mcp", {}), url, "/mcp", "sess", ctx);

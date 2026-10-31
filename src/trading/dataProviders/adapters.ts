@@ -19,7 +19,7 @@
  *   nasdaq — fetchAllUsStockListings (src/services/nasdaqListings.ts),
  *            promoted from a listings helper to a provider: it serves
  *            the screenUniverse capability (universe membership).
- *   public — Public.com's hosted MCP server (src/services/publicMcp.ts
+ *   public — Public.com's hosted MCP server (src/mcps/public/publicMcp.ts
  *            + publicData.ts), added by #1247: unlike the wrappers
  *            above there is no pre-existing in-repo implementation to
  *            wrap — the adapter maps the MCP tools' payloads into the
@@ -65,7 +65,7 @@
 
 import { ETradeService } from "../../services/etrade";
 import { AlpacaMarketDataProvider, YahooFinanceProvider } from "../../services/marketDataResearch";
-import { PublicMcpClient } from "../../services/publicMcp";
+import { PublicMcpClient } from "../../mcps/public/publicMcp";
 import {
   PublicDataError,
   extractPublicQuoteRows,

@@ -206,7 +206,7 @@ export function parseStockScreenRequest(input: unknown): ScreeningValidationResu
 /* ------------------------------------------------------------------ */
 
 /** The field schemas are exported individually because the MCP scanner
- *  tool (src/services/cloudflareWalletsScanner.ts) composes its public
+ *  tool (src/mcps/scanner/cloudflareWalletsScanner.ts) composes its public
  *  argument schema from them — one definition, no per-entry copy. Its
  *  public argument names (maxDTE/minDTE) map onto minDte/maxDte here. */
 export const optionScreenerFilterFields = {

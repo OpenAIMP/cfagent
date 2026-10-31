@@ -33,7 +33,7 @@ import {
   PublicMcpError,
   PUBLIC_MCP_URL,
   parsePublicRpcBody,
-} from "../src/services/publicMcp";
+} from "../src/mcps/public/publicMcp";
 import {
   schemaProps,
   matchProp,

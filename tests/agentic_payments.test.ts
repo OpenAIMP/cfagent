@@ -11,8 +11,8 @@ import {
   PaidOptionsScreenerCommand,
   PaidMarketResearchCommand,
   AgenticWalletStatusCommand,
-} from "../src/mcp/agenticPaymentCommands";
-import { McpToolFactory } from "../src/mcp/commands";
+} from "../src/mcps/openaimp/agenticPaymentCommands";
+import { McpToolFactory } from "../src/mcps/openaimp/commands";
 import { planNLQ, executeNLQQuery, executeNLQQueryAsync } from "../src/agents/nlq";
 import { ETradeVoiceTradingService } from "../src/trading/voice/agent";
 import { DynamicOptionsScreener } from "../src/trading/optionsScreener";

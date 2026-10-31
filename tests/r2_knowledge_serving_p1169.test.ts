@@ -42,7 +42,7 @@ import { createMAS } from "../src/agents/mas";
  * The fallback (FINANCIAL_KNOWLEDGE_BASE constant + branch, aiSearch.ts
  * :32-~73 / :129-150) is NOT touched by S2: flag-ON with no endpoint or
  * a failed endpoint still returns the fallback verbatim (pinned below).
- * G1 (two hardcoded score: 1.0 in src/mcp/commands.ts:120 and :150) is
+ * G1 (two hardcoded score: 1.0 in src/mcps/openaimp/commands.ts:120 and :150) is
  * untouched by S2 and named for S3.
  *
  * CROSS-CUTTING (user directive 2026-10-25, agentic-SaaS aspects):

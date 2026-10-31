@@ -119,7 +119,7 @@ async function withFetchMocks<T>(fn: (mods: {
   });
   try {
     const { ETradeService } = await import("../src/services/etrade");
-    const { ETradeMarketScanCommand } = await import("../src/mcp/etradeCommands");
+    const { ETradeMarketScanCommand } = await import("../src/mcps/openaimp/etradeCommands");
     const { executeNLQQueryAsync } = await import("../src/agents/nlq/execution");
     return await fn({ ETradeService, ETradeMarketScanCommand, executeNLQQueryAsync });
   } finally {
@@ -362,7 +362,7 @@ describe("source pins: MCP threading", () => {
   });
 
   it("etrade_market_scan constructs the service with context storage", () => {
-    const line = lineWith(src("mcp/etradeCommands.ts"), "new ETradeService(context.orm");
+    const line = lineWith(src("mcps/openaimp/etradeCommands.ts"), "new ETradeService(context.orm");
     expect(line).toContain("context.storage");
   });
 

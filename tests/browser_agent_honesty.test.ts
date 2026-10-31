@@ -16,7 +16,7 @@ vi.mock("@cloudflare/ai-chat", () => {
 });
 
 import { ETradeBrowserService } from "../src/services/browserAgent";
-import { BrowserScreenshotCommand } from "../src/mcp/cloudflareAgentCommands";
+import { BrowserScreenshotCommand } from "../src/mcps/openaimp/cloudflareAgentCommands";
 import { ETradeSlackTradingService } from "../src/trading/slack/agent";
 import { DatabaseORM } from "../src/orm";
 import { MockSqlStorage } from "./mock-sql";

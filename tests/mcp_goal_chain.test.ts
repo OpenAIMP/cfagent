@@ -24,15 +24,16 @@
  *     pre-existing tools still list and still behave.
  */
 import { describe, it, expect, vi } from "vitest";
-import { handleMCPRequest, MCP_TOOLS } from "../src/mcp";
-import { McpToolFactory } from "../src/mcp/commands";
+import { handleMCPRequest } from "../src/mcps/openaimp/handler";
+import { MCP_TOOLS } from "../src/mcps/openaimp";
+import { McpToolFactory } from "../src/mcps/openaimp/commands";
 import { compileGoal } from "../src/orchestrate";
 import { VectorMemory } from "../src/memory/vector-memory";
 import {
   compileGoalForMcp,
   runChain,
   synthesizePendingForMcp,
-} from "../src/mcp/goalChainCommands";
+} from "../src/mcps/openaimp/goalChainCommands";
 import {
   approveSynthesizedRecord,
   shouldFireSynthesized,

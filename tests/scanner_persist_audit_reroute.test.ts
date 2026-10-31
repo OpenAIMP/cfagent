@@ -54,7 +54,7 @@ vi.mock("agents/x402", () => {
   return { withX402: (server: any) => server };
 });
 
-import { OptionsScannerMCP } from "../src/services/cloudflareWalletsScanner";
+import { OptionsScannerMCP } from "../src/mcps/scanner/cloudflareWalletsScanner";
 // Issue #1738: OrchestratorAgent/ResearchAgent/TradingAgent are
 // Agents SDK actors now — mock the SDK with a plain base class
 // (the api_chat_route.test.ts idiom) so the real module graph's
@@ -279,7 +279,7 @@ describe("OptionsScannerMCP persistAudit reroute (#700 point 2)", () => {
 
   it("the dead local write is gone: the scanner no longer constructs DatabaseORM", () => {
     const src = readFileSync(
-      new URL("../src/services/cloudflareWalletsScanner.ts", import.meta.url),
+      new URL("../src/mcps/scanner/cloudflareWalletsScanner.ts", import.meta.url),
       "utf8"
     );
     expect(src).not.toContain("DatabaseORM");

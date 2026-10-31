@@ -17,7 +17,7 @@
  *   destroyed on end. Cross-execution and post-end opens fail.
  */
 import { describe, it, expect } from "vitest";
-import { McpToolFactory } from "../src/mcp/commands";
+import { McpToolFactory } from "../src/mcps/openaimp/commands";
 import {
   MCP_SCOPES,
   MCP_TOOL_SCOPES,
@@ -27,7 +27,7 @@ import {
   type McpPrincipal,
   type McpScope,
   type ToolPermissionPort,
-} from "../src/permissions/mcpPermissionPorts";
+} from "../src/mcps/openaimp/mcpPermissionPorts";
 
 const ALL_SCOPES: readonly McpScope[] = MCP_SCOPES;
 

@@ -19,7 +19,7 @@ import {
   compileGoal,
   type CompiledChain,
 } from "../src/orchestrate";
-import { runChain } from "../src/mcp/goalChainCommands";
+import { runChain } from "../src/mcps/openaimp/goalChainCommands";
 import {
   createChainLegExecutor,
   isSubmittedLeg,

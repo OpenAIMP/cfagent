@@ -30,7 +30,7 @@ import type {
   CreateProviderSubscriptionInput,
   ProviderSubscription,
 } from "../services/billingPorts";
-import { RemoteMcpClient } from "../services/mcpClient";
+import { RemoteMcpClient } from "../mcps/client/mcpClient";
 import { computeHmacSha256Hex } from "../services/cryptoUtils";
 import { resolveEnvironmentConfig } from "../config/environment";
 

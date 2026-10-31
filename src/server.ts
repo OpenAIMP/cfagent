@@ -266,7 +266,7 @@ export { OrchestratorAgent } from "./agents/orchestrator";
 // Issue #2230 — wrangler requires every bound DO class to be exported from
 // the entrypoint, otherwise `wrangler deploy` fails.
 export { TickerAgent, TICKER_INSTANCE_NAME } from "./agents/ticker-agent";
-export { OptionsScannerMCP } from "./services/cloudflareWalletsScanner";
+export { OptionsScannerMCP } from "./mcps/scanner/cloudflareWalletsScanner";
 export { BrowserAgent } from "./agents/browserAgent";
 export { SlackAgent } from "./agents/slackAgent";
 export { AiSearchAgent } from "./agents/aiSearchAgent";

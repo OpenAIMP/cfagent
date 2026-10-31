@@ -11,7 +11,7 @@
  * one DO. No identity propagates downstream on this route: the scanner
  * DO never reads either header and forwards under its own context
  * ("default_trader" / "cf_wallet_scanner" in
- * src/services/cloudflareWalletsScanner.ts). A login-shaped affinity
+ * src/mcps/scanner/cloudflareWalletsScanner.ts). A login-shaped affinity
  * value therefore asserts nothing — unlike the #154/#180/#183 routes,
  * where the established identity selects the caller's own agent instance.
  *

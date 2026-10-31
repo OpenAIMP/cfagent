@@ -13,7 +13,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { DatabaseORM } from "../src/orm";
 import { MockSqlStorage } from "./mock-sql";
-import { McpToolFactory } from "../src/mcp/commands";
+import { McpToolFactory } from "../src/mcps/openaimp/commands";
 import { ETradeService } from "../src/services/etrade";
 import { ETradeRestClient } from "../src/trading/etrade/client";
 import { ETradeBrowserService } from "../src/services/browserAgent";
@@ -305,7 +305,7 @@ describe("#1726 divergent pairs behind switches (MCP surface)", () => {
     // that check and generateOAuthHeader (client.ts:131) records the
     // pre-existing "OAuth Token Missing: No active session" message,
     // which the discovery command surfaces as the 502 (see
-    // src/mcp/etradeCommands.ts, etrade_account_discovery). Both are
+    // src/mcps/openaimp/etradeCommands.ts, etrade_account_discovery). Both are
     // pre-existing contract strings, untouched by this slice. The 502
     // assertion above is unchanged — intent unchanged: credential
     // failure surfaced as 502.

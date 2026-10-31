@@ -25,9 +25,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { createTurnTools, type ChatTurnHelpersContext } from "../src/agents/orchestrator/chatTurnHelpers";
 import { createAgentMcpTools } from "../src/agents/mcpAdapter";
-import { executeMCPTool } from "../src/mcp";
-import { McpToolFactory } from "../src/mcp/commands";
-import { MCP_TOOL_SCOPES } from "../src/permissions/mcpPermissionPorts";
+import { executeMCPTool } from "../src/mcps/openaimp";
+import { McpToolFactory } from "../src/mcps/openaimp/commands";
+import { MCP_TOOL_SCOPES } from "../src/mcps/openaimp/mcpPermissionPorts";
 import {
   CHAT_NLQ_MODE_SWITCH,
   resolveChatNlqMode,
@@ -49,7 +49,7 @@ import { InMemoryWorkflowAdapter } from "../src/workflows/inMemoryWorkflowAdapte
 import { InMemoryShardJobAdapter } from "../src/data/inMemoryShardJobAdapter";
 import { InMemoryMeshTraceStore } from "../src/data/inMemoryMeshTraceAdapter";
 import { recordWorkflowTraceHop } from "../src/observability/meshTrace";
-import { traceForMcp } from "../src/mcp/agentDbReadCommands";
+import { traceForMcp } from "../src/mcps/openaimp/agentDbReadCommands";
 import { newTraceContext, formatTraceparent } from "../src/observability/observabilityPorts";
 import type {
   ScreenerWorkflowDeps,

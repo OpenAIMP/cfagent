@@ -18,7 +18,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { ETradeSandboxService } from "../src/services/sandboxAgent";
-import { SandboxRunCommand, QuantBacktestCommand } from "../src/mcp/cloudflareAgentCommands";
+import { SandboxRunCommand, QuantBacktestCommand } from "../src/mcps/openaimp/cloudflareAgentCommands";
 
 const stubContext = (auditLog: any[]) =>
   ({
