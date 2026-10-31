@@ -134,9 +134,9 @@ def evaluate_policy(
     # Evaluate the branch tree, not a merge-commit tree (see
     # resolve_effective_head), except when evaluating the aggregate
     # merge_group tree where HEAD is already the queue-constructed target tree.
+    original_head = head
     if not diff_only or os.environ.get("GITHUB_EVENT_NAME") != "merge_group":
         head = resolve_effective_head(head, base=base)
-
     # Attribution reads the PR body and labels ONLY (owner direction
     # 2026-10-27, issue #1894). Commit messages are NOT fallback context:
     # a bot must not satisfy (a)/(b)/(c) by pasting an issue ref or a
@@ -325,8 +325,6 @@ def evaluate_policy(
 
     deleted_files: set[str] = set()
     head_missing_files: set[str] = set()
-
-    # (f) Stale base reversion guard: ensure branch does not delete files added to base
     try:
         merge_base = subprocess.run(
             ["git", "merge-base", base, head],
@@ -336,54 +334,61 @@ def evaluate_policy(
             errors="replace",
             check=True,
         ).stdout.strip()
+    except Exception:
+        merge_base = base
 
-        # Files added to base (e.g. main) since the merge base
-        main_added_files = set(
-            subprocess.run(
-                ["git", "diff", "--name-only", "--diff-filter=A", merge_base, base],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                check=True,
-            ).stdout.splitlines()
-        )
+    # (f) Stale base reversion guard: ensure branch does not delete files added to base
+    # Pure documentation PRs (#2555) cannot touch code files and bypass check (f).
+    if not is_pure_docs:
+        try:
 
-        # Files present in base but missing in head
-        head_missing_files = set(
-            subprocess.run(
-                ["git", "diff", "--name-only", "--diff-filter=D", base, head],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                check=True,
-            ).stdout.splitlines()
-        )
-
-        # Also collect files explicitly deleted in the PR branch relative to merge_base
-        deleted_files = set(
-            subprocess.run(
-                ["git", "diff", "--name-only", "--diff-filter=D", f"{merge_base}...{head}"],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                check=True,
-            ).stdout.splitlines()
-        )
-
-        reverted_main_additions = [f for f in head_missing_files if f in main_added_files]
-        if reverted_main_additions:
-            sample = ", ".join(reverted_main_additions[:5])
-            suffix = "..." if len(reverted_main_additions) > 5 else ""
-            failures.append(
-                f"(f) stale base reversion: PR branch was cut from a stale base and "
-                f"reverts/deletes {len(reverted_main_additions)} file(s) added to main since branching: {sample}{suffix}. "
-                "Rebase cleanly onto fresh main before merging."
+            # Files added to base (e.g. main) since the merge base
+            main_added_files = set(
+                subprocess.run(
+                    ["git", "diff", "--name-only", "--diff-filter=A", merge_base, base],
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    check=True,
+                ).stdout.splitlines()
             )
-    except Exception as e:
-        failures.append(f"(f) stale base verification error: {e}")
+
+            # Files present in base but missing in head
+            head_missing_files = set(
+                subprocess.run(
+                    ["git", "diff", "--name-only", "--diff-filter=D", base, head],
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    check=True,
+                ).stdout.splitlines()
+            )
+
+            # Also collect files explicitly deleted in the PR branch relative to merge_base
+            deleted_files = set(
+                subprocess.run(
+                    ["git", "diff", "--name-only", "--diff-filter=D", f"{merge_base}...{head}"],
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    check=True,
+                ).stdout.splitlines()
+            )
+
+            reverted_main_additions = [f for f in head_missing_files if f in main_added_files]
+            if reverted_main_additions:
+                sample = ", ".join(reverted_main_additions[:5])
+                suffix = "..." if len(reverted_main_additions) > 5 else ""
+                failures.append(
+                    f"(f) stale base reversion: PR branch was cut from a stale base and "
+                    f"reverts/deletes {len(reverted_main_additions)} file(s) added to main since branching: {sample}{suffix}. "
+                    "Rebase cleanly onto fresh main before merging."
+                )
+        except Exception as e:
+            failures.append(f"(f) stale base verification error: {e}")
 
     # (i) No-deletion rule (owner direction 2026-10-27, issue #1894)
     # with the test-rename allowance (owner direction 2026-10-27,
