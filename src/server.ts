@@ -287,6 +287,7 @@ export { TradingAgent } from "./agents/trading-agent";
 export { TradingTradeWorkflow } from "./agents/trading-trade-workflow";
 export { ScreenerScreenWorkflow } from "./workflows/screenerWorkflow";
 export { PaymentWorkflow } from "./workflows/paymentWorkflow";
+export { CrossDomainSagaWorkflow } from "./workflows/sagaWorkflow";
 export { ReportAssetAgent } from "./agents/report-asset-agent";
 export { SessionStore } from "./security/sessionStore";
 

@@ -1111,7 +1111,7 @@ export function doorCostBudget(
 }
 
 // ---------------------------------------------------------------------------
-// Workflows — the three ThinkWorkflow classes and their starters.
+// Workflows — the four ThinkWorkflow classes and their starters.
 // ---------------------------------------------------------------------------
 
 export const MESH_WORKFLOWS: MeshWorkflowEntry[] = [
@@ -1140,6 +1140,15 @@ export const MESH_WORKFLOWS: MeshWorkflowEntry[] = [
       "src/services/paymentWorkflowSubmission.ts seam (paid screen submissions from routes; scheduled runs via src/services/scheduledTasks.ts)",
     ],
     role: "Per-run-request payment gate for paid screens: testnet, feature-flagged, default OFF; one charge per run-request, failure compensates with a replacement-run credit, never a cash refund.",
+  },
+  {
+    className: "CrossDomainSagaWorkflow",
+    binding: "SAGA_WORKFLOW",
+    sourceFile: "src/workflows/sagaWorkflow.ts",
+    starters: [
+      "No starter in S1 (#2041): the entry route is S4 work; no route or submission seam starts this workflow by default — the binding exists, uncalled.",
+    ],
+    role: "Cross-domain paid-run journey: payment child → observed screen → (S2 journey gate) → (S4 trading leg); S1 ends at screen_completed.",
   },
 ];
 

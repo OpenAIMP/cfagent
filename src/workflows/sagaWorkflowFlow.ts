@@ -1,0 +1,482 @@
+/**
+ * SagaWorkflowFlow — the deterministic cross-domain saga flow for
+ * issue #2041 (S1: skeleton + Leg 0/1 coordination).
+ *
+ * This is the flow module behind CrossDomainSagaWorkflow, mirroring
+ * the repo pattern: the workflow class itself is a thin adapter;
+ * every decision lives here, behind fakeable interfaces, so it is
+ * unit-testable without a worker runtime.
+ *
+ * S1 scope ONLY: Leg 0 (start the payment child, poll it to a
+ * terminal outcome) + Leg 1 (observe the paid screen to a terminal
+ * status on the durable sleep + poll pattern). No journey gate
+ * (S2), no mid-run failure credit (S3), no trading leg (S4), no
+ * entry route (S4). S1 ends at Leg 1: a completed screen returns
+ * screen_completed (S2 inserts the journey gate after this point);
+ * a failed screen returns screen_failed with NO credit issued —
+ * the credit path is S3, and S1 must not claim it.
+ *
+ * Deterministic, NOT model-driven. No step prompts a model, no step
+ * lets a model choose a leg, an amount, or a recipient. Leg order
+ * is fixed (payment → screen); this is a linear leg sequence
+ * with human gates (ADR 0017), never a DAG.
+ *
+ * Params carry ids + caller-supplied identity + the caller-built
+ * screener command — never credentials, never secrets, never a
+ * card, never a price. The saga never invents a screener command
+ * or an account: both come from the caller, exactly like the
+ * payment workflow's own screenerCommand discipline.
+ *
+ * Audit + the Q7 S2 blocking shape (gap G-AUDIT-WORKFLOW) — what
+ * is and is not reachable from a workflow step, pinned here so
+ * no later slice over-claims it:
+ * - REACHABLE: endpoint-mediated blocking. The flow's recordAudit
+ *   dep is a throwing dep: the production adapter posts to
+ *   POST /api/audit/event (the same endpoint the payment
+ *   workflow's recordEvent uses) and THROWS on any non-201, so a
+ *   failed audit write fails the step (durably retried) instead
+ *   of letting the saga complete with an unrecorded transition.
+ *   The endpoint itself funnels through the single owner
+ *   recordAudit() into the chained mas_events repo
+ *   (DoSqliteEventLogAdapter extends ChainedAuditRepository),
+ *   so a row that lands is hash-linked.
+ * - NOT reachable: direct recordBlockingAudit(orm.events) from a
+ *   workflow step. Workflows run in the Worker, not in the DO
+ *   that owns the ORM; the workflow runtime has no ORM accessor.
+ *   The flow therefore never imports the ORM, and no test here
+ *   asserts a direct chained write — only that an audit failure
+ *   propagates and produces no terminal outcome.
+ *
+ * Timeouts (open question Q2): the poll deadlines below are S1
+ * working defaults, not rulings. The payment deadline covers the
+ * payment leg's 24h verification window plus margin; the screen
+ * deadline covers a long screen. Venus may change both.
+ */
+
+import type { NativeCommercialAccount } from "../services/nativeMonetization";
+import type { PaymentWorkflowParams } from "./paymentWorkflowFlow";
+import type { SagaLeg, SagaLegInstanceStatus, SagaLegPort } from "./sagaLegPort";
+import type { WorkflowJobCommand } from "./workflowPorts";
+
+/** Minimal structural step surface the flow needs (fakeable in tests). */
+export interface SagaWorkflowStep {
+  do<T>(name: string, fn: () => Promise<T>): Promise<T>;
+  sleep(name: string, ms: number): Promise<void>;
+}
+
+/** One saga audit event, carried to the recordAudit dep. */
+export interface SagaAuditEvent {
+  sagaId: string;
+  runRequestId: string;
+  tenantId: string;
+  type:
+    | "saga.started"
+    | "saga.payment_started"
+    | "saga.payment_not_completed"
+    | "saga.screen_start_failed_credit_issued"
+    | "saga.screen_completed"
+    | "saga.screen_failed"
+    | "saga.ended";
+  userLogin: string;
+  family: string;
+  rail?: "stripe" | "x402";
+  leg?: SagaLeg;
+  outcomeCode?: string;
+  screenerWorkflowId?: string;
+  reason?: string;
+  existing?: boolean;
+}
+
+/**
+ * Saga params. Identity is verified, never defaulted (#1185).
+ * family is "goal" in S1 (Q5 default: goal-only first family);
+ * any other family throws. rail is carried, never acted on in
+ * S1 (compensation is S3).
+ */
+export interface SagaParams {
+  sagaId: string;
+  runRequestId: string;
+  userLogin: string;
+  userId: string;
+  email: string;
+  tenantId: string;
+  family: "goal";
+  trigger: PaymentWorkflowParams["trigger"];
+  scheduleKind?: PaymentWorkflowParams["scheduleKind"];
+  authorizedAtSubmission?: boolean;
+  account: NativeCommercialAccount;
+  screenerCommand: WorkflowJobCommand;
+  rail?: "stripe" | "x402";
+  pollIntervalMs?: number;
+  paymentPollDeadlineMs?: number;
+  screenPollDeadlineMs?: number;
+}
+
+export interface SagaDeps {
+  legPort: SagaLegPort;
+  /**
+   * Throwing audit dep (see the G-AUDIT-WORKFLOW note above):
+   * a failed audit write must propagate, never be swallowed.
+   * The flow never catches recordAudit failures.
+   */
+  recordAudit: (event: SagaAuditEvent) => Promise<void>;
+  nowMs: () => number;
+}
+
+export type SagaWorkflowOutcome =
+  | {
+      status: "payment_not_completed";
+      code: "FAILURE_SAGA_PAYMENT_NOT_COMPLETED";
+      sagaId: string;
+      runRequestId: string;
+      reason: string;
+      rail?: "stripe" | "x402";
+    }
+  | {
+      status: "screen_start_failed_credit_issued";
+      code: "FAILURE_SAGA_SCREEN_START_FAILED_CREDIT_ISSUED";
+      sagaId: string;
+      runRequestId: string;
+      screenerError: string;
+      rail?: "stripe" | "x402";
+    }
+  | {
+      status: "screen_completed";
+      code: "SUCCESS_SAGA_SCREEN_COMPLETED";
+      sagaId: string;
+      runRequestId: string;
+      screenerWorkflowId: string;
+      rail?: "stripe" | "x402";
+    }
+  | {
+      status: "screen_failed";
+      code: "FAILURE_SAGA_SCREEN_FAILED";
+      sagaId: string;
+      runRequestId: string;
+      screenerWorkflowId: string;
+      reason: string;
+      rail?: "stripe" | "x402";
+    };
+
+/** Poll cadence for leg observation (S1 working default, Q2 open). */
+export const SAGA_POLL_INTERVAL_MS_DEFAULT = 30_000;
+/** Payment-leg poll deadline: the 24h verification window + margin (Q2 open). */
+export const SAGA_PAYMENT_POLL_DEADLINE_MS_DEFAULT = 25 * 60 * 60 * 1000;
+/** Screen-leg poll deadline (Q2 open). */
+export const SAGA_SCREEN_POLL_DEADLINE_MS_DEFAULT = 60 * 60 * 1000;
+
+type LegTerminal =
+  | { terminal: "complete"; output?: unknown }
+  | { terminal: "errored" }
+  | { terminal: "terminated" }
+  | { terminal: "deadline" };
+
+/**
+ * Poll one leg to a terminal state on the durable sleep + poll
+ * pattern (mirroring screenerWorkflowFlow's pollBatch): deadline
+ * check first, then sleep, then one status read per round.
+ * Unknown/missing statuses keep polling — only a terminal status
+ * or the deadline ends the loop. A missing binding throws
+ * immediately (the port fails loud, never burns a deadline).
+ */
+async function pollLegToTerminal(
+  deps: SagaDeps,
+  step: SagaWorkflowStep,
+  leg: SagaLeg,
+  workflowId: string,
+  deadlineMs: number,
+  pollIntervalMs: number,
+): Promise<LegTerminal> {
+  const startedAt = deps.nowMs();
+  const deadlineAt = startedAt + deadlineMs;
+  let round = 0;
+  for (;;) {
+    if (deps.nowMs() >= deadlineAt) return { terminal: "deadline" };
+    await step.sleep(`poll-wait-${leg}-${round}`, pollIntervalMs);
+    const snapshot = await step.do(`poll-${leg}-${round}`, () =>
+      deps.legPort.getLegStatus(leg, workflowId),
+    );
+    round += 1;
+    const status = snapshot?.status ?? "unknown";
+    if (status === "complete") {
+      return { terminal: "complete", output: snapshot?.output };
+    }
+    if (status === "errored" || status === "terminated") {
+      return { terminal: status };
+    }
+    // queued / running / paused / waiting / waitingForPause /
+    // unknown / missing: keep polling until the deadline.
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+/** Screener collation lifecycle, when the output carries one. */
+function collationLifecycle(output: unknown): string | null {
+  if (!isRecord(output)) return null;
+  const lifecycle = output["lifecycle"];
+  return typeof lifecycle === "string" ? lifecycle : null;
+}
+
+export async function runSagaWorkflowFlow(
+  params: SagaParams,
+  deps: SagaDeps,
+  step: SagaWorkflowStep,
+): Promise<SagaWorkflowOutcome> {
+  if (!params.sagaId || !params.runRequestId) {
+    throw new Error("Saga payload is missing sagaId or runRequestId.");
+  }
+  // Issue #1185 discipline: no default identity, fail closed.
+  if (!params.userLogin || !params.userId || !params.email || !params.tenantId) {
+    throw new Error(
+      "Saga payload is missing verified userLogin, userId, email, or tenantId (no default identity).",
+    );
+  }
+  if (params.account.tenantId && params.tenantId !== params.account.tenantId) {
+    throw new Error("Tenant mismatch: saga tenant must equal the verified account tenant.");
+  }
+  if (params.family !== "goal") {
+    throw new Error(
+      `Saga S1 is goal-only (Q5 default); family "${String(params.family)}" is not accepted yet.`,
+    );
+  }
+  if (!params.trigger) {
+    throw new Error("Saga payload is missing the trigger for the payment leg.");
+  }
+  if (!params.screenerCommand || typeof params.screenerCommand.jobId !== "string" || !params.screenerCommand.jobId) {
+    throw new Error("Saga payload is missing a valid screenerCommand (jobId required).");
+  }
+
+  const pollIntervalMs = params.pollIntervalMs ?? SAGA_POLL_INTERVAL_MS_DEFAULT;
+  const paymentDeadlineMs = params.paymentPollDeadlineMs ?? SAGA_PAYMENT_POLL_DEADLINE_MS_DEFAULT;
+  const screenDeadlineMs = params.screenPollDeadlineMs ?? SAGA_SCREEN_POLL_DEADLINE_MS_DEFAULT;
+
+  const baseAudit = {
+    sagaId: params.sagaId,
+    runRequestId: params.runRequestId,
+    tenantId: params.tenantId,
+    userLogin: params.userLogin,
+    family: params.family,
+    ...(params.rail ? { rail: params.rail } : {}),
+  };
+
+  // Every audit write is a durable step whose failure propagates:
+  // the saga never completes with an unrecorded transition.
+  await step.do("record-audit-saga-started", () =>
+    deps.recordAudit({ ...baseAudit, type: "saga.started" }),
+  );
+
+  const endSaga = async (
+    outcome: SagaWorkflowOutcome,
+    terminalEvent: Omit<
+      SagaAuditEvent,
+      "sagaId" | "runRequestId" | "tenantId" | "userLogin" | "family" | "rail"
+    >,
+  ): Promise<SagaWorkflowOutcome> => {
+    await step.do(`record-audit-${outcome.status}`, () =>
+      deps.recordAudit({ ...baseAudit, ...terminalEvent }),
+    );
+    await step.do("record-audit-saga-ended", () =>
+      deps.recordAudit({
+        ...baseAudit,
+        type: "saga.ended",
+        outcomeCode: outcome.code,
+        ...(outcome.status === "screen_completed" || outcome.status === "screen_failed"
+          ? { screenerWorkflowId: outcome.screenerWorkflowId }
+          : {}),
+        ...("reason" in outcome ? { reason: outcome.reason } : {}),
+      }),
+    );
+    return outcome;
+  };
+
+  // Leg 0 — start the payment child, poll it to terminal.
+  const payment = await step.do("start-payment-leg", () =>
+    deps.legPort.startLeg("payment", {
+      runRequestId: params.runRequestId,
+      family: params.family,
+      trigger: params.trigger,
+      scheduleKind: params.scheduleKind,
+      authorizedAtSubmission: params.authorizedAtSubmission,
+      tenantId: params.tenantId,
+      userId: params.userId,
+      email: params.email,
+      account: params.account,
+      screenerCommand: params.screenerCommand,
+    }),
+  );
+  const payTerminal = await pollLegToTerminal(
+    deps,
+    step,
+    "payment",
+    payment.workflowId,
+    paymentDeadlineMs,
+    pollIntervalMs,
+  );
+
+  if (payTerminal.terminal === "deadline") {
+    return endSaga(
+      {
+        status: "payment_not_completed",
+        code: "FAILURE_SAGA_PAYMENT_NOT_COMPLETED",
+        sagaId: params.sagaId,
+        runRequestId: params.runRequestId,
+        reason: "payment_deadline_exceeded",
+        ...(params.rail ? { rail: params.rail } : {}),
+      },
+      { type: "saga.payment_not_completed", leg: "payment", outcomeCode: "FAILURE_SAGA_PAYMENT_NOT_COMPLETED", reason: "payment_deadline_exceeded" },
+    );
+  }
+  if (payTerminal.terminal === "errored" || payTerminal.terminal === "terminated") {
+    const reason = `payment_leg_${payTerminal.terminal}`;
+    return endSaga(
+      {
+        status: "payment_not_completed",
+        code: "FAILURE_SAGA_PAYMENT_NOT_COMPLETED",
+        sagaId: params.sagaId,
+        runRequestId: params.runRequestId,
+        reason,
+        ...(params.rail ? { rail: params.rail } : {}),
+      },
+      { type: "saga.payment_not_completed", leg: "payment", outcomeCode: "FAILURE_SAGA_PAYMENT_NOT_COMPLETED", reason },
+    );
+  }
+
+  // Complete payment instance: the outcome rides in its output.
+  const paymentOutput = payTerminal.output;
+  const paymentStatus = isRecord(paymentOutput) ? paymentOutput["status"] : undefined;
+  if (paymentStatus === "started") {
+    const screenerWorkflowId = isRecord(paymentOutput) ? paymentOutput["screenerWorkflowId"] : undefined;
+    if (typeof screenerWorkflowId !== "string" || !screenerWorkflowId) {
+      return endSaga(
+        {
+          status: "payment_not_completed",
+          code: "FAILURE_SAGA_PAYMENT_NOT_COMPLETED",
+          sagaId: params.sagaId,
+          runRequestId: params.runRequestId,
+          reason: "payment_output_unrecognized",
+          ...(params.rail ? { rail: params.rail } : {}),
+        },
+        { type: "saga.payment_not_completed", leg: "payment", outcomeCode: "FAILURE_SAGA_PAYMENT_NOT_COMPLETED", reason: "payment_output_unrecognized" },
+      );
+    }
+    await step.do("record-audit-payment-started", () =>
+      deps.recordAudit({
+        ...baseAudit,
+        type: "saga.payment_started",
+        leg: "payment",
+        screenerWorkflowId,
+        existing: payment.existing,
+      }),
+    );
+
+    // Leg 1 — observe the paid screen (never start a second one).
+    const screenTerminal = await pollLegToTerminal(
+      deps,
+      step,
+      "screener",
+      screenerWorkflowId,
+      screenDeadlineMs,
+      pollIntervalMs,
+    );
+    if (screenTerminal.terminal === "deadline") {
+      return endSaga(
+        {
+          status: "screen_failed",
+          code: "FAILURE_SAGA_SCREEN_FAILED",
+          sagaId: params.sagaId,
+          runRequestId: params.runRequestId,
+          screenerWorkflowId,
+          reason: "screen_deadline_exceeded",
+          ...(params.rail ? { rail: params.rail } : {}),
+        },
+        { type: "saga.screen_failed", leg: "screener", outcomeCode: "FAILURE_SAGA_SCREEN_FAILED", screenerWorkflowId, reason: "screen_deadline_exceeded" },
+      );
+    }
+    if (screenTerminal.terminal === "errored" || screenTerminal.terminal === "terminated") {
+      const reason = `screen_leg_${screenTerminal.terminal}`;
+      return endSaga(
+        {
+          status: "screen_failed",
+          code: "FAILURE_SAGA_SCREEN_FAILED",
+          sagaId: params.sagaId,
+          runRequestId: params.runRequestId,
+          screenerWorkflowId,
+          reason,
+          ...(params.rail ? { rail: params.rail } : {}),
+        },
+        { type: "saga.screen_failed", leg: "screener", outcomeCode: "FAILURE_SAGA_SCREEN_FAILED", screenerWorkflowId, reason },
+      );
+    }
+    const lifecycle = collationLifecycle(screenTerminal.output);
+    if (lifecycle === "Completed" || lifecycle === "ReportGenerated") {
+      return endSaga(
+        {
+          status: "screen_completed",
+          code: "SUCCESS_SAGA_SCREEN_COMPLETED",
+          sagaId: params.sagaId,
+          runRequestId: params.runRequestId,
+          screenerWorkflowId,
+          ...(params.rail ? { rail: params.rail } : {}),
+        },
+        { type: "saga.screen_completed", leg: "screener", outcomeCode: "SUCCESS_SAGA_SCREEN_COMPLETED", screenerWorkflowId },
+      );
+    }
+    // Failed collation, or an output that is not a collation at all:
+    // a completed instance is not a delivered screen. S1 records
+    // the failure; the mid-run credit path is S3, never claimed here.
+    return endSaga(
+      {
+        status: "screen_failed",
+        code: "FAILURE_SAGA_SCREEN_FAILED",
+        sagaId: params.sagaId,
+        runRequestId: params.runRequestId,
+        screenerWorkflowId,
+        reason: lifecycle === "Failed" ? "screen_failed" : "screen_output_unrecognized",
+        ...(params.rail ? { rail: params.rail } : {}),
+      },
+      { type: "saga.screen_failed", leg: "screener", outcomeCode: "FAILURE_SAGA_SCREEN_FAILED", screenerWorkflowId, reason: lifecycle === "Failed" ? "screen_failed" : "screen_output_unrecognized" },
+    );
+  }
+
+  if (paymentStatus === "screener_failed_credit_issued") {
+    const screenerError =
+      isRecord(paymentOutput) && typeof paymentOutput["screenerError"] === "string"
+        ? (paymentOutput["screenerError"] as string)
+        : "screener failed to start";
+    // The payment leg already issued the credit; the saga records
+    // it and does NOT re-issue (S1 has no credit dep at all).
+    return endSaga(
+      {
+        status: "screen_start_failed_credit_issued",
+        code: "FAILURE_SAGA_SCREEN_START_FAILED_CREDIT_ISSUED",
+        sagaId: params.sagaId,
+        runRequestId: params.runRequestId,
+        screenerError,
+        ...(params.rail ? { rail: params.rail } : {}),
+      },
+      { type: "saga.screen_start_failed_credit_issued", leg: "payment", outcomeCode: "FAILURE_SAGA_SCREEN_START_FAILED_CREDIT_ISSUED" },
+    );
+  }
+
+  // payment_required / coverage_required / approval_rejected /
+  // expired / unrecognized output: the payment did not complete.
+  const reason =
+    typeof paymentStatus === "string" &&
+    ["payment_required", "coverage_required", "approval_rejected", "expired"].includes(paymentStatus)
+      ? paymentStatus
+      : "payment_output_unrecognized";
+  return endSaga(
+    {
+      status: "payment_not_completed",
+      code: "FAILURE_SAGA_PAYMENT_NOT_COMPLETED",
+      sagaId: params.sagaId,
+      runRequestId: params.runRequestId,
+      reason,
+      ...(params.rail ? { rail: params.rail } : {}),
+    },
+    { type: "saga.payment_not_completed", leg: "payment", outcomeCode: "FAILURE_SAGA_PAYMENT_NOT_COMPLETED", reason },
+  );
+}
