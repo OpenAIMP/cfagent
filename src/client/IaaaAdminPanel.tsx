@@ -56,6 +56,7 @@ import {
   MCP_TOOLS_CATALOG,
 } from "./mcpEndpointsData";
 import { AdminQueueWipePanel } from "./AdminQueueWipePanel";
+import { ServiceUserSection } from "./ServiceUserSection";
 import "./iaaaAdminPanel.css";
 
 type IaaaAdminTab = "overview" | "members" | "api" | "mcp" | "iaaa" | "correlations" | "queue";
@@ -353,6 +354,13 @@ export function IaaaAdminPanel() {
             )}
           </>
         )}
+
+        {/* Issue #2501: service-user provisioning lives on Overview,
+        not a new tab (tab indices unchanged) and not duplicated in
+        the Queue tab: like admin counts and genesis, it is platform
+        state. */}
+        <h4>Service user</h4>
+        <ServiceUserSection />
 
         <p className="iaaa-admin-note">
           Audit events are read-only. Pending access requests below can be
