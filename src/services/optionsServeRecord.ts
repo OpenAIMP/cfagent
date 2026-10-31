@@ -242,6 +242,13 @@ export async function recordOptionsServeReport(
   const pdfKey = outcome.pdfKeys?.[0] ?? null;
   const xlsxKey = outcome.xlsxKey ?? null;
   const csvKey = outcome.csvKey ?? null;
+  // Per-format statuses: a carried status wins; a key with no carried
+  // status means the artifact was generated (the HTTP adapter already
+  // infers the same way). A failed leg must record "failed" here —
+  // without it the Docs list renders the leg as a bare "—".
+  const pdfStatus = outcome.pdfStatus ?? (pdfKey ? "generated" : undefined);
+  const xlsxStatus = outcome.xlsxStatus ?? (xlsxKey ? "generated" : undefined);
+  const csvStatus = outcome.csvStatus ?? (csvKey ? "generated" : undefined);
   let canonicalOk = false;
   try {
     const stored = storeOptionsCanonicalReport(deps.orm, {
@@ -261,6 +268,16 @@ export async function recordOptionsServeReport(
         pdfKey,
         xlsxKey,
         csvKey,
+        ...(pdfStatus ? { pdfStatus } : {}),
+        ...(outcome.pdfError ? { pdfError: outcome.pdfError } : {}),
+        ...(xlsxStatus ? { xlsxStatus } : {}),
+        ...(outcome.xlsxError ? { xlsxError: outcome.xlsxError } : {}),
+        ...(csvStatus ? { csvStatus } : {}),
+        ...(outcome.csvError ? { csvError: outcome.csvError } : {}),
+        // Dedup join: runSummaryFromReport reads body.scanRunId, so
+        // stamping it here lets mergeRunSummaries() absorb the
+        // scan-store UUID row into this canonical row.
+        ...(outcome.scanRunId ? { scanRunId: outcome.scanRunId } : {}),
         reportUrl: outcome.reportUrl ?? null,
       },
       createdAt: timestamp,
@@ -339,6 +356,9 @@ export interface OptionsOrchestratorRun {
   reportUrl?: string | null;
   canonicalReportId?: string | null;
   userLogin?: string;
+  /** Scan-store run id, when the service result carried it — stamped
+   *  into the canonical body for the mergeRunSummaries() join. */
+  scanRunId?: string | null;
 }
 
 export async function recordOptionsOrchestratorRun(
@@ -386,6 +406,7 @@ export async function recordOptionsOrchestratorRun(
         pdfKey: run.pdfKey ?? null,
         xlsxKey: run.xlsxKey ?? null,
         csvKey: run.csvKey ?? null,
+        ...(run.scanRunId ? { scanRunId: run.scanRunId } : {}),
         reportUrl: run.reportUrl ?? null,
       },
       createdAt: new Date().toISOString(),

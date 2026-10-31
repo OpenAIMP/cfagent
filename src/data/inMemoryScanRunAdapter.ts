@@ -26,6 +26,8 @@ function summarize(id: string, result: OpportunityScanResult, userLogin?: string
     coverage: result.coverage,
     profileRef: result.profileRef ?? null,
     pdfKey: result.pdfKey ?? null,
+    xlsxKey: result.xlsxKey ?? null,
+    csvKey: result.csvKey ?? null,
     partial: result.partial ?? null,
     ...(userLogin !== undefined ? { userLogin } : {}),
   };
@@ -83,6 +85,24 @@ export class InMemoryScanRunStore implements ScanRunStore {
     if (!run || !visibleToCaller(run, options.userLogin)) return false;
     run.pdfKey = pdfKey;
     run.result = { ...run.result, pdfKey };
+    return true;
+  }
+
+  async updateXlsxKey(id: string, xlsxKey: string, options: { userLogin?: string } = {}): Promise<boolean> {
+    if (!xlsxKey) return false;
+    const run = this.runs.find((r) => r.id === id) ?? null;
+    if (!run || !visibleToCaller(run, options.userLogin)) return false;
+    run.xlsxKey = xlsxKey;
+    run.result = { ...run.result, xlsxKey };
+    return true;
+  }
+
+  async updateCsvKey(id: string, csvKey: string, options: { userLogin?: string } = {}): Promise<boolean> {
+    if (!csvKey) return false;
+    const run = this.runs.find((r) => r.id === id) ?? null;
+    if (!run || !visibleToCaller(run, options.userLogin)) return false;
+    run.csvKey = csvKey;
+    run.result = { ...run.result, csvKey };
     return true;
   }
 
