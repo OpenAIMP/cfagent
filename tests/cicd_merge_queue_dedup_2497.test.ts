@@ -14,7 +14,7 @@
  *    load-environment, writes to $GITHUB_STEP_SUMMARY, and keeps test-and-verify on if: always().
  * 3. gitleaks.yml verifies the SHA-256 checksum of the OSS gitleaks binary, scans
  *    merge-base..HEAD on PR/merge_group, and includes a nightly full-history schedule backstop.
- * 4. auto-update-prs-app.yml is disabled in place (if: false) so Merge Queue is the sole updater.
+ * 4. auto-update-prs-app.yml is scoped to unqueued auto-merge PRs so Merge Queue is the sole updater for queued PRs (#2546).
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
@@ -88,7 +88,8 @@ describe("CI/CD Merge Queue + Policy Gate + Tree-Hash Deduplication (#2497, #249
     expect(ciYml).toContain('Tests (PR|MQ)');
   });
 
-  it("retires auto-update-prs-app.yml in place with if: false so Merge Queue is the sole updater", () => {
-    expect(autoUpdateYml).toMatch(/^\s*if:\s*false\s*$/m);
+  it("keeps auto-update-prs-app.yml scoped to unqueued auto-merge PRs so Merge Queue is the sole updater for queued PRs (#2546)", () => {
+    expect(autoUpdateYml).toContain("isInMergeQueue");
+    expect(autoUpdateYml).toContain("hasAutoMerge");
   });
 });

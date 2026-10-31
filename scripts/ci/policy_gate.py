@@ -62,7 +62,7 @@ def unreleased_section(text_content: str) -> List[str]:
     return section
 
 
-def resolve_effective_head(head: str) -> str:
+def resolve_effective_head(head: str, base: str = "origin/main") -> str:
     """Resolve the tree the gate must evaluate.
 
     In CI, actions/checkout on pull_request events checks out the MERGE
@@ -70,9 +70,13 @@ def resolve_effective_head(head: str) -> str:
     to it. Evaluating the merge tree makes check (f) vacuous: the merge
     base of main and a merge commit is main itself, so no file ever
     counts as added-to-main-since-branching. A merge commit's second
-    parent is the PR branch head — evaluate that instead. A
-    single-parent head resolves to itself. Unresolvable heads fall back
-    to the given ref rather than crashing the gate.
+    parent is the PR branch head in GitHub-synthesized merge commits (where
+    parent 0 is main). When main has been merged into a PR branch, parent 0
+    is the PR branch and parent 1 is main. The gate dynamically selects the
+    parent that is NOT an ancestor of base so it always inspects the branch
+    tree, falling back to parent 1 or head. A single-parent head resolves to
+    itself. Unresolvable heads fall back to the given ref rather than
+    crashing the gate.
     """
     try:
         sha = subprocess.run(
@@ -98,6 +102,21 @@ def resolve_effective_head(head: str) -> str:
     except Exception:
         return head
     if len(parents) >= 2:
+        try:
+            r0 = subprocess.run(
+                ["git", "merge-base", "--is-ancestor", parents[0], base],
+                capture_output=True,
+            ).returncode
+            r1 = subprocess.run(
+                ["git", "merge-base", "--is-ancestor", parents[1], base],
+                capture_output=True,
+            ).returncode
+            if r0 == 0 and r1 != 0:
+                return parents[1]
+            if r1 == 0 and r0 != 0:
+                return parents[0]
+        except Exception:
+            pass
         return parents[1]
     return head
 
@@ -116,7 +135,7 @@ def evaluate_policy(
     # resolve_effective_head), except when evaluating the aggregate
     # merge_group tree where HEAD is already the queue-constructed target tree.
     if not diff_only or os.environ.get("GITHUB_EVENT_NAME") != "merge_group":
-        head = resolve_effective_head(head)
+        head = resolve_effective_head(head, base=base)
 
     # Attribution reads the PR body and labels ONLY (owner direction
     # 2026-10-27, issue #1894). Commit messages are NOT fallback context:
@@ -126,7 +145,39 @@ def evaluate_policy(
     full_body = body
     failures: List[str] = []
 
-    if not diff_only:
+    # Detect pure documentation PRs (#2555): changes strictly confined to docs/
+    # or markdown files outside code, tests, scripts, and workflows.
+    touched_files: List[str] = []
+    try:
+        touched_files = [
+            f.strip()
+            for f in subprocess.run(
+                ["git", "diff", "--name-only", f"{base}...{head}"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                check=True,
+            ).stdout.splitlines()
+            if f.strip()
+        ]
+    except Exception:
+        pass
+
+    is_pure_docs = (
+        len(touched_files) > 0
+        and all(
+            (f.startswith("docs/") or f.endswith(".md"))
+            and not f.startswith("changelog.d/")
+            and not f.startswith("src/")
+            and not f.startswith("tests/")
+            and not f.startswith("scripts/")
+            and not f.startswith(".github/")
+            for f in touched_files
+        )
+    )
+
+    if not diff_only and not is_pure_docs:
         # (a) Linked issue
         if not re.search(r"(?i)\b(fixes|closes|resolves)\s+#\d+", text) and not re.search(
             r"(OpenAIMP|Qunsultant)/cfagent#\d+", text
@@ -171,75 +222,77 @@ def evaluate_policy(
     # Fragments (issue #1801) end the prepend race: a PR adds one file
     # under changelog.d/ and never touches CHANGELOG.md, so no two PRs
     # write the same file. A direct CHANGELOG entry still passes.
-    try:
-        base_changelog = subprocess.run(
-            ["git", "show", f"{base}:CHANGELOG.md"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=True,
-        ).stdout
-        head_changelog_proc = subprocess.run(
-            ["git", "show", f"{head}:CHANGELOG.md"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
-        if head_changelog_proc.returncode == 0:
-            head_changelog = head_changelog_proc.stdout
-        else:
-            with open("CHANGELOG.md", encoding="utf-8") as handle:
-                head_changelog = handle.read()
-
-        base_lines = {line for line in unreleased_section(base_changelog) if line.strip()}
-        head_lines = unreleased_section(head_changelog)
-        added_entry = any(
-            line.strip() and line not in base_lines for line in head_lines
-        )
-        added_fragment = False
-        if not added_entry:
-            added_files = subprocess.run(
-                ["git", "diff", "--name-only", "--diff-filter=A", f"{base}...{head}"],
+    # Pure documentation PRs (#2555) do not require a changelog fragment or entry.
+    if not is_pure_docs:
+        try:
+            base_changelog = subprocess.run(
+                ["git", "show", f"{base}:CHANGELOG.md"],
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
                 errors="replace",
                 check=True,
-            ).stdout.splitlines()
-            for candidate in added_files:
-                if not candidate.startswith("changelog.d/"):
-                    continue
-                try:
-                    fragment_text = subprocess.run(
-                        ["git", "show", f"{head}:{candidate}"],
-                        capture_output=True,
-                        text=True,
-                        encoding="utf-8",
-                        errors="replace",
-                        check=True,
-                    ).stdout
-                except Exception:
-                    continue
-                first = next(
-                    (line.strip() for line in fragment_text.splitlines() if line.strip()),
-                    "",
-                )
-                non_empty = [line.strip() for line in fragment_text.splitlines() if line.strip()]
-                has_bullet = len(non_empty) > 1
-                if first.startswith("### ") and has_bullet:
-                    added_fragment = True
-                    break
-        if not added_entry and not added_fragment:
-            failures.append(
-                "(d) CHANGELOG: PR adds no entry under ## [Unreleased] in CHANGELOG.md "
-                "and no changelog.d fragment (an added fragment whose first "
-                "non-empty line is a '### ' section header followed by at least "
-                "one entry line)"
+            ).stdout
+            head_changelog_proc = subprocess.run(
+                ["git", "show", f"{head}:CHANGELOG.md"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
             )
-    except Exception as e:
-        failures.append(f"(d) CHANGELOG verification error: {e}")
+            if head_changelog_proc.returncode == 0:
+                head_changelog = head_changelog_proc.stdout
+            else:
+                with open("CHANGELOG.md", encoding="utf-8") as handle:
+                    head_changelog = handle.read()
+
+            base_lines = {line for line in unreleased_section(base_changelog) if line.strip()}
+            head_lines = unreleased_section(head_changelog)
+            added_entry = any(
+                line.strip() and line not in base_lines for line in head_lines
+            )
+            added_fragment = False
+            if not added_entry:
+                added_files = subprocess.run(
+                    ["git", "diff", "--name-only", "--diff-filter=A", f"{base}...{head}"],
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    check=True,
+                ).stdout.splitlines()
+                for candidate in added_files:
+                    if not candidate.startswith("changelog.d/"):
+                        continue
+                    try:
+                        fragment_text = subprocess.run(
+                            ["git", "show", f"{head}:{candidate}"],
+                            capture_output=True,
+                            text=True,
+                            encoding="utf-8",
+                            errors="replace",
+                            check=True,
+                        ).stdout
+                    except Exception:
+                        continue
+                    first = next(
+                        (line.strip() for line in fragment_text.splitlines() if line.strip()),
+                        "",
+                    )
+                    non_empty = [line.strip() for line in fragment_text.splitlines() if line.strip()]
+                    has_bullet = len(non_empty) > 1
+                    if first.startswith("### ") and has_bullet:
+                        added_fragment = True
+                        break
+            if not added_entry and not added_fragment:
+                failures.append(
+                    "(d) CHANGELOG: PR adds no entry under ## [Unreleased] in CHANGELOG.md "
+                    "and no changelog.d fragment (an added fragment whose first "
+                    "non-empty line is a '### ' section header followed by at least "
+                    "one entry line)"
+                )
+        except Exception as e:
+            failures.append(f"(d) CHANGELOG verification error: {e}")
 
     # (e) Docs scope guard: docs-only PR cannot touch src/ or tests/
     is_docs_pr = bool(
