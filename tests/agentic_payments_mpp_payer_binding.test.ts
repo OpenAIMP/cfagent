@@ -144,6 +144,7 @@ import {
   TRADING_PAID_SERVICES,
   payerScopeId,
 } from "../src/services/agenticPayments";
+import { createInMemoryCanonicalReportStorePorts } from "../src/data/createCanonicalReportStorePorts";
 import { DatabaseORM } from "../src/orm";
 import { MockSqlStorage } from "./mock-sql";
 import type { Env } from "../src/types";
@@ -203,14 +204,18 @@ async function payWithMpp(orm: DatabaseORM, env: Env = mockEnv) {
     seen.receipt = receipt;
     return { data: "paid" };
   });
+  // Issue #2408: the gate meters served calls — the MPP served
+  // expectations wire the in-memory usage port.
+  const meter = createInMemoryCanonicalReportStorePorts().usage;
   const res = await service.handleGatedEndpoint(
     mppRequest(),
     RESOURCE,
     TRADING_PAID_SERVICES.OPTIONS_SCREENER.priceUSD,
     TRADING_PAID_SERVICES.OPTIONS_SCREENER.description,
     fulfill,
+    { meter, category: TRADING_PAID_SERVICES.OPTIONS_SCREENER.id },
   );
-  return { res, fulfill, seen };
+  return { res, fulfill, seen, meter };
 }
 
 beforeEach(() => {
@@ -286,7 +291,10 @@ describe("premium fulfillment for MPP-paid requests (#700 point 3)", () => {
   it("runs E*TRADE under x402:<mpp payer> for anonymous gateway traffic", async () => {
     mppFake.source = SOURCE_DID;
     const orm = makeOrm();
-    const ctx = { env: mockEnv, getOrm: () => orm } as PremiumRouteContext;
+    // Issue #2408: the route meters served calls through ctx.sql —
+    // the production host always supplies it (makePremiumRouteContext),
+    // so this route-level served expectation supplies it too.
+    const ctx = { env: mockEnv, sql: new MockSqlStorage(), getOrm: () => orm } as unknown as PremiumRouteContext;
     const url = new URL("https://agent.internal/premium/options-scan");
 
     const res = await handlePremiumRoutes(mppRequest(), url, "/premium/options-scan", "gateway-instance-id", ctx);
