@@ -1,0 +1,3 @@
+### Changed
+
+- Docs & Reports gains a Run Details button and modal (issue #2534): every row opens one modal showing request + defaults + provenance, lineage, a stage-by-stage trace (feed, gather, analysis, generation, recording, delivery), and specific why-no-data reasons, for every run type and for success and failure alike. Messages resolve from an external versioned catalog (src/services/runDetails.ts) via a single message aspect — wording changes are catalog changes, not code changes. Timestamps render in the user timezone with a label. Legacy rows render missing fields as unknown, never guessed. Autopilot parity (same GET /api/runs rows for this view) remains a named remaining step.

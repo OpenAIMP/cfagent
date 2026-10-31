@@ -334,6 +334,9 @@ const EXPECTED_INVENTORY = [
   "handleReportsRoutes :: endsWith(\"/trading/reports/webhook\")",
   "handleReportsRoutes :: endsWith(\"/trading/reports/index-backfill\")",
   "handleReportsRoutes :: endsWith(\"/reports/research/browse\")",
+  // Issue #2534: GET /api/runs/details (in handleReportsRoutes,
+  // before /runs so the details path is not swallowed by /runs).
+  "handleReportsRoutes :: endsWith(\"/runs/details\")",
   "handleReportsRoutes :: endsWith(\"/runs\")",
   "handleReportsRoutes :: endsWith(\"/reports\")",
   "handleReportsRoutes :: === \"/reports\"",
