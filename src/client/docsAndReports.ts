@@ -159,8 +159,11 @@ export function toDocumentRows(
   return rows;
 }
 
-/** Format an ISO timestamp for the table; invalid values render the raw string. */
-export function formatRunTimestamp(value: string): string {
+/** Format an ISO timestamp for the table with a timezone label;
+ *  invalid values render the raw string. Issue #2534: the user
+ *  timezone with label is the displayed time, never a bare ISO
+ *  string or server time. */
+export function formatRunTimestamp(value: string, timeZone?: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value || "—";
   return date.toLocaleString(undefined, {
@@ -169,6 +172,8 @@ export function formatRunTimestamp(value: string): string {
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: timeZone || undefined,
+    timeZoneName: "short",
   });
 }
 
