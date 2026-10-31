@@ -5,8 +5,12 @@ on:
     branches:
       - main
 
+permissions:
+  contents: write
+  pull-requests: write
+
 jobs:
-  # Auto-sync open unqueued PRs (#2546).
+  # Auto-sync open unqueued PRs (#2546, #2555).
   # Kept scoped to unqueued auto-merge PRs that are behind main so Merge Queue
   # remains the sole updater for queued PRs (no O(N^2) storms or queue ejections).
   update-prs:
@@ -15,6 +19,7 @@ jobs:
     steps:
       - name: Create short-lived GitHub App token
         id: app-token
+        continue-on-error: true
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           client-id: ${{ vars.AUTO_UPDATE_APP_CLIENT_ID }}
@@ -27,7 +32,7 @@ jobs:
       - name: Update Open PRs with main
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
-          github-token: ${{ steps.app-token.outputs.token }}
+          github-token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
           script: |
             const prs = await github.paginate(github.rest.pulls.list, {
               owner: context.repo.owner,
@@ -64,6 +69,7 @@ jobs:
                 continue;
               }
 
+              // Check if PR is already in the merge queue
               const queueQuery = `
                 query($owner: String!, $repo: String!, $number: Int!) {
                   repository(owner: $owner, name: $repo) {

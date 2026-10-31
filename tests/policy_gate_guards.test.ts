@@ -1004,4 +1004,36 @@ describe("rewritten wrapper", () => {
     expect(res.stdout).toContain("Policy gate passed");
     expect(res.stdout).not.toContain("(d) CHANGELOG");
   });
+
+  it("allows zero-touch merge for pure documentation PRs (#2555)", () => {
+    // A pure documentation PR modifying only docs/ passes without
+    // issue reference (a), lane label (b), hashtag (c), changelog (d), or process doc line (h).
+    runGit(tempRepoDir, ["checkout", "main"]);
+    runGit(tempRepoDir, ["checkout", "-b", "branch-pure-docs"]);
+    fs.mkdirSync(path.join(tempRepoDir, "docs", "agentic-org"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tempRepoDir, "docs", "agentic-org", "platforms.md"),
+      "# Platforms\n\nDocs content update without code or ceremony.\n"
+    );
+    runGit(tempRepoDir, ["add", "-A"]);
+    runGit(tempRepoDir, ["commit", "-m", "docs: update platforms documentation"]);
+    const docsHead = runGit(tempRepoDir, ["rev-parse", "HEAD"]);
+
+    const res = runPolicyGate(
+      {
+        PR_TITLE: "Create docs/agentic-org/platforms.md",
+        PR_BODY: "Adding platforms documentation.",
+        PR_LABELS: "",
+      },
+      ["--base", "main", "--head", docsHead]
+    );
+
+    expect(res.status).toBe(0);
+    expect(res.stdout).toContain("Policy gate passed");
+    expect(res.stdout).not.toContain("(a) linked issue");
+    expect(res.stdout).not.toContain("(b) lane label");
+    expect(res.stdout).not.toContain("(c) agent hashtag");
+    expect(res.stdout).not.toContain("(d) CHANGELOG");
+    expect(res.stdout).not.toContain("(h) process documentation");
+  });
 });
