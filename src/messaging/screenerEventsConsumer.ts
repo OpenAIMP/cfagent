@@ -30,9 +30,10 @@
  * in src/server.ts (dispatchOptionsAnalysisQueueWork); this
  * handler is a thin adapter over the injected dispatch seam, so
  * the rule is never duplicated. The legacy non-envelope
- * `taskType` shape is a deprecated wrapper in server.ts (its
- * successor is the envelope work item routed here) — never
- * deleted, per the no-deletion rule.
+ * `taskType` shape is a deprecated wrapper in server.ts,
+ * superseded by CloudEvents envelope work items routed through
+ * this QueuePort consumer — never deleted, per the
+ * no-deletion rule.
  */
 import {
   type ConsumeOutcome,
