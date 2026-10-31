@@ -388,7 +388,7 @@ export function OptionsStrategyCard({
           </div>
           <svg className="options-payoff-svg" viewBox="0 0 400 80" preserveAspectRatio="none">
             {/* Zero Line */}
-            <line x1="0" y1="40" x2="400" y2="40" stroke="var(--color-border-medium, #4b5563)" strokeDasharray="3 3" strokeWidth="1" />
+            <line x1="0" y1="40" x2="400" y2="40" stroke="var(--color-border-medium)" strokeDasharray="3 3" strokeWidth="1" />
             {/* PnL Line */}
             {(() => {
               const maxVal = Math.max(...payoffPoints.map((p) => Math.abs(p.pnl)), 100);
@@ -401,7 +401,7 @@ export function OptionsStrategyCard({
                 <polyline
                   points={coords.join(" ")}
                   fill="none"
-                  stroke="var(--color-accent, #06b6d4)"
+                  stroke="var(--color-accent)"
                   strokeWidth="2.5"
                 />
               );

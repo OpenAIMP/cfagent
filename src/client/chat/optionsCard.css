@@ -9,7 +9,7 @@
   border: 1px solid var(--color-border-subtle);
   background: var(--color-surface);
   overflow: hidden;
-  box-shadow: var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.1));
+  box-shadow: var(--shadow-sm);
 }
 
 .options-card-header {
@@ -32,19 +32,19 @@
 }
 
 .options-card-icon {
-  font-size: var(--font-size-h4, 1.25rem);
+  font-size: var(--font-size-title, 1.25rem);
   line-height: 1;
 }
 
 .options-strategy-name {
   font-weight: 700;
-  font-size: var(--font-size-body, 0.9375rem);
+  font-size: var(--font-size-body, 0.875rem);
   color: var(--color-text-primary);
 }
 
 .options-underlying-symbol {
   font-family: var(--font-mono, monospace);
-  font-size: var(--font-size-small, 0.8125rem);
+  font-size: var(--font-size-body-sm, 0.8125rem);
   padding: var(--space-0-5) var(--space-1-5);
   background: var(--color-surface-raised);
   border: 1px solid var(--color-border-subtle);
@@ -53,7 +53,7 @@
 }
 
 .options-underlying-price {
-  font-size: var(--font-size-small, 0.8125rem);
+  font-size: var(--font-size-body-sm, 0.8125rem);
   font-weight: 600;
   color: var(--color-text-primary);
 }
@@ -85,7 +85,7 @@
 }
 
 .options-metric-label {
-  font-size: var(--font-size-micro, 0.6875rem);
+  font-size: var(--font-size-micro, 0.65rem);
   font-weight: 600;
   text-transform: uppercase;
   color: var(--color-text-dim);
@@ -93,22 +93,22 @@
 }
 
 .options-metric-value {
-  font-size: var(--font-size-small, 0.875rem);
+  font-size: var(--font-size-body-sm, 0.8125rem);
   font-weight: 700;
   font-family: var(--font-mono, monospace);
   color: var(--color-text-primary);
 }
 
 .options-metric-value.profit {
-  color: var(--color-success, #10b981);
+  color: var(--color-success);
 }
 
 .options-metric-value.loss {
-  color: var(--color-danger, #ef4444);
+  color: var(--color-danger);
 }
 
 .options-metric-value.credit {
-  color: var(--color-accent, #06b6d4);
+  color: var(--color-accent);
 }
 
 /* Greeks Bar */
@@ -119,7 +119,7 @@
   padding: var(--space-1-5) var(--space-3);
   background: var(--color-surface-raised);
   border-bottom: 1px solid var(--color-border-subtle);
-  font-size: var(--font-size-small, 0.8125rem);
+  font-size: var(--font-size-body-sm, 0.8125rem);
   font-family: var(--font-mono, monospace);
   color: var(--color-text-muted);
   flex-wrap: wrap;
@@ -135,7 +135,7 @@
 }
 
 .options-legs-title {
-  font-size: var(--font-size-micro, 0.6875rem);
+  font-size: var(--font-size-micro, 0.65rem);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -146,14 +146,14 @@
 .options-legs-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: var(--font-size-small, 0.8125rem);
+  font-size: var(--font-size-body-sm, 0.8125rem);
 }
 
 .options-legs-table th {
   text-align: left;
   padding: var(--space-1) var(--space-2);
   color: var(--color-text-dim);
-  font-size: var(--font-size-micro, 0.6875rem);
+  font-size: var(--font-size-micro, 0.65rem);
   text-transform: uppercase;
   border-bottom: 1px solid var(--color-border-subtle);
 }
@@ -165,12 +165,12 @@
 }
 
 .options-side-buy {
-  color: var(--color-success, #10b981);
+  color: var(--color-success);
   font-weight: 700;
 }
 
 .options-side-sell {
-  color: var(--color-danger, #ef4444);
+  color: var(--color-danger);
   font-weight: 700;
 }
 
@@ -185,7 +185,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: var(--font-size-micro, 0.6875rem);
+  font-size: var(--font-size-micro, 0.65rem);
   color: var(--color-text-dim);
   margin-bottom: var(--space-1);
 }
@@ -227,6 +227,6 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  font-size: var(--font-size-small, 0.8125rem);
+  font-size: var(--font-size-body-sm, 0.8125rem);
   color: var(--color-text-muted);
 }

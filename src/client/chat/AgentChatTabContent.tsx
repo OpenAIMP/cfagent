@@ -195,7 +195,7 @@ export function AgentChatTabContent({
       {activeView === "options" && (
         <div className="options-copilot-banner">
           <div className="options-copilot-info">
-            <span style={{ fontSize: "1.1rem" }}>🎯</span>
+            <span style={{ fontSize: "var(--font-size-title-sm)" }}>🎯</span>
             <div>
               <strong style={{ color: "var(--color-text-primary)" }}>Options Copilot Active:</strong>{" "}
               <span>Queries generate structured strategy cards with multi-leg execution plans, Greeks, and interactive payoff visualizers.</span>
