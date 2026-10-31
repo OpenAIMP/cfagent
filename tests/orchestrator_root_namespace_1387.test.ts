@@ -4,27 +4,23 @@
  * The agents SDK resolves sub-agents through `ctx.exports`, keyed by the
  * parent's `constructor.name`: OrchestratorAgent's `runAgentTool` requires
  * `ctx.exports["OrchestratorAgent"]` to expose `idFromName`. This repo
- * exported the class ONLY as `SearchAgent` and bound ONLY SEARCH_AGENT,
- * so every Think dispatch from OrchestratorAgent threw the SDK's
- * "Sub-agent bootstrap requires the root agent class" error.
+ * originally exported the class ONLY as `SearchAgent` and bound ONLY
+ * SEARCH_AGENT, so every Think dispatch from OrchestratorAgent threw the
+ * SDK's "Sub-agent bootstrap requires the root agent class" error.
  *
- * The fix keeps the SearchAgent alias (the live orchestrator address;
- * its stored state must not move) and ADDS the own-name export, the
- * ORCHESTRATOR_AGENT binding, and a migration covering the new class.
- * This suite pins all three plus the alias preservation, reading the
- * entrypoint and wrangler.jsonc as text (same idiom as
- * tests/kv_bindings_removed.test.ts).
- *
- * Transitional state (#2330, Agent Mesh S2-A; gate record #2326): the
- * two-deploy G0 rename tombstones the v9 namespace first (migration
- * v14, deleted_classes). Following the legacy Delete-migration
- * procedure, Deploy A removes the ORCHESTRATOR_AGENT binding and the
- * own-name export, so those two pins below assert the TRANSITIONAL
- * shape (binding absent + v14 tombstone present; own-name export
- * absent) until Deploy B renames SearchAgent → OrchestratorAgent and
- * restores both. The alias-preservation pin and the v9 migration
- * history pin are unchanged — v9 stays in the append-only migrations
- * array as the record of how the namespace was created.
+ * Final state (#2523, Agent Mesh S2-B; gate record #2326): the two-deploy
+ * G0 rename is complete. Migration v14 (#2330, Deploy A) tombstoned the
+ * colliding v9 OrchestratorAgent namespace (deleted_classes), and
+ * migration v15 renames the SEARCH_AGENT namespace onto OrchestratorAgent
+ * (renamed_classes) — the binding name is unchanged, its class_name is
+ * now OrchestratorAgent, the SearchAgent export alias is retired, and
+ * the own-name export is restored, so root resolution works against the
+ * renamed namespace (whose instance names — logins — and stored state
+ * carried over). The ORCHESTRATOR_AGENT binding is NOT re-added: the
+ * rename itself gives the class its namespace back. This suite pins the
+ * final shape, reading the entrypoint and wrangler.jsonc as text (same
+ * idiom as tests/kv_bindings_removed.test.ts). The v9 and v14 migration
+ * entries stay in the append-only migrations array as history.
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
@@ -68,41 +64,50 @@ const wrangler = JSON.parse(
     tag: string;
     new_sqlite_classes?: string[];
     deleted_classes?: string[];
+    renamed_classes?: Array<{ from: string; to: string }>;
   }>;
 };
 
 describe("OrchestratorAgent root namespace (issue #1387)", () => {
-  it("server.ts does NOT export OrchestratorAgent under its own name during the A→B window (#2330 transitional)", () => {
-    // Pre-#2330 this pin asserted the opposite: the own-name export
-    // existed so the SDK could look up ctx.exports by constructor
-    // name. Deploy A removed it — legacy Delete-migration procedure
-    // step 2 (remove references to the deleted class name from the
-    // Worker code) — together with the v14 tombstone of its
-    // namespace. Deploy B restores the export with the rename, and
-    // this pin flips back. The alias line
+  it("server.ts exports OrchestratorAgent under its own name (restored by #2523)", () => {
+    // The SDK looks the root class up in ctx.exports by constructor
+    // name, so the own-name export must exist. Deploy A (#2330) removed
+    // it temporarily (legacy Delete-migration procedure step 2) while
+    // the v9 namespace was tombstoned; Deploy B restores it with the
+    // rename. The retired alias line
     // `export { OrchestratorAgent as SearchAgent }` must NOT satisfy
-    // the pattern either way (it names a different export).
-    expect(serverTs).not.toMatch(
+    // this pattern (it names a different export).
+    expect(serverTs).toMatch(
       /export\s*\{\s*OrchestratorAgent\s*(as\s+OrchestratorAgent\s*)?\}/
     );
   });
 
-  it("the SearchAgent alias is preserved (live orchestrator address + state)", () => {
-    expect(serverTs).toContain(
+  it("the SearchAgent alias is retired and SEARCH_AGENT now binds class_name OrchestratorAgent (#2523)", () => {
+    expect(serverTs).not.toContain(
       "export { OrchestratorAgent as SearchAgent }"
     );
     expect(
       wrangler.durable_objects.bindings.some(
-        (b) => b.name === "SEARCH_AGENT" && b.class_name === "SearchAgent"
+        (b) =>
+          b.name === "SEARCH_AGENT" && b.class_name === "OrchestratorAgent"
       )
     ).toBe(true);
   });
 
-  it("wrangler.jsonc no longer binds ORCHESTRATOR_AGENT, and migration v14 tombstones the class (#2330 transitional)", () => {
-    // Legacy Delete-migration procedure step 1: remove the binding in
-    // the same change as the deleted_classes entry. Deploy B does not
-    // re-add this binding — the rename gives the class its namespace
-    // back under the SEARCH_AGENT binding instead.
+  it("migration v15 renames SearchAgent → OrchestratorAgent and is the last migration", () => {
+    const v15 = wrangler.migrations.find((m) => m.tag === "v15");
+    expect(v15).toBeDefined();
+    expect(v15!.renamed_classes ?? []).toEqual([
+      { from: "SearchAgent", to: "OrchestratorAgent" },
+    ]);
+    expect(wrangler.migrations[wrangler.migrations.length - 1].tag).toBe(
+      "v15"
+    );
+  });
+
+  it("wrangler.jsonc does not re-add ORCHESTRATOR_AGENT, and migration v14 still tombstones the v9 class (#2330 history)", () => {
+    // Deploy B does not re-add this binding — the rename gives the
+    // class its namespace back under the SEARCH_AGENT binding instead.
     expect(
       wrangler.durable_objects.bindings.some(
         (b) => b.name === "ORCHESTRATOR_AGENT"

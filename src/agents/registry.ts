@@ -153,9 +153,9 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     role: "Primary conversational agent: chat turns, the MAS tool surface, NLQ and goal/chain execution; owns the mas_* SQL ledger the fleet reads from.",
     status: "live",
     statusReason:
-      "Bound on SEARCH_AGENT + ORCHESTRATOR_AGENT and routed for every chat turn; no recorded degradation.",
+      "Bound on SEARCH_AGENT (class OrchestratorAgent since migration v15, #2523) and routed for every chat turn; no recorded degradation.",
     notes:
-      "Exported from src/server.ts under the legacy alias SearchAgent (the SEARCH_AGENT binding's class_name). Service and A2A addressing uses the shared orchestrator instance. TRANSITIONAL (Agent Mesh S2 two-deploy rename, gate record #2326): the v9 ORCHESTRATOR_AGENT namespace — this class's own-name registration, created for #1387 sub-agent root resolution — is tombstoned by migration v14 (#2330, Deploy A: binding and own-name export removed per the legacy Delete-migration procedure). Deploy B renames this SEARCH_AGENT namespace onto OrchestratorAgent (renamed_classes) and restores the own-name export. During the A→B window, ctx.exports[\"OrchestratorAgent\"] root resolution is unavailable by design (accepted cost, #2326).",
+      "Exported from src/server.ts under its own name, OrchestratorAgent (the SEARCH_AGENT binding's class_name since migration v15). Service and A2A addressing uses the shared orchestrator instance. The G0 rename (Agent Mesh S2 two-deploy rename, gate record #2326) is complete: migration v14 (#2330, Deploy A) tombstoned the colliding v9 own-name namespace — the registration created for #1387 sub-agent root resolution — and migration v15 (#2523, Deploy B) renamed this SEARCH_AGENT namespace onto OrchestratorAgent via renamed_classes, so the class's own-name namespace is the renamed namespace, instance names (logins) and stored state carried over, the SearchAgent export alias is retired, and ctx.exports[\"OrchestratorAgent\"] root resolution is restored.",
   },
   {
     className: "ResearchAgent",
@@ -1981,14 +1981,8 @@ export const MESH_NON_RENAMES: MeshNonRenameEntry[] = [
   {
     names: ["SearchAgent", "SearchHub", "SearchAgentTab"],
     decision:
-      "Recorded non-rename: SearchHub and SearchAgentTab (src/client/search/) are UI names for the /search/agent REST surface — a different thing from the SearchAgent Durable Object class (the orchestrator's export alias). Neither side is renamed for the other.",
+      "Recorded non-rename: SearchHub and SearchAgentTab (src/client/search/) are UI names for the /search/agent REST surface — a different thing from the orchestrator Durable Object class (OrchestratorAgent since the #2523 rename; SearchAgent before it). Neither side is renamed for the other.",
     source: "mesh survey §5",
-  },
-  {
-    names: ["SearchAgent", "OrchestratorAgent"],
-    decision:
-      "SearchAgent remains the export alias of OrchestratorAgent in src/server.ts (the SEARCH_AGENT binding's class_name) until Deploy B of the S2 two-deploy rename lands. The direct rename was proven unsafe (#2326 verdict: the renamed_classes target collides with the v9 OrchestratorAgent registration — tombstone_renamed_to_occupied), and the owner chose the two-deploy path: Deploy A (#2330) tombstones the v9 namespace (migration v14, binding + own-name export removed), then Deploy B renames this namespace onto OrchestratorAgent. This record retires when Deploy B lands.",
-    source: "mesh survey §5; #2326 verdict + owner decision",
   },
 ];
 

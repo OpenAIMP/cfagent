@@ -256,20 +256,23 @@ import {
   MarketCapCategory,
   AssetClassCategory,
 } from "./trading";
-export { OrchestratorAgent as SearchAgent } from "./agents/orchestrator";
+export { OrchestratorAgent } from "./agents/orchestrator";
 // Issue #1387 — the agents SDK resolves sub-agent roots through
-// ctx.exports by constructor.name, so OrchestratorAgent was ALSO
-// exported under its own name (the SearchAgent alias above cannot
-// satisfy the root-namespace lookup), with its own namespace
-// (migration v9, ORCHESTRATOR_AGENT binding).
-// Issue #2330 (Agent Mesh S2-A, gate record #2326) — the two-deploy
-// G0 rename tombstones that v9 namespace first (migration v14,
-// deleted_classes): following the legacy Delete-migration procedure,
-// the binding AND this own-name export are removed in this step, so
-// sub-agent root resolution is unavailable until Deploy B renames
-// the SearchAgent namespace onto OrchestratorAgent and restores the
-// own-name export. The alias above stays throughout: it is the live
-// orchestrator address and its stored state must not move.
+// ctx.exports by constructor.name, so OrchestratorAgent is exported
+// under its own name: the root-namespace lookup requires
+// ctx.exports["OrchestratorAgent"] to expose idFromName.
+// Issue #2523 (Agent Mesh S2-B, gate record #2326) — the two-deploy
+// G0 rename is complete. Migration v14 (#2330, Deploy A) tombstoned
+// the colliding v9 OrchestratorAgent namespace (and, per the legacy
+// Delete-migration procedure, temporarily removed this own-name
+// export); migration v15 now renames the SEARCH_AGENT namespace
+// onto OrchestratorAgent (renamed_classes), so the SearchAgent
+// export alias is retired and this own-name export is restored. The
+// SEARCH_AGENT binding name is unchanged — only its class_name is
+// now OrchestratorAgent — so instance names (logins) and their
+// stored state carry over, the class's own-name namespace is the
+// renamed namespace, and sub-agent root resolution through
+// ctx.exports works again.
 // Issue #2230 — wrangler requires every bound DO class to be exported from
 // the entrypoint, otherwise `wrangler deploy` fails.
 export { TickerAgent, TICKER_INSTANCE_NAME } from "./agents/ticker-agent";

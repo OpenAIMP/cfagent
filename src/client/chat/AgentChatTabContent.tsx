@@ -51,7 +51,7 @@ export function AgentChatTabContent({
   const toast = useToast();
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const agent = useAgent({ agent: "SearchAgent", name: user.login });
+  const agent = useAgent({ agent: "OrchestratorAgent", name: user.login });
   const { messages, sendMessage, status, error, connectionError } = useAgentChat({ agent });
 
   const activeError = error || connectionError;
