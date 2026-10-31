@@ -488,6 +488,84 @@ function insertScheduledReportRow(
  * is on; the fields ride the caller's env object, whose full shape
  * is the worker Env.
  */
+/** Artifact fields a redelivery may backfill (issue #2528). */
+export const CANONICAL_ARTIFACT_BACKFILL_FIELDS = [
+  "pdfKey",
+  "pdfStatus",
+  "pdfError",
+  "xlsxKey",
+  "xlsxStatus",
+  "xlsxError",
+  "csvKey",
+  "csvStatus",
+  "csvError",
+  "reportUrl",
+  "scanRunId",
+] as const;
+
+/**
+ * Merge missing artifact fields from a redelivery body into a stored
+ * inline canonical body. Returns the merged body JSON, or null when
+ * nothing was missing (or either body is not a JSON object). Only
+ * fills empty/missing fields — an existing key, status, or error is
+ * never overwritten, and nested `report.result` fields are filled
+ * the same way when both sides carry that object.
+ */
+export function backfillArtifactKeys(
+  storedBodyJson: string,
+  redeliveryBody: unknown,
+): string | null {
+  let stored: Record<string, unknown>;
+  try {
+    const parsed: unknown = JSON.parse(storedBodyJson);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    stored = parsed as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  const incoming: Record<string, unknown> =
+    redeliveryBody && typeof redeliveryBody === "object" && !Array.isArray(redeliveryBody)
+      ? (redeliveryBody as Record<string, unknown>)
+      : {};
+  let changed = false;
+  const fill = (target: Record<string, unknown>, source: Record<string, unknown>) => {
+    for (const field of CANONICAL_ARTIFACT_BACKFILL_FIELDS) {
+      const existing = target[field];
+      const next = source[field];
+      if (next === undefined || next === null || next === "") continue;
+      // Monotonic per format (RCA v2b): missing fills, and a
+      // failed status may upgrade to generated on a successful
+      // redelivery — but a generated key/status is never
+      // overwritten or downgraded by a later failed attempt.
+      const statusUpgrade =
+        field.endsWith("Status") && existing === "failed" && next === "generated";
+      if ((existing === undefined || existing === null || existing === "") || statusUpgrade) {
+        target[field] = next;
+        changed = true;
+      }
+    }
+  };
+  fill(stored, incoming);
+  const storedResult =
+    stored.report && typeof stored.report === "object" && !Array.isArray(stored.report)
+      ? (stored.report as Record<string, unknown>)
+      : null;
+  const incomingResult =
+    incoming.report && typeof incoming.report === "object" && !Array.isArray(incoming.report)
+      ? (incoming.report as Record<string, unknown>)
+      : null;
+  if (storedResult && incomingResult) {
+    const nested = storedResult.result && typeof storedResult.result === "object" && !Array.isArray(storedResult.result)
+      ? (storedResult.result as Record<string, unknown>)
+      : null;
+    const incomingNested = incomingResult.result && typeof incomingResult.result === "object" && !Array.isArray(incomingResult.result)
+      ? (incomingResult.result as Record<string, unknown>)
+      : null;
+    if (nested && incomingNested) fill(nested, incomingNested);
+  }
+  return changed ? JSON.stringify(stored) : null;
+}
+
 export function storeReportAtGeneration(
   sql: SqlStorage,
   input: ScheduledReportInput,
@@ -510,6 +588,25 @@ export function storeReportAtGeneration(
           dedupeStatuses.aiSearch
         );
         if (row) {
+          // Issue #2528, slice 1: canonical artifact-key backfill
+          // on redelivery. A keyless first write must not freeze
+          // a row forever: fill ONLY fields that are missing on
+          // the stored inline body, from the redelivery input.
+          // Never overwrite an existing key/status, never touch
+          // R2-pointer rows (their body lives in R2, not here),
+          // and never fail the redelivery if the backfill fails.
+          if (!row.bodyR2Key) {
+            try {
+              const merged = backfillArtifactKeys(row.body, input.body);
+              if (merged) {
+                storePorts(sql).write.updateBody(id, merged);
+              }
+            } catch (err) {
+              console.warn(
+                `[scheduledReports] storeReportAtGeneration: artifact-key backfill failed for report ${id}: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            }
+          }
           // Record the deduped outcome before re-firing the legs,
           // so the row never carries a stale pre-#2347 (absent)
           // outcome after a redelivery.
