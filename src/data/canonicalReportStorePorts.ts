@@ -111,6 +111,12 @@ export interface CanonicalReportWritePort {
    *  dedupe record and the leg-settle updates both land here;
    *  the seam owns the read-modify-write merge. */
   updateFanoutOutcome(reportId: string, fanoutOutcomeJson: string): void;
+  /** Replace a row's inline body JSON (issue #2528, slice 1:
+   *  canonical artifact-key backfill on redelivery). The seam
+   *  owns the merge — it only fills fields that are missing —
+   *  and never calls this for R2-pointer rows, whose body
+   *  lives in the R2 object, not in this column. */
+  updateBody(reportId: string, bodyJson: string): void;
   /** A row's recorded fan-out outcome JSON, or null. */
   getFanoutOutcomeRaw(reportId: string): string | null;
   /** The coupled delete's row half (the seam deletes the R2
