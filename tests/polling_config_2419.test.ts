@@ -10,6 +10,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import {
   POLLING_CONFIG_DEFAULTS,
+  clampAutoRefreshIntervalS,
   resolvePollingConfig,
   resolvePollingConfigFromEnv,
   getPollingConfig,
@@ -30,6 +31,10 @@ describe("polling config (#2419)", () => {
       chatAutoRefreshFloorS: 5,
       goalTrackPollMs: 2_000,
       goalTrackDeadlineMs: 600_000,
+      autoRefreshIntervalOptionsS: [10, 15, 30, 60, 120, 300],
+      autoRefreshDefaultS: 15,
+      autoRefreshMinS: 10,
+      autoRefreshMaxS: 300,
     });
   });
 
@@ -56,6 +61,52 @@ describe("polling config (#2419)", () => {
     expect(resolved.optionsLatestPollMs).toBe(90_000);
     expect(resolved.chatAutoRefreshFloorS).toBe(8);
     expect(resolved.optionsFlowsPollMs).toBe(30_000);
+  });
+
+  it("resolves auto-refresh options from injected and env values (#2513)", () => {
+    const injected = resolvePollingConfig({
+      autoRefreshIntervalOptionsS: [20, 40],
+      autoRefreshDefaultS: 20,
+      autoRefreshMinS: 20,
+      autoRefreshMaxS: 40,
+    });
+    expect(injected.autoRefreshIntervalOptionsS).toEqual([20, 40]);
+    expect(injected.autoRefreshDefaultS).toBe(20);
+    expect(injected.autoRefreshMinS).toBe(20);
+    expect(injected.autoRefreshMaxS).toBe(40);
+
+    const fromEnv = resolvePollingConfigFromEnv({
+      AUTO_REFRESH_INTERVAL_OPTIONS_S: "10,30,90",
+      AUTO_REFRESH_DEFAULT_S: "30",
+      AUTO_REFRESH_MIN_S: "10",
+      AUTO_REFRESH_MAX_S: "90",
+    });
+    expect(fromEnv.autoRefreshIntervalOptionsS).toEqual([10, 30, 90]);
+    expect(fromEnv.autoRefreshDefaultS).toBe(30);
+    expect(fromEnv.autoRefreshMinS).toBe(10);
+    expect(fromEnv.autoRefreshMaxS).toBe(90);
+
+    const invalid = resolvePollingConfig({
+      autoRefreshIntervalOptionsS: "not-a-list",
+      autoRefreshDefaultS: -1,
+      autoRefreshMinS: 0,
+    });
+    expect(invalid.autoRefreshIntervalOptionsS).toEqual([10, 15, 30, 60, 120, 300]);
+    expect(invalid.autoRefreshDefaultS).toBe(15);
+    expect(invalid.autoRefreshMinS).toBe(10);
+  });
+
+  it("clamps auto-refresh intervals to the configured min/max (#2513)", () => {
+    expect(clampAutoRefreshIntervalS(5)).toBe(10);
+    expect(clampAutoRefreshIntervalS(15)).toBe(15);
+    expect(clampAutoRefreshIntervalS(600)).toBe(300);
+    expect(clampAutoRefreshIntervalS(45.7)).toBe(45);
+    expect(
+      clampAutoRefreshIntervalS(100, {
+        autoRefreshMinS: 20,
+        autoRefreshMaxS: 40,
+      }),
+    ).toBe(40);
   });
 
   it("reads the server-injected window config, else defaults", () => {

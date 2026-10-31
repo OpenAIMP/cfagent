@@ -1,5 +1,8 @@
 /**
  * Issue #2419 — externalized polling cadences (AOP).
+ * Issue #2513 — auto-refresh interval options externalized here too
+ * (previously a hardcoded pill list in ETradeDynamicMenu.tsx and a
+ * standalone 15s constant in autoRefresh.ts).
  *
  * Every tunable in the polling migration resolves through here. The
  * server injects window.__POLLING_CONFIG__ at app boot from wrangler
@@ -31,6 +34,14 @@ export interface PollingConfig {
   goalTrackPollMs: number;
   /** Goal staged-run tracking absolute deadline. */
   goalTrackDeadlineMs: number;
+  /** Auto-refresh cadence pill options offered by the dynamic panel, in seconds. */
+  autoRefreshIntervalOptionsS: number[];
+  /** Default auto-refresh interval, in seconds, when no tenant value is stored. */
+  autoRefreshDefaultS: number;
+  /** Minimum auto-refresh interval the server accepts, in seconds. */
+  autoRefreshMinS: number;
+  /** Maximum auto-refresh interval the server accepts, in seconds. */
+  autoRefreshMaxS: number;
 }
 
 export const POLLING_CONFIG_DEFAULTS: PollingConfig = {
@@ -42,9 +53,16 @@ export const POLLING_CONFIG_DEFAULTS: PollingConfig = {
   chatAutoRefreshFloorS: 5,
   goalTrackPollMs: 2_000,
   goalTrackDeadlineMs: 600_000,
+  autoRefreshIntervalOptionsS: [10, 15, 30, 60, 120, 300],
+  autoRefreshDefaultS: 15,
+  autoRefreshMinS: 10,
+  autoRefreshMaxS: 300,
 };
 
-const ENV_KEYS: Record<keyof PollingConfig, keyof PollingEnvVars> = {
+const ENV_KEYS: Record<
+  Exclude<keyof PollingConfig, "autoRefreshIntervalOptionsS">,
+  keyof PollingEnvVars
+> = {
   quotesRestFallbackMs: "QUOTES_REST_FALLBACK_MS",
   quotesWsReconnectBaseMs: "QUOTES_WS_RECONNECT_BASE_MS",
   quotesWsReconnectCapMs: "QUOTES_WS_RECONNECT_CAP_MS",
@@ -53,6 +71,9 @@ const ENV_KEYS: Record<keyof PollingConfig, keyof PollingEnvVars> = {
   chatAutoRefreshFloorS: "CHAT_AUTO_REFRESH_FLOOR_S",
   goalTrackPollMs: "GOAL_TRACK_POLL_MS",
   goalTrackDeadlineMs: "GOAL_TRACK_DEADLINE_MS",
+  autoRefreshDefaultS: "AUTO_REFRESH_DEFAULT_S",
+  autoRefreshMinS: "AUTO_REFRESH_MIN_S",
+  autoRefreshMaxS: "AUTO_REFRESH_MAX_S",
 };
 
 /** Wrangler vars (string values) that map onto the polling config. */
@@ -65,6 +86,11 @@ export interface PollingEnvVars {
   CHAT_AUTO_REFRESH_FLOOR_S?: unknown;
   GOAL_TRACK_POLL_MS?: unknown;
   GOAL_TRACK_DEADLINE_MS?: unknown;
+  /** Comma-separated seconds, e.g. "10,15,30,60,120,300". */
+  AUTO_REFRESH_INTERVAL_OPTIONS_S?: unknown;
+  AUTO_REFRESH_DEFAULT_S?: unknown;
+  AUTO_REFRESH_MIN_S?: unknown;
+  AUTO_REFRESH_MAX_S?: unknown;
 }
 
 function toPositiveNumber(value: unknown): number | null {
@@ -73,14 +99,37 @@ function toPositiveNumber(value: unknown): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+/** Parse an auto-refresh options value (comma-separated string or number array) into positive whole seconds, or null when unusable. */
+function toPositiveSecondOptions(value: unknown): number[] | null {
+  const parts =
+    typeof value === "string"
+      ? value.split(",")
+      : Array.isArray(value)
+        ? value
+        : null;
+  if (!parts) return null;
+  const parsed = parts
+    .map((part) => (typeof part === "string" ? Number(part.trim()) : part))
+    .filter(
+      (n): n is number =>
+        typeof n === "number" && Number.isFinite(n) && n > 0 && Number.isInteger(n),
+    );
+  return parsed.length > 0 ? parsed : null;
+}
+
 /** Resolve a partial config object (injected values) over the defaults. */
 export function resolvePollingConfig(raw?: Record<string, unknown> | null): PollingConfig {
-  const out: PollingConfig = { ...POLLING_CONFIG_DEFAULTS };
+  const out: PollingConfig = {
+    ...POLLING_CONFIG_DEFAULTS,
+    autoRefreshIntervalOptionsS: [...POLLING_CONFIG_DEFAULTS.autoRefreshIntervalOptionsS],
+  };
   if (!raw) return out;
-  (Object.keys(POLLING_CONFIG_DEFAULTS) as (keyof PollingConfig)[]).forEach((key) => {
+  (Object.keys(ENV_KEYS) as (keyof PollingConfig)[]).forEach((key) => {
     const value = toPositiveNumber(raw[key]);
-    if (value !== null) out[key] = value;
+    if (value !== null) (out as unknown as Record<string, unknown>)[key] = value;
   });
+  const options = toPositiveSecondOptions(raw.autoRefreshIntervalOptionsS);
+  if (options !== null) out.autoRefreshIntervalOptionsS = options;
   return out;
 }
 
@@ -88,11 +137,19 @@ export function resolvePollingConfig(raw?: Record<string, unknown> | null): Poll
 export function resolvePollingConfigFromEnv(
   env?: PollingEnvVars | null,
 ): PollingConfig {
-  if (!env) return { ...POLLING_CONFIG_DEFAULTS };
+  if (!env) {
+    return {
+      ...POLLING_CONFIG_DEFAULTS,
+      autoRefreshIntervalOptionsS: [...POLLING_CONFIG_DEFAULTS.autoRefreshIntervalOptionsS],
+    };
+  }
   const raw: Record<string, unknown> = {};
-  (Object.keys(ENV_KEYS) as (keyof PollingConfig)[]).forEach((key) => {
-    raw[key] = env[ENV_KEYS[key]];
+  (
+    Object.entries(ENV_KEYS) as [keyof PollingConfig, keyof PollingEnvVars][]
+  ).forEach(([key, envKey]) => {
+    raw[key] = env[envKey];
   });
+  raw.autoRefreshIntervalOptionsS = env.AUTO_REFRESH_INTERVAL_OPTIONS_S;
   return resolvePollingConfig(raw);
 }
 
@@ -102,11 +159,22 @@ declare global {
   }
 }
 
+/** Clamp an auto-refresh interval (seconds) to the configured min/max. Used by the server POST handler so the UI's 300s cap is enforced, not just offered. */
+export function clampAutoRefreshIntervalS(
+  intervalS: number,
+  config: Pick<PollingConfig, "autoRefreshMinS" | "autoRefreshMaxS"> = POLLING_CONFIG_DEFAULTS,
+): number {
+  return Math.min(config.autoRefreshMaxS, Math.max(config.autoRefreshMinS, Math.floor(intervalS)));
+}
+
 /** Read the server-injected boot config, or the defaults when absent. */
 export function getPollingConfig(): PollingConfig {
   const injected = (globalThis as { window?: Window }).window?.__POLLING_CONFIG__;
   if (injected && typeof injected === "object") {
     return resolvePollingConfig(injected as Record<string, unknown>);
   }
-  return { ...POLLING_CONFIG_DEFAULTS };
+  return {
+    ...POLLING_CONFIG_DEFAULTS,
+    autoRefreshIntervalOptionsS: [...POLLING_CONFIG_DEFAULTS.autoRefreshIntervalOptionsS],
+  };
 }

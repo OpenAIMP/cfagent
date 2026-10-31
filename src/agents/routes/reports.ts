@@ -31,6 +31,12 @@ import { createCanonicalReportStorePorts } from "../../data/createCanonicalRepor
 import { createOrchestratorTablePorts } from "../../data/createOrchestratorTablePorts";
 import { runCanonicalIndexBackfillPage } from "../../services/reportSemanticIndex";
 import { unauthenticatedResponse } from "./routeIdentity";
+import {
+  POLLING_CONFIG_DEFAULTS,
+  clampAutoRefreshIntervalS,
+  resolvePollingConfigFromEnv,
+  type PollingEnvVars,
+} from "../../pollingConfig";
 
 /** The subset of OrchestratorAgent surface the reports/HITL handlers need. */
 export interface ReportsRouteContext {
@@ -344,10 +350,19 @@ export async function handleReportsRoutes(
         if (!body || typeof body.enabled !== "boolean") {
           return Response.json({ error: "enabled (boolean) is required." }, { status: 400 });
         }
-        const intervalS =
+        // Issue #2513 — clamp to the configured auto-refresh min/max
+        // (defaults 10/300s from pollingConfig) instead of accepting any
+        // finite interval > 0. When env config is unavailable, the
+        // defaults below are the fallback, per the task spec.
+        const polling = ctx.env
+          ? resolvePollingConfigFromEnv(ctx.env as unknown as PollingEnvVars)
+          : POLLING_CONFIG_DEFAULTS;
+        const storedIntervalS = (await adapter.getTenantAutoRefresh(tenantId)).intervalS;
+        const requestedIntervalS =
           typeof body.intervalS === "number" && Number.isFinite(body.intervalS) && body.intervalS > 0
             ? Math.floor(body.intervalS)
-            : (await adapter.getTenantAutoRefresh(tenantId)).intervalS;
+            : storedIntervalS;
+        const intervalS = clampAutoRefreshIntervalS(requestedIntervalS, polling);
         const record = await adapter.setTenantAutoRefresh(tenantId, {
           enabled: body.enabled,
           intervalS,
