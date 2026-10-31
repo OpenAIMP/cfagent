@@ -55,7 +55,7 @@ export interface CancelAllResult {
   pausedPreserved: number;
 }
 
-export type ClearableTable = "mas_async_jobs" | "mas_job_outcomes" | "paused_schedules";
+export type ClearableTable = "mas_async_jobs" | "mas_job_outcomes" | "mas_job_outcomes_meta" | "mas_events" | "paused_schedules";
 
 export interface ClearTablePreview {
   table: string;
@@ -392,4 +392,116 @@ export async function recreateTrack1(): Promise<RecreateResultItem[]> {
     }
   }
   return results;
+}
+
+/**
+ * Issue #2489 — selective wipe API.
+ *
+ * SQL rows reuse the existing per-table routes (cancel-all for the
+ * framework queue, clear-table for the rest, /clear purge for
+ * messages). KV rows go through ONE aggregate route call (gate
+ * checked once, safe order server-side, sessions last), because a
+ * per-call gate re-check after the memberships row would 403 every
+ * later row. mas_events needs the second confirmation (auditConfirm)
+ * on top of confirm — enforced server-side, not just in the UI.
+ */
+
+export type SelectiveSqlRow =
+  | "framework"
+  | "mas_async_jobs"
+  | "mas_job_outcomes"
+  | "mas_job_outcomes_meta"
+  | "mas_messages"
+  | "mas_events"
+  | "paused_schedules";
+
+export type SelectiveKvRow =
+  | "memberships"
+  | "tokens"
+  | "bindings"
+  | "marker"
+  | "sessions";
+
+export interface KvWipeRowResult {
+  row: string;
+  count: number;
+  coupled?: boolean;
+  error?: string;
+}
+
+function parseKvWipeRows(data: unknown): KvWipeRowResult[] {
+  if (!isRecord(data) || !Array.isArray(data.rows)) {
+    throw new Error("Malformed KV wipe response: rows must be an array");
+  }
+  return data.rows.map((item) => {
+    if (!isRecord(item)) {
+      throw new Error("Malformed KV wipe response: row must be an object");
+    }
+    return {
+      row: requireString(item.row, "row"),
+      count: requireNumber(item.count, "count"),
+      coupled: optionalBoolean(item.coupled),
+      error: optionalString(item.error),
+    };
+  });
+}
+
+export async function previewKvWipe(rows: SelectiveKvRow[]): Promise<KvWipeRowResult[]> {
+  const data = await postJson("/api/maintenance/kv-wipe", { rows });
+  return parseKvWipeRows(data);
+}
+
+export async function confirmKvWipe(rows: SelectiveKvRow[]): Promise<KvWipeRowResult[]> {
+  const data = await postJson("/api/maintenance/kv-wipe", { rows, confirm: true });
+  return parseKvWipeRows(data);
+}
+
+export async function confirmClearTableWithAudit(table: "mas_events"): Promise<ClearTableResult> {
+  const data = await postJson("/api/maintenance/clear-table", {
+    table,
+    confirm: true,
+    auditConfirm: true,
+  });
+  if (!isRecord(data) || data.confirmed !== true) {
+    throw new Error("Malformed clear-table result: confirmed must be true");
+  }
+  return {
+    table: requireString(data.table, "table"),
+    scope: requireString(data.scope, "scope"),
+    confirmed: true,
+    deleted: requireNumber(data.deleted, "deleted"),
+    skippedRunning: optionalNumber(data.skippedRunning),
+  };
+}
+
+export interface AuditExport {
+  count: number;
+  truncated: boolean;
+  events: Array<Record<string, unknown>>;
+}
+
+export async function exportAuditEvents(): Promise<AuditExport> {
+  const response = await apiFetch("/api/maintenance/events-export");
+  const data = await readJson(response);
+  if (!response.ok) {
+    const message = isRecord(data) && typeof data.error === "string" ? data.error : `Request failed: ${response.status}`;
+    throw new Error(message);
+  }
+  if (!isRecord(data) || !Array.isArray(data.events)) {
+    throw new Error("Malformed audit export: events must be an array");
+  }
+  return {
+    count: requireNumber(data.count, "count"),
+    truncated: data.truncated === true,
+    events: data.events.filter((e): e is Record<string, unknown> => isRecord(e)),
+  };
+}
+
+export async function purgeSessionMessages(): Promise<void> {
+  const response = await apiFetch("/api/clear?purge=true", { method: "POST" });
+  const data = await readJson(response);
+  if (!response.ok) {
+    const message = isRecord(data) && typeof data.error === "string" ? data.error : `Request failed: ${response.status}`;
+    throw new Error(message);
+  }
 }

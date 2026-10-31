@@ -225,9 +225,13 @@ const ORCH = "agents/orchestrator.ts";
  *  Issue #2482 adds the broker environment selection resolution
  *  (import + dispatcher binding + writeSetting on both broker
  *  contexts) — measured 2,726 lines / 127,725 B, so budget lines
- *  rise to 2735 and bytes rise to 128_250. */
-const BUDGET_LINES = 2735;
-const BUDGET_BYTES = 128_250;
+ *  rise to 2735 and bytes rise to 128_250.
+ *  Issue #2489 adds the KV wipe delegation (import + onRequest
+ *  early branch + routeRequest delegation, no logic in the class)
+ *  — measured 2745 lines / 128577 B, so budget lines rise to
+ *  2760 and bytes rise to 129_250. */
+const BUDGET_LINES = 2760;
+const BUDGET_BYTES = 129_250;
 
 const count = (haystack: string, needle: string) =>
   haystack.split(needle).length - 1;

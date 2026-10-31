@@ -201,7 +201,12 @@ export class SessionStore extends DurableObject<Env> {
     }
 
     const { op, ns, key } = body;
-    if (!op || !ns || !key) {
+    // Issue #2489: a list with an empty key lists the whole namespace
+    // (LIKE '%' — the offboarding path already passes "" for exactly
+    // this, and the selective wipe's sessions row needs it). Every
+    // other op still requires a key, and the namespace restriction
+    // below still applies, so this widens nothing about who may list.
+    if (!op || !ns || (op !== "list" && !key)) {
       return Response.json({ error: "op, ns and key are required" }, { status: 400 });
     }
 
@@ -218,15 +223,16 @@ export class SessionStore extends DurableObject<Env> {
         // lifecycle routes are admin- or self-gated; the values
         // returned are full session records, so no new list caller
         // may be added without a route-level gate review).
+        const listKey = key ?? "";
         const sessionsListAllowed = ns === "sessions";
-        const etradeListAllowed = ns === "etrade" && key.startsWith("etrade:token:");
+        const etradeListAllowed = ns === "etrade" && listKey.startsWith("etrade:token:");
         if (!sessionsListAllowed && !etradeListAllowed) {
           return Response.json({ error: "list is restricted to session entries and E*TRADE token entries" }, { status: 400 });
         }
         const measured = this.execCounted<{ key: string; value: string }>(
           STMT_LIST,
           ns,
-          `${key.replace(/[\\%_]/g, "\\$&")}%`,
+          `${listKey.replace(/[\\%_]/g, "\\$&")}%`,
           Date.now()
         );
         return Response.json({

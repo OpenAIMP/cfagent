@@ -63,8 +63,10 @@ describe("AdminQueueWipePanel", () => {
     expect(bodyText()).toContain("NASDAQ100");
     expect(bodyText()).toContain("SP100");
     expect(bodyText()).toContain("Paused");
-    // Scope honesty: own-instance only, no platform-wide wipe promised.
-    expect(bodyText()).toContain("own instance");
+    // Scope honesty: SQL rows wipe this instance; KV rows in the
+    // selective wipe are platform-wide (#2489).
+    expect(bodyText()).toContain("this instance only");
+    expect(bodyText()).toContain("platform-wide");
   });
 
   it("cancel-all runs preview, modal confirm, then verify-empty on re-fetch", async () => {
@@ -149,7 +151,8 @@ describe("AdminQueueWipePanel", () => {
       clickButton("Clear mas_async_jobs").click();
     });
     expect(bodyText()).toContain("Deleted 4 row(s)");
-    // Refused tables are named, not offered as actions.
+    // Refused tables are named, not offered as legacy per-table
+    // actions (mas_events is offered via the selective wipe instead).
     expect(bodyText()).toContain("mas_events");
     expect(bodyText()).not.toContain("Preview mas_events");
   });
