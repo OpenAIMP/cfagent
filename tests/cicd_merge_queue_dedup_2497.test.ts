@@ -1,5 +1,10 @@
 /**
- * CI/CD Optimization, Integrity, and Velocity Guards (#2497, #2499).
+ * CI/CD Optimization, Integrity, and Velocity Guards (#2497, #2499, merge_group shard tiering).
+ *
+ * Merge_group-only shard tiering: test-shard is split into test-shard-pr
+ * (parallel with fast-gates on pull_request) and test-shard-mq (needs
+ * fast-gates on merge_group); test-and-verify accepts exactly the dedup/docs,
+ * PR, and merge_group paths.
  *
  * Verifies:
  * 1. policy-gate.yml runs on both pull_request and merge_group and passes GH_TOKEN
@@ -57,6 +62,30 @@ describe("CI/CD Merge Queue + Policy Gate + Tree-Hash Deduplication (#2497, #249
     expect(gitleaksYml).toContain('gitleaks git --log-opts="${BASE_MERGE}..HEAD"');
     expect(gitleaksYml).toMatch(/^\s*schedule:\s*$/m);
     expect(gitleaksYml).not.toContain("uses: gitleaks/gitleaks-action@v2");
+  });
+
+  it("splits test-shard into PR and merge_group jobs with merge_group-only tiering", () => {
+    expect(ciYml).toContain("test-shard-pr:");
+    expect(ciYml).toContain("test-shard-mq:");
+    expect(ciYml).toContain("Tests PR (shard");
+    expect(ciYml).toContain("Tests MQ (shard");
+    // PR job stays parallel with fast-gates (needs load-environment only)
+    expect(ciYml).toMatch(/test-shard-pr:[\s\S]*?needs: \[load-environment\]/);
+    expect(ciYml).toContain("github.event_name != 'merge_group'");
+    // MQ job waits for fast-gates before burning 4 shard runners
+    expect(ciYml).toMatch(/test-shard-mq:[\s\S]*?needs: \[load-environment, fast-gates\]/);
+    expect(ciYml).toContain("github.event_name == 'merge_group'");
+    // Both jobs keep the tree-dedup skip and the shard matrix
+    expect(ciYml).toContain("needs.load-environment.outputs.tree_already_verified != 'true'");
+    // test-and-verify still reports the required name and accepts all three paths
+    expect(ciYml).toContain("needs: [load-environment, fast-gates, test-shard-pr, test-shard-mq]");
+    expect(ciYml).toContain("needs.test-shard-pr.result");
+    expect(ciYml).toContain("needs.test-shard-mq.result");
+    expect(ciYml).toContain("PR event: fast-gates and test-shard-pr passed");
+    expect(ciYml).toContain("merge_group event: fast-gates and test-shard-mq passed");
+    // Dedup anchor must still recognise the renamed shard jobs (otherwise
+    // every merge_group run would re-run the full suite instead of deduping)
+    expect(ciYml).toContain('Tests (PR|MQ)');
   });
 
   it("retires auto-update-prs-app.yml in place with if: false so Merge Queue is the sole updater", () => {
