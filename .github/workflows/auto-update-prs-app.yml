@@ -6,9 +6,12 @@ on:
       - main
 
 jobs:
+  # Deprecated in place (#2499, Policy Gate (i)/(j)): superseded by GitHub Merge Queue
+  # in protectmain ruleset 25543527. Disabled unconditionally (if: false) so it can never
+  # eject queued PRs or trigger O(N^2) rebase storms.
   update-prs:
     name: Update open PRs with main
-    if: vars.ENABLE_AUTO_UPDATE_PRS == 'true'
+    if: false
     runs-on: ubuntu-24.04
     steps:
       - name: Create short-lived GitHub App token

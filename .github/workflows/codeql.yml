@@ -1,12 +1,9 @@
 # CodeQL — static application security testing (SAST) for this repo.
 #
-# Issue #765 (RSI-InfoSec plan #764, P1 DevSecOps): until now the repo had
-# secret scanning (gitleaks + GitHub secret scanning) but no SAST — injection,
-# unsafe-data-flow, and similar classes were found by human review or not at
-# all. This workflow runs CodeQL's javascript-typescript analysis on every
-# pull request, on pushes to main, and weekly, and publishes results to the
-# repo's code-scanning tab, where the #766 bridge (security findings →
-# self-heal queue) will pick them up.
+# Issue #765 (RSI-InfoSec plan #764, P1 DevSecOps), updated in #2499:
+# Runs CodeQL's javascript-typescript analysis as an alert-only SAST gate on
+# code-touching pull requests and weekly on main, publishing results to the
+# repo's code-scanning tab (picked up by secops-findings-watch.yml).
 #
 # The workflow name matters: anything wired to workflow_run elsewhere must
 # match this `name:` exactly.
@@ -15,8 +12,10 @@ name: CodeQL
 on:
   pull_request:
     branches: [main]
-  push:
-    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "changelog.d/**"
+      - "*.md"
   merge_group:
   workflow_dispatch:
   schedule:
@@ -35,6 +34,8 @@ permissions:
 jobs:
   analyze:
     name: Analyze (javascript-typescript)
+    # Alert-only SAST (#2499): runs on code-touching PRs and weekly on main;
+    # skipped on merge_group so queue merges do not wait 2.5m on a non-required check.
     if: github.event_name != 'merge_group'
     runs-on: ubuntu-24.04
     steps:
