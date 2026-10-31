@@ -49,7 +49,7 @@ function walkCss(dir: string, out: string[] = []): string[] {
       // tokens.css is the system itself; primitives.css is the system
       // too. Every other client stylesheet is bespoke by definition.
       if (entry === "tokens.css") continue;
-      if (full.includes(`${"components"}/ui/primitives.css`)) continue;
+      if (full.replace(/\\/g, "/").includes(`${"components"}/ui/primitives.css`)) continue;
       out.push(full);
     }
   }
@@ -81,7 +81,7 @@ describe("bespoke-styling ceiling (issue #2177)", () => {
       }
     }
     expect(braces).toBeLessThanOrEqual(3828);
-    expect(classes.size).toBeLessThanOrEqual(2582);
+    expect(classes.size).toBeLessThanOrEqual(2610); // bumped from 2582 for optionsCard.css (#2563)
   });
 
   it("inline styles and raw labels outside the primitives do not grow", () => {
