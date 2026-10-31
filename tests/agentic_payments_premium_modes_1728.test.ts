@@ -599,8 +599,12 @@ describe("#1728 P-6 premium gating: tiers, envelopes, and the boundaries that do
 
   it("REST premium routes: mode=mcp returns the MCP envelope; unset returns the REST envelope", async () => {
     const { orm } = makeOrm("p6-route");
+    // Issue #2408: the route meters served calls through ctx.sql —
+    // the production host always supplies it (makePremiumRouteContext),
+    // so this route-level served expectation supplies it too.
     const routeCtx: any = {
       env: mockEnv,
+      sql: new MockSqlStorage(),
       getOrm: () => orm,
       getScreenerAgent: () => ({}) as any,
       persistScreenerReportCanonical: vi.fn(),
