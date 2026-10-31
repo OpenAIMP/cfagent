@@ -1,0 +1,2 @@
+### Security
+- CodeQL is now a required gate on merge_group: the `Analyze (javascript-typescript)` job no longer skips merge_group, so a CodeQL finding blocks a merge. The pull_request trigger was removed by design (CodeQL runs once per PR lifecycle, on the queue, plus weekly); CodeQL will not report on PR heads. A docs-only early-exit on merge_group preserves the docs fast path. Adding CodeQL to ruleset 25543527's required checks is a separate follow-up after this workflow is on main.
