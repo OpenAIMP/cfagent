@@ -80,6 +80,35 @@ describe("screenerOutcomeFromHttpJob", () => {
     expect(outcome).toMatchObject({ kind: "options", success: true, pdfKeys: ["options-pdf-9"], matchedCount: 3 });
   });
 
+  it("maps an options screen response carrying XLSX/CSV keys, statuses, and scanRunId", () => {
+    const body = JSON.stringify({
+      summary: "3 matched",
+      matchedCount: 3,
+      totalUnderlyingsScanned: 12,
+      pdfKey: "options-pdf-9",
+      pdfStatus: "generated",
+      xlsxKey: "options-xlsx-9",
+      xlsxStatus: "failed",
+      xlsxError: "workbook render failed",
+      csvKey: "options-csv-9",
+      csvStatus: "generated",
+      scanRunId: "scan-uuid-9",
+    });
+    const outcome = screenerOutcomeFromHttpJob("/api/trading/options/screen", 200, body);
+    expect(outcome).toMatchObject({
+      kind: "options",
+      success: true,
+      pdfKeys: ["options-pdf-9"],
+      pdfStatus: "generated",
+      xlsxKey: "options-xlsx-9",
+      xlsxStatus: "failed",
+      xlsxError: "workbook render failed",
+      csvKey: "options-csv-9",
+      csvStatus: "generated",
+      scanRunId: "scan-uuid-9",
+    });
+  });
+
   it("returns a failed outcome for a 502 screen response and null for unrelated paths", () => {
     const failed = screenerOutcomeFromHttpJob("/api/etrade/screen", 502, JSON.stringify({ error: "E*TRADE unavailable" }));
     expect(failed?.success).toBe(false);
