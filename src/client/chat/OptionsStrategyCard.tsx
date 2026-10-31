@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
+import { Table, type TableColumn } from "../components/ui/Table";
 import { useToast, type ToastApi } from "../components/ui/Toast";
 import "./optionsCard.css";
 
@@ -237,6 +238,60 @@ export function OptionsStrategyCard({
     return points;
   }, [strategy.payoffCurve, legs, underlyingPrice]);
 
+  const legColumns = useMemo<TableColumn<OptionsLegData>[]>(() => {
+    const cols: TableColumn<OptionsLegData>[] = [
+      {
+        key: "action",
+        header: "Action",
+        render: (leg) => {
+          const isBuy = (leg.side || leg.action || "BUY").toUpperCase().includes("BUY");
+          return (
+            <span className={isBuy ? "options-side-buy" : "options-side-sell"}>
+              {isBuy ? "BUY" : "SELL"}
+            </span>
+          );
+        },
+      },
+      {
+        key: "qty",
+        header: "Qty",
+        render: (leg) => leg.quantity || 1,
+      },
+      {
+        key: "strike",
+        header: "Strike",
+        render: (leg) => <strong>${Number(leg.strike).toFixed(2)}</strong>,
+      },
+      {
+        key: "type",
+        header: "Type",
+        render: (leg) => (
+          <Badge size="xs" uppercase tone={leg.optionType === "CALL" ? "success" : "danger"}>
+            {leg.optionType}
+          </Badge>
+        ),
+      },
+      {
+        key: "expiry",
+        header: "Expiry",
+        render: (leg) => leg.expiration || expirationDate || "—",
+      },
+      {
+        key: "limitPrice",
+        header: "Mark / Limit",
+        render: (leg) => (leg.limitPrice ? `$${Number(leg.limitPrice).toFixed(2)}` : "—"),
+      },
+    ];
+    if (legs.some((l) => l.delta !== undefined)) {
+      cols.push({
+        key: "delta",
+        header: "Delta",
+        render: (leg) => (leg.delta ? Number(leg.delta).toFixed(2) : "—"),
+      });
+    }
+    return cols;
+  }, [legs, expirationDate]);
+
   const handleCopyJson = () => {
     try {
       navigator.clipboard.writeText(JSON.stringify(data, null, 2));
@@ -339,43 +394,12 @@ export function OptionsStrategyCard({
       {legs.length > 0 && (
         <div className="options-legs-section">
           <div className="options-legs-title">Strategy Legs ({legs.length})</div>
-          <table className="options-legs-table">
-            <thead>
-              <tr>
-                <th>Action</th>
-                <th>Qty</th>
-                <th>Strike</th>
-                <th>Type</th>
-                <th>Expiry</th>
-                <th>Mark / Limit</th>
-                {legs.some((l) => l.delta !== undefined) && <th>Delta</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {legs.map((leg, idx) => {
-                const isBuy = (leg.side || leg.action || "BUY").toUpperCase().includes("BUY");
-                return (
-                  <tr key={idx}>
-                    <td className={isBuy ? "options-side-buy" : "options-side-sell"}>
-                      {isBuy ? "BUY" : "SELL"}
-                    </td>
-                    <td>{leg.quantity || 1}</td>
-                    <td><strong>${Number(leg.strike).toFixed(2)}</strong></td>
-                    <td>
-                      <Badge size="xs" uppercase tone={leg.optionType === "CALL" ? "success" : "danger"}>
-                        {leg.optionType}
-                      </Badge>
-                    </td>
-                    <td>{leg.expiration || expirationDate || "—"}</td>
-                    <td>{leg.limitPrice ? `$${Number(leg.limitPrice).toFixed(2)}` : "—"}</td>
-                    {legs.some((l) => l.delta !== undefined) && (
-                      <td>{leg.delta ? Number(leg.delta).toFixed(2) : "—"}</td>
-                    )}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <Table<OptionsLegData>
+            columns={legColumns}
+            rows={legs}
+            rowKey={(_leg, idx) => String(idx)}
+            className="options-legs-table"
+          />
         </div>
       )}
 
