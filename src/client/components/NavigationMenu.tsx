@@ -7,6 +7,8 @@ export { DEFAULT_VISIBLE_NAV_TABS };
 import { MarketStatusPill } from "./MarketStatusPill";
 import { adjustFontScale, getStoredFontScale } from "../typography";
 import { BRAND } from "../branding";
+import { LeftNavBar } from "./LeftNavBar";
+export { LeftNavBar };
 import { isTabFeatureEnabled } from "../featureFlags";
 
 export type NavTabId = RouteId;
@@ -33,7 +35,7 @@ export interface NavItemDef {
 }
 
 /** Nav item badge kinds -> Badge tones (#492). */
-const NAV_BADGE_TONES: Record<string, BadgeTone> = {
+export const NAV_BADGE_TONES: Record<string, BadgeTone> = {
   live: "danger",
   pro: "success",
   ai: "purple",
@@ -391,7 +393,7 @@ export const NavIcons = {
 };
 
 /** NavIcons key -> component (the route table carries keys, not components). */
-const NAV_ICON_MAP: Record<string, NavItemDef["icon"]> = {
+export const NAV_ICON_MAP: Record<string, NavItemDef["icon"]> = {
   Agents: NavIcons.Agents,
   Autopilot: NavIcons.Autopilot,
   Order: NavIcons.Order,
@@ -492,175 +494,14 @@ export function NavigationMenu({
   // 1. LEFT SIDEBAR LAYOUT
   if (layout === "left") {
     return (
-      <aside
-        className={`app-sidebar nextgentp-sidebar ${collapsed ? "collapsed" : ""}`}
-        aria-label="Sidebar Navigation"
-      >
-        {/* Brand Header */}
-        <div className="sidebar-brand-wrapper">
-          <div className="sidebar-brand" onClick={() => onSelectTab("autopilot")}>
-            <NavIcons.NextGenLogo />
-            {!collapsed && (
-              <div className="brand-text-block">
-                <span className="brand-main-title">{BRAND.name}</span>
-                <span className="brand-sub-badge">{BRAND.tagline}</span>
-              </div>
-            )}
-          </div>
-
-          {onToggleCollapse && (
-            <Button
-              variant="ghost"
-              className="sidebar-collapse-btn"
-              onClick={onToggleCollapse}
-              title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            >
-              {collapsed ? <NavIcons.ChevronRight /> : <NavIcons.ChevronLeft />}
-            </Button>
-          )}
-        </div>
-
-
-        {/* Navigation Categories and Items */}
-        <div className="sidebar-nav-scroll">
-          {/* Section: Execution */}
-          {!collapsed && <div className="sidebar-section-title">TRADING &amp; EXECUTION</div>}
-          <div className="sidebar-items-group">
-            {executionItems.map((item) => {
-              const active = isTabActive(item.id, activeTab);
-              const Icon = item.icon;
-              return (
-                <Button
-                  variant="ghost"
-                  key={item.id}
-                  className={`sidebar-nav-item ${active ? "active" : ""}`}
-                  onClick={() => onSelectTab(item.id)}
-                  title={`${item.label} — ${item.description}`}
-                >
-                  <span className="item-icon-wrapper">
-                    <Icon active={active} />
-                  </span>
-                  {!collapsed && <span className="item-label">{item.label}</span>}
-                  {!collapsed && item.badge && (
-                    <Badge size="sm" uppercase tone={NAV_BADGE_TONES[item.badgeType || "default"]}>
-                      {item.badge}
-                    </Badge>
-                  )}
-                    {!collapsed && item.id === "portfolio" && !!alertBadgeCount && alertBadgeCount > 0 && (
-                      <Badge size="sm" tone="danger" title={`${alertBadgeCount} unread broker alert(s)`}>
-                        🔔 {alertBadgeCount}
-                      </Badge>
-                    )}
-                  {active && <span className="active-pill-bar" />}
-                </Button>
-              );
-            })}
-          </div>
-
-          {/* Section: Intelligence */}
-          {!collapsed && <div className="sidebar-section-title">INTELLIGENCE &amp; COPILOT</div>}
-          <div className="sidebar-items-group">
-            {intelligenceItems.map((item) => {
-              const active = isTabActive(item.id, activeTab);
-              const Icon = item.icon;
-              return (
-                <Button
-                  variant="ghost"
-                  key={item.id}
-                  className={`sidebar-nav-item ${active ? "active" : ""}`}
-                  onClick={() => onSelectTab(item.id)}
-                  title={`${item.label} — ${item.description}`}
-                >
-                  <span className="item-icon-wrapper">
-                    <Icon active={active} />
-                  </span>
-                  {!collapsed && <span className="item-label">{item.label}</span>}
-                  {!collapsed && item.badge && (
-                    <Badge size="sm" tone={NAV_BADGE_TONES[item.badgeType || "default"]}>
-                      {item.badge}
-                    </Badge>
-                  )}
-                    {!collapsed && item.id === "portfolio" && !!alertBadgeCount && alertBadgeCount > 0 && (
-                      <Badge size="sm" tone="danger" title={`${alertBadgeCount} unread broker alert(s)`}>
-                        🔔 {alertBadgeCount}
-                      </Badge>
-                    )}
-                  {active && <span className="active-pill-bar" />}
-                </Button>
-              );
-            })}
-          </div>
-
-          {/* Section: Playbooks */}
-          {!collapsed && <div className="sidebar-section-title">PLAYBOOKS &amp; TOOLS</div>}
-          <div className="sidebar-items-group">
-            {playbookItems.map((item) => {
-              const active = isTabActive(item.id, activeTab);
-              const Icon = item.icon;
-              return (
-                <Button
-                  variant="ghost"
-                  key={item.id}
-                  className={`sidebar-nav-item ${active ? "active" : ""}`}
-                  onClick={() => onSelectTab(item.id)}
-                  title={`${item.label} — ${item.description}`}
-                >
-                  <span className="item-icon-wrapper">
-                    <Icon active={active} />
-                  </span>
-                  {!collapsed && <span className="item-label">{item.label}</span>}
-                  {!collapsed && item.badge && (
-                    <Badge size="sm" tone={NAV_BADGE_TONES[item.badgeType || "default"]}>
-                      {item.badge}
-                    </Badge>
-                  )}
-                    {!collapsed && item.id === "portfolio" && !!alertBadgeCount && alertBadgeCount > 0 && (
-                      <Badge size="sm" tone="danger" title={`${alertBadgeCount} unread broker alert(s)`}>
-                        🔔 {alertBadgeCount}
-                      </Badge>
-                    )}
-                  {active && <span className="active-pill-bar" />}
-                </Button>
-              );
-            })}
-          </div>
-
-          {/* Section: Platform */}
-          {!collapsed && <div className="sidebar-section-title">PLATFORM &amp; BILLING</div>}
-          <div className="sidebar-items-group">
-            {platformItems.map((item) => {
-              const active = isTabActive(item.id, activeTab);
-              const Icon = item.icon;
-              return (
-                <Button
-                  variant="ghost"
-                  key={item.id}
-                  className={`sidebar-nav-item ${active ? "active" : ""}`}
-                  onClick={() => onSelectTab(item.id)}
-                  title={`${item.label} — ${item.description}`}
-                >
-                  <span className="item-icon-wrapper">
-                    <Icon active={active} />
-                  </span>
-                  {!collapsed && <span className="item-label">{item.label}</span>}
-                  {!collapsed && item.badge && (
-                    <Badge size="sm" tone={NAV_BADGE_TONES[item.badgeType || "default"]}>
-                      {item.badge}
-                    </Badge>
-                  )}
-                    {!collapsed && item.id === "portfolio" && !!alertBadgeCount && alertBadgeCount > 0 && (
-                      <Badge size="sm" tone="danger" title={`${alertBadgeCount} unread broker alert(s)`}>
-                        🔔 {alertBadgeCount}
-                      </Badge>
-                    )}
-                  {active && <span className="active-pill-bar" />}
-                </Button>
-              );
-            })}
-          </div>
-        </div>
-      </aside>
+      <LeftNavBar
+        activeTab={activeTab}
+        onSelectTab={onSelectTab}
+        collapsed={collapsed}
+        onToggleCollapse={onToggleCollapse}
+        visibleTabs={visibleTabs}
+        alertBadgeCount={alertBadgeCount}
+      />
     );
   }
 
