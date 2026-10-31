@@ -1,22 +1,16 @@
-# Secret Scanning (gitleaks) — Assessment P0 item 3, OpenAIMP/cfagent issue #143.
+# Secret Scanning (gitleaks) — Assessment P0 item 3, OpenAIMP/cfagent issue #143, #2497.
 #
-# WHAT: scans every commit in the repository (full history) for secrets
-# committed by accident. Runs on push to main and on pull requests so
-# leaked credentials are caught before they merge.
+# WHAT: scans commits in the repository for secrets committed by accident.
+# Runs on push to main, pull requests, and merge_group so leaked credentials
+# are caught before they merge.
 #
-# INSTALL (owner, via the GitHub web UI — the assistant's integration cannot
-# write .github/workflows/, 403): create/overwrite .github/workflows/gitleaks.yml
-# with exactly this content and commit it to main. No new secrets.
-#
-# v2 FIX (2026-10-18): gitleaks-action@v2 reads process.env.GITHUB_TOKEN on the
-# pull_request path (ScanPullRequest) and hard-fails with "GITHUB_TOKEN is now
-# required to scan pull requests" when it is absent — push runs were green,
-# PR runs failed in ~1s. The env block below is REQUIRED; contents: read
-# permission on the workflow is sufficient (the token is only used to list
-# the PR's commits).
+# #2497 FIX: gitleaks/gitleaks-action@v2 requires a paid GITLEAKS_LICENSE secret
+# when running under a GitHub Organization account (e.g. Qunsultant/cfagent).
+# Using the official MIT-licensed open-source gitleaks release binary scans the
+# exact commit range in ~2s with zero paid license requirement.
 #
 # FINE-TUNING: if the scan flags false positives, add a .gitleaks.toml
-# allowlist at the repo root (see the gitleaks docs); the action picks it
+# allowlist at the repo root (see the gitleaks docs); gitleaks picks it
 # up automatically.
 
 name: Secret Scanning
@@ -43,12 +37,33 @@ jobs:
     name: Gitleaks secret scan
     runs-on: ubuntu-24.04
     steps:
-      - name: 📥 Checkout Repository (full history)
+      - name: 📥 Checkout Repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 50
 
-      - name: 🔎 Scan for secrets with Gitleaks
-        uses: gitleaks/gitleaks-action@v2
+      - name: 🔎 Scan for secrets with Gitleaks (OSS CLI)
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          GITLEAKS_VERSION="8.24.2"
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+
+          if [ "$EVENT_NAME" = "pull_request" ] || [ "$EVENT_NAME" = "merge_group" ]; then
+            git fetch origin main --depth=50 || true
+            BASE_MERGE=$(git merge-base origin/main HEAD 2>/dev/null || git rev-parse HEAD~1)
+            gitleaks git --log-opts="${BASE_MERGE}..HEAD" --no-banner --redact --verbose
+          elif [ "$EVENT_NAME" = "push" ] && [ -n "$BEFORE_SHA" ] && [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
+            if git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
+              gitleaks git --log-opts="${BEFORE_SHA}..${HEAD_SHA}" --no-banner --redact --verbose
+            else
+              gitleaks git --log-opts="-n 20" --no-banner --redact --verbose
+            fi
+          else
+            gitleaks git --log-opts="-n 20" --no-banner --redact --verbose
+          fi

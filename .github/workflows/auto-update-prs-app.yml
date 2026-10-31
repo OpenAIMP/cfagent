@@ -8,6 +8,7 @@ on:
 jobs:
   update-prs:
     name: Update open PRs with main
+    if: vars.ENABLE_AUTO_UPDATE_PRS == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Create short-lived GitHub App token
