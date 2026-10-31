@@ -7,14 +7,15 @@
  * every decision lives here, behind fakeable interfaces, so it is
  * unit-testable without a worker runtime.
  *
- * S1 scope ONLY: Leg 0 (start the payment child, poll it to a
+ * S2 scope: Leg 0 (start the payment child, poll it to a
  * terminal outcome) + Leg 1 (observe the paid screen to a terminal
- * status on the durable sleep + poll pattern). No journey gate
- * (S2), no mid-run failure credit (S3), no trading leg (S4), no
- * entry route (S4). S1 ends at Leg 1: a completed screen returns
- * screen_completed (S2 inserts the journey gate after this point);
- * a failed screen returns screen_failed with NO credit issued —
- * the credit path is S3, and S1 must not claim it.
+ * status on the durable sleep + poll pattern) + Leg 2 (the journey
+ * gate after a completed screen). No trading leg yet (S4): an
+ * approved journey ends the saga at the gate (S4 continues to
+ * Leg 3 from the journey_approved outcome); denied/expired end
+ * the saga with no trades and no proposals. A failed screen
+ * returns screen_failed with NO credit issued — the credit path
+ * is S3, and S2 must not claim it. No entry route yet (S4).
  *
  * Deterministic, NOT model-driven. No step prompts a model, no step
  * lets a model choose a leg, an amount, or a recipient. Leg order
@@ -51,10 +52,36 @@
  * working defaults, not rulings. The payment deadline covers the
  * payment leg's 24h verification window plus margin; the screen
  * deadline covers a long screen. Venus may change both.
+ *
+ * Journey gate (S2, Q1 ruled: all decision surfaces, first
+ * answer wins). After a completed screen the flow audits
+ * saga.journey_prompted, delivers prompts (Slack post; panel
+ * and chat are state-driven off the prompted row), then waits
+ * for a saga-journey-decision event (24h working default, Q2
+ * open). The wait resolves on the FIRST decision; later answers
+ * are refused at the delivery layer as superseded (the flow
+ * consumes exactly one decision — see sagaJourneyGate.ts for
+ * the concurrent-send race window). Approver rule working
+ * default (G-APPROVER open): instance-owner-only; any other
+ * decider's answer is audited as refused and the gate keeps
+ * waiting. Prompt delivery is best-effort per surface; audit
+ * stays blocking. Deadline residual, stated not hidden: the
+ * provider wait timeout is the proven "24 hours" string, so a
+ * refused answer arriving in the final stretch can extend the
+ * provider wait by up to one period; the route-level owner
+ * check makes that unreachable from user surfaces.
  */
 
 import type { NativeCommercialAccount } from "../services/nativeMonetization";
 import type { PaymentWorkflowParams } from "./paymentWorkflowFlow";
+import type {
+  JourneyGatePrompt,
+  JourneyPromptReceipts,
+  JourneySurface,
+  JourneyWithdrawResult,
+  SagaJourneyDecision,
+} from "./sagaJourneyGate";
+import { buildJourneyGatePrompt, parseJourneyDecision } from "./sagaJourneyGate";
 import type { SagaLeg, SagaLegInstanceStatus, SagaLegPort } from "./sagaLegPort";
 import type { WorkflowJobCommand } from "./workflowPorts";
 
@@ -62,6 +89,10 @@ import type { WorkflowJobCommand } from "./workflowPorts";
 export interface SagaWorkflowStep {
   do<T>(name: string, fn: () => Promise<T>): Promise<T>;
   sleep(name: string, ms: number): Promise<void>;
+  waitForEvent(
+    name: string,
+    options: { type: string; timeout?: string },
+  ): Promise<{ payload: unknown }>;
 }
 
 /** One saga audit event, carried to the recordAudit dep. */
@@ -76,6 +107,11 @@ export interface SagaAuditEvent {
     | "saga.screen_start_failed_credit_issued"
     | "saga.screen_completed"
     | "saga.screen_failed"
+    | "saga.journey_prompted"
+    | "saga.journey_decided"
+    | "saga.journey_decision_refused"
+    | "saga.journey_expired"
+    | "saga.journey_prompts_withdrawn"
     | "saga.ended";
   userLogin: string;
   family: string;
@@ -85,6 +121,11 @@ export interface SagaAuditEvent {
   screenerWorkflowId?: string;
   reason?: string;
   existing?: boolean;
+  decidingSurface?: JourneySurface;
+  decision?: "approved" | "denied";
+  /** Why a journey answer was refused (S2 refused rows only; distinct from reason). */
+  refusalReason?: string;
+  withdraw?: JourneyWithdrawResult;
 }
 
 /**
@@ -110,6 +151,8 @@ export interface SagaParams {
   pollIntervalMs?: number;
   paymentPollDeadlineMs?: number;
   screenPollDeadlineMs?: number;
+  /** Journey wait window override (Q2 open; default 24h). */
+  journeyWaitMs?: number;
 }
 
 export interface SagaDeps {
@@ -120,6 +163,20 @@ export interface SagaDeps {
    * The flow never catches recordAudit failures.
    */
   recordAudit: (event: SagaAuditEvent) => Promise<void>;
+  /**
+   * Journey prompt delivery (S2). Best-effort per surface (see
+   * sagaJourneyGate.ts): a failed surface is recorded in the
+   * receipts, never thrown — the prompted audit row is the
+   * durable prompt record for the state-driven surfaces.
+   */
+  deliverPrompts: (prompt: JourneyGatePrompt) => Promise<JourneyPromptReceipts>;
+  /**
+   * Journey prompt withdrawal (S2), called on BOTH decide and
+   * expire paths. Never throws (failures are recorded in the
+   * result): withdrawal must not fail a saga whose decision is
+   * already recorded.
+   */
+  withdrawPrompts: (receipts: JourneyPromptReceipts) => Promise<JourneyWithdrawResult>;
   nowMs: () => number;
 }
 
@@ -156,6 +213,32 @@ export type SagaWorkflowOutcome =
       screenerWorkflowId: string;
       reason: string;
       rail?: "stripe" | "x402";
+    }
+  | {
+      status: "journey_approved";
+      code: "SUCCESS_SAGA_JOURNEY_APPROVED";
+      sagaId: string;
+      runRequestId: string;
+      screenerWorkflowId: string;
+      decidingSurface: JourneySurface;
+      rail?: "stripe" | "x402";
+    }
+  | {
+      status: "journey_denied";
+      code: "FAILURE_SAGA_JOURNEY_DENIED";
+      sagaId: string;
+      runRequestId: string;
+      screenerWorkflowId: string;
+      decidingSurface: JourneySurface;
+      rail?: "stripe" | "x402";
+    }
+  | {
+      status: "journey_expired";
+      code: "FAILURE_SAGA_JOURNEY_EXPIRED";
+      sagaId: string;
+      runRequestId: string;
+      screenerWorkflowId: string;
+      rail?: "stripe" | "x402";
     };
 
 /** Poll cadence for leg observation (S1 working default, Q2 open). */
@@ -164,6 +247,10 @@ export const SAGA_POLL_INTERVAL_MS_DEFAULT = 30_000;
 export const SAGA_PAYMENT_POLL_DEADLINE_MS_DEFAULT = 25 * 60 * 60 * 1000;
 /** Screen-leg poll deadline (Q2 open). */
 export const SAGA_SCREEN_POLL_DEADLINE_MS_DEFAULT = 60 * 60 * 1000;
+/** Journey-gate provider wait timeout (proven "24 hours" string, Q2 open). */
+export const SAGA_JOURNEY_WAIT_TIMEOUT = "24 hours";
+/** Journey-gate wait window (Q2 open; per-order wait is also 24h). */
+export const SAGA_JOURNEY_WAIT_MS_DEFAULT = 24 * 60 * 60 * 1000;
 
 type LegTerminal =
   | { terminal: "complete"; output?: unknown }
@@ -239,7 +326,7 @@ export async function runSagaWorkflowFlow(
   }
   if (params.family !== "goal") {
     throw new Error(
-      `Saga S1 is goal-only (Q5 default); family "${String(params.family)}" is not accepted yet.`,
+      `Saga is goal-only (Q5 default); family "${String(params.family)}" is not accepted yet.`,
     );
   }
   if (!params.trigger) {
@@ -412,17 +499,18 @@ export async function runSagaWorkflowFlow(
     }
     const lifecycle = collationLifecycle(screenTerminal.output);
     if (lifecycle === "Completed" || lifecycle === "ReportGenerated") {
-      return endSaga(
-        {
-          status: "screen_completed",
-          code: "SUCCESS_SAGA_SCREEN_COMPLETED",
-          sagaId: params.sagaId,
-          runRequestId: params.runRequestId,
+      // Leg 1 completion is a milestone row, not a terminal
+      // outcome: S2 continues to the journey gate (Leg 2).
+      await step.do("record-audit-screen-completed", () =>
+        deps.recordAudit({
+          ...baseAudit,
+          type: "saga.screen_completed",
+          leg: "screener",
+          outcomeCode: "SUCCESS_SAGA_SCREEN_COMPLETED",
           screenerWorkflowId,
-          ...(params.rail ? { rail: params.rail } : {}),
-        },
-        { type: "saga.screen_completed", leg: "screener", outcomeCode: "SUCCESS_SAGA_SCREEN_COMPLETED", screenerWorkflowId },
+        }),
       );
+      return runJourneyGate(params, deps, step, baseAudit, screenerWorkflowId, endSaga);
     }
     // Failed collation, or an output that is not a collation at all:
     // a completed instance is not a delivered screen. S1 records
@@ -479,4 +567,175 @@ export async function runSagaWorkflowFlow(
     },
     { type: "saga.payment_not_completed", leg: "payment", outcomeCode: "FAILURE_SAGA_PAYMENT_NOT_COMPLETED", reason },
   );
+}
+
+/**
+ * Leg 2 — the journey gate (S2, Q1 ruled: all decision surfaces,
+ * first answer wins).
+ *
+ * Sequence: audit the prompted row, deliver prompts, then wait
+ * for the first saga-journey-decision event. Owner-only (working
+ * default, G-APPROVER open): a non-owner or malformed answer is
+ * audited as refused and the gate keeps waiting. No valid owner
+ * decision within the window (wait throw, or the flow clock
+ * passing the deadline) → expired. Approved → journey_approved
+ * (S2 ends at the gate; S4 continues to Leg 3 from this
+ * outcome — no proposal is started here). Denied → journey_denied
+ * (no trades, no proposals). Withdrawal runs on BOTH decide and
+ * expire paths, AFTER the decision/expiry is recorded: a prompt
+ * that outlives its decision is superseded-safe, while a
+ * decision without its record would not be.
+ */
+async function runJourneyGate(
+  params: SagaParams,
+  deps: SagaDeps,
+  step: SagaWorkflowStep,
+  baseAudit: Omit<SagaAuditEvent, "type">,
+  screenerWorkflowId: string,
+  endSaga: (
+    outcome: SagaWorkflowOutcome,
+    terminalEvent: Omit<
+      SagaAuditEvent,
+      "sagaId" | "runRequestId" | "tenantId" | "userLogin" | "family" | "rail"
+    >,
+  ) => Promise<SagaWorkflowOutcome>,
+): Promise<SagaWorkflowOutcome> {
+  const journeyWaitMs = params.journeyWaitMs ?? SAGA_JOURNEY_WAIT_MS_DEFAULT;
+  const deadlineAt = deps.nowMs() + journeyWaitMs;
+  const prompt = buildJourneyGatePrompt(
+    params.sagaId,
+    params.runRequestId,
+    params.family,
+    params.rail,
+  );
+  await step.do("record-audit-journey-prompted", () =>
+    deps.recordAudit({
+      ...baseAudit,
+      type: "saga.journey_prompted",
+      leg: "screener",
+      screenerWorkflowId,
+    }),
+  );
+  const receipts = await step.do("deliver-journey-prompts", () => deps.deliverPrompts(prompt));
+
+  const withdrawAndAudit = async (): Promise<void> => {
+    const result = await step.do("withdraw-journey-prompts", () => deps.withdrawPrompts(receipts));
+    await step.do("record-audit-journey-prompts-withdrawn", () =>
+      deps.recordAudit({
+        ...baseAudit,
+        type: "saga.journey_prompts_withdrawn",
+        screenerWorkflowId,
+        withdraw: result,
+      }),
+    );
+  };
+
+  let decision: SagaJourneyDecision | null = null;
+  while (deps.nowMs() < deadlineAt) {
+    let event: { payload: unknown };
+    try {
+      event = await step.waitForEvent("await-journey-decision", {
+        type: "saga-journey-decision",
+        timeout: SAGA_JOURNEY_WAIT_TIMEOUT,
+      });
+    } catch {
+      // Provider timeout or termination: no decision obtained.
+      break;
+    }
+    const parsed = parseJourneyDecision(event.payload);
+    if (!parsed.ok) {
+      await step.do("record-audit-journey-decision-refused", () =>
+        deps.recordAudit({
+          ...baseAudit,
+          type: "saga.journey_decision_refused",
+          screenerWorkflowId,
+          refusalReason: parsed.reason,
+        }),
+      );
+      continue;
+    }
+    if (parsed.decision.sagaId !== params.sagaId) {
+      // A decision for another saga must never decide this one.
+      await step.do("record-audit-journey-decision-refused", () =>
+        deps.recordAudit({
+          ...baseAudit,
+          type: "saga.journey_decision_refused",
+          screenerWorkflowId,
+          refusalReason: "saga_id_mismatch",
+        }),
+      );
+      continue;
+    }
+    if (parsed.decision.deciderLogin !== params.userLogin) {
+      await step.do("record-audit-journey-decision-refused", () =>
+        deps.recordAudit({
+          ...baseAudit,
+          type: "saga.journey_decision_refused",
+          screenerWorkflowId,
+          refusalReason: "non_owner_decider",
+        }),
+      );
+      continue;
+    }
+    decision = parsed.decision;
+    break;
+  }
+
+  if (decision === null) {
+    const outcome: SagaWorkflowOutcome = {
+      status: "journey_expired",
+      code: "FAILURE_SAGA_JOURNEY_EXPIRED",
+      sagaId: params.sagaId,
+      runRequestId: params.runRequestId,
+      screenerWorkflowId,
+      ...(params.rail ? { rail: params.rail } : {}),
+    };
+    const result = await endSaga(outcome, {
+      type: "saga.journey_expired",
+      screenerWorkflowId,
+      outcomeCode: "FAILURE_SAGA_JOURNEY_EXPIRED",
+    });
+    await withdrawAndAudit();
+    return result;
+  }
+
+  if (decision.decision === "denied") {
+    const outcome: SagaWorkflowOutcome = {
+      status: "journey_denied",
+      code: "FAILURE_SAGA_JOURNEY_DENIED",
+      sagaId: params.sagaId,
+      runRequestId: params.runRequestId,
+      screenerWorkflowId,
+      decidingSurface: decision.surface,
+      ...(params.rail ? { rail: params.rail } : {}),
+    };
+    const result = await endSaga(outcome, {
+      type: "saga.journey_decided",
+      decidingSurface: decision.surface,
+      decision: "denied",
+      screenerWorkflowId,
+      outcomeCode: "FAILURE_SAGA_JOURNEY_DENIED",
+    });
+    await withdrawAndAudit();
+    return result;
+  }
+
+  const outcome: SagaWorkflowOutcome = {
+    status: "journey_approved",
+    code: "SUCCESS_SAGA_JOURNEY_APPROVED",
+    sagaId: params.sagaId,
+    runRequestId: params.runRequestId,
+    screenerWorkflowId,
+    decidingSurface: decision.surface,
+    ...(params.rail ? { rail: params.rail } : {}),
+  };
+  const result = await endSaga(outcome, {
+    type: "saga.journey_decided",
+    decidingSurface: decision.surface,
+    decision: "approved",
+    screenerWorkflowId,
+    outcomeCode: "SUCCESS_SAGA_JOURNEY_APPROVED",
+  });
+  await withdrawAndAudit();
+  return result;
 }

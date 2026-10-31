@@ -1,12 +1,13 @@
 /**
- * Issue #2041 S1 — saga outcome catalog entries (gap G-CATALOG).
+ * Issue #2041 S1+S2 — saga outcome catalog entries (gap G-CATALOG).
  *
- * S1 proposes the four Leg 0/1 outcomes. Journey (S2) and trading
- * (S4) entries arrive with their slices; nothing here claims them.
- * Every entry follows the #2381 catalog contract: SUCCESS_* /
- * FAILURE_* names, businessMessage to UI and channels,
- * technicalDetail to logs only, stored rows never rewritten, and
- * the resolver never invents a code for an unknown input.
+ * S1 proposes the four Leg 0/1 outcomes; S2 adds the three
+ * journey-gate outcomes below. Trading (S4) entries arrive with
+ * their slice; nothing here claims them. Every entry follows
+ * the #2381 catalog contract: SUCCESS_* / FAILURE_* names,
+ * businessMessage to UI and channels, technicalDetail to logs
+ * only, stored rows never rewritten, and the resolver never
+ * invents a code for an unknown input.
  */
 import { describe, expect, it } from "vitest";
 import catalog from "../src/outcomes/outcomeCatalog.json";
@@ -55,9 +56,30 @@ const SAGA_ENTRIES: Record<
     httpStatus: 502,
     businessMessage: "The paid screen failed after starting.",
   },
+  SUCCESS_SAGA_JOURNEY_APPROVED: {
+    outcome: "success",
+    category: "saga",
+    retryable: false,
+    httpStatus: 200,
+    businessMessage: "The journey gate was approved; the saga will enter the trading leg.",
+  },
+  FAILURE_SAGA_JOURNEY_DENIED: {
+    outcome: "failure",
+    category: "saga",
+    retryable: false,
+    httpStatus: 200,
+    businessMessage: "The journey gate was denied; the saga ends with no trades and no proposals.",
+  },
+  FAILURE_SAGA_JOURNEY_EXPIRED: {
+    outcome: "failure",
+    category: "saga",
+    retryable: false,
+    httpStatus: 200,
+    businessMessage: "The journey gate expired unanswered; the saga ends with no trades and no proposals.",
+  },
 };
 
-describe("saga outcome catalog (S1, #2041)", () => {
+describe("saga outcome catalog (S1+S2, #2041)", () => {
   it.each(Object.keys(SAGA_ENTRIES))("carries %s with its full contract", (code) => {
     const expected = SAGA_ENTRIES[code];
     const entry = outcomes[code];

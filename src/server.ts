@@ -516,6 +516,22 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       return Response.json({ features });
     }
 
+    // Issue #2041 S2: saga journey-gate routes (panel + chat
+    // surfaces). Session login comes from requireAuth; the
+    // handler 401s when absent (never a synthetic identity).
+    if (path === "/api/saga/journey-gates" || path === "/api/saga/journey-decision") {
+      const { handleSagaJourneyRoutes } = await import("./agents/routes/sagaJourney");
+      const session = await requireAuth(request, env).catch(() => null);
+      const sagaJourneyResponse = await handleSagaJourneyRoutes(
+        request,
+        url,
+        path,
+        env,
+        session?.githubLogin ?? null,
+      );
+      if (sagaJourneyResponse) return sagaJourneyResponse;
+    }
+
     // Issue #1806: Server-side feature flag enforcement (default-closed, fail-closed).
     // An endpoint for a disabled feature is completely unreachable (HTTP 404 FEATURE_DISABLED).
     const gatedFeature = matchFeatureForRoute(path);

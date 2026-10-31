@@ -105,6 +105,16 @@ interface StageRow {
   updatedAtMs: number;
 }
 
+/** Issue #2041 S2: one pending journey gate, as the route serves it. */
+interface PendingJourneyGate {
+  sagaId: string;
+  runRequestId: string;
+  family: string;
+  rail?: "stripe" | "x402";
+  promptedAt: string;
+  copy: { title: string; body: string; compensationLine: string };
+}
+
 interface Tracking {
   jobId: string;
   statusUrl: string;
@@ -201,6 +211,65 @@ export function GoalScreenPanel({ activeEnv, userLogin }: GoalScreenPanelProps) 
     },
     [],
   );
+
+  // Issue #2041 S2: pending journey gates. The poll runs
+  // unconditionally while mounted: a pending decision must
+  // surface even with auto-refresh off, and the card disappears
+  // on next poll once decided (state-driven dismissal — the
+  // route no longer lists decided gates).
+  const [journeyGates, setJourneyGates] = useState<PendingJourneyGate[]>([]);
+  const [journeyGateNotice, setJourneyGateNotice] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    const loadGates = async () => {
+      try {
+        const res = await fetch("/api/saga/journey-gates");
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as { gates?: PendingJourneyGate[] };
+        if (Array.isArray(data.gates)) setJourneyGates(data.gates);
+      } catch {
+        // Best-effort: a failed poll leaves the previous list.
+      }
+    };
+    void loadGates();
+    const timer = setInterval(loadGates, 30000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
+
+  const answerJourneyGate = async (sagaId: string, decision: "approved" | "denied") => {
+    try {
+      const res = await fetch("/api/saga/journey-decision", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sagaId, decision, surface: "panel" }),
+      });
+      const data = (await res.json().catch(() => null)) as {
+        accepted?: boolean;
+        superseded?: boolean;
+        decidedBy?: string;
+      } | null;
+      if (res.status === 409 || data?.superseded) {
+        setJourneyGateNotice(
+          `Already decided (by ${data?.decidedBy ?? "another surface"}) — this answer was refused as superseded.`,
+        );
+      } else if (res.ok && data?.accepted) {
+        setJourneyGateNotice(
+          decision === "approved"
+            ? "Journey approved — the saga will enter the trading leg."
+            : "Journey declined — the saga ends with no trades and no proposals.",
+        );
+      } else {
+        setJourneyGateNotice("Journey answer failed — please try again.");
+        return;
+      }
+      setJourneyGates((prev) => prev.filter((g) => g.sagaId !== sagaId));
+    } catch {
+      setJourneyGateNotice("Journey answer failed — please try again.");
+    }
+  };
 
   const stockHits = useMemo(
     () =>
@@ -570,6 +639,32 @@ export function GoalScreenPanel({ activeEnv, userLogin }: GoalScreenPanelProps) 
       </form>
 
       {error && <div className="options-error" role="alert">{error}</div>}
+
+      {journeyGates.length > 0 && (
+        <div style={{ marginTop: "1rem" }} role="status">
+          <p style={{ margin: "0 0 0.5rem", fontWeight: 600 }}>Pending journey decisions</p>
+          {journeyGateNotice && (
+            <p style={{ color: "var(--color-text-muted)", fontSize: "var(--font-size-body)" }}>{journeyGateNotice}</p>
+          )}
+          {journeyGates.map((gate) => (
+            <div key={gate.sagaId} style={{ marginBottom: "0.75rem", fontSize: "var(--font-size-body)" }}>
+              <p style={{ margin: "0 0 0.25rem" }}>
+                {gate.copy.title} — run {gate.runRequestId} ({gate.family})
+              </p>
+              <p style={{ margin: "0 0 0.25rem", color: "var(--color-text-muted)" }}>{gate.copy.body}</p>
+              <p style={{ margin: "0 0 0.5rem", color: "var(--color-text-muted)" }}>{gate.copy.compensationLine}</p>
+              <div style={{ display: "flex", gap: "var(--space-2)" }}>
+                <Button type="button" variant="primary" onClick={() => void answerJourneyGate(gate.sagaId, "approved")}>
+                  Enter trading leg
+                </Button>
+                <Button type="button" onClick={() => void answerJourneyGate(gate.sagaId, "denied")}>
+                  Do not enter
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {tracking && (
         <div style={{ marginTop: "1rem", fontSize: "var(--font-size-body)" }} role="status">

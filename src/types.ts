@@ -1803,7 +1803,7 @@ export interface SlackInteractionResult {
   success: boolean;
   actionId: string;
   orderId?: string;
-  status: "executed" | "rejected" | "error";
+  status: "executed" | "rejected" | "decided" | "superseded" | "error";
   message: string;
   replacementBlocks?: any[];
   proposerDid?: string;
