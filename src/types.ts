@@ -603,6 +603,8 @@ export interface Env {
   SCREENER_WORKFLOW?: Workflow;
   /** Payment workflow binding (#2014). */
   PAYMENT_WORKFLOW?: Workflow;
+  /** Cross-domain saga workflow binding (#2041 S1). */
+  SAGA_WORKFLOW?: Workflow;
 }
 
 export interface TransactionRecord {

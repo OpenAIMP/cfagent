@@ -15,7 +15,8 @@
   "workflows": [
     { "name": "trading-trade-workflow", "binding": "TRADE_WORKFLOW", "class_name": "TradingTradeWorkflow" },
     { "name": "screener-screen-workflow", "binding": "SCREENER_WORKFLOW", "class_name": "ScreenerScreenWorkflow" },
-    { "name": "payment-workflow", "binding": "PAYMENT_WORKFLOW", "class_name": "PaymentWorkflow" }
+    { "name": "payment-workflow", "binding": "PAYMENT_WORKFLOW", "class_name": "PaymentWorkflow" },
+    { "name": "saga-workflow", "binding": "SAGA_WORKFLOW", "class_name": "CrossDomainSagaWorkflow" }
   ],
   // Issue #605 — report PDF blobs live in R2 (bucket provisioned by the
   // owner; reportBlobStore maps screener:*/options:* keys to stocks/*,
