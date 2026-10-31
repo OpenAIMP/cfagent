@@ -20,7 +20,7 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  # ── Job 1: read environment.config.json and check if git tree was already verified (#2497) ──
+  # ── Job 1: read environment.config.json, check docs-only fast path & non-transitive 24h tree dedup (#2497, #2499) ──
   load-environment:
     name: Load Active Environment
     runs-on: ubuntu-24.04
@@ -32,10 +32,12 @@ jobs:
       target_env: ${{ steps.read-env.outputs.target_env }}
       tree_already_verified: ${{ steps.dedup.outputs.tree_already_verified }}
       verified_by_run_id: ${{ steps.dedup.outputs.verified_by_run_id }}
+      docs_only: ${{ steps.dedup.outputs.docs_only }}
     steps:
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4
         with:
+          fetch-depth: 50
           sparse-checkout: |
             environment.config.json
 
@@ -46,7 +48,7 @@ jobs:
           echo "Active environment: $TARGET_ENV"
           echo "target_env=$TARGET_ENV" >> $GITHUB_OUTPUT
 
-      - name: ⚡ Check if Git Tree Was Already Verified (#2497)
+      - name: ⚡ Check Docs-Only Fast Path & Non-Transitive 24h Tree Dedup (#2497, #2499)
         id: dedup
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -57,17 +59,59 @@ jobs:
           echo "Current git tree SHA: $TREE_SHA"
           VERIFIED="false"
           MATCH_RUN=""
+          DOCS_ONLY="false"
 
-          if [ "$EVENT_NAME" = "merge_group" ] || [ "$EVENT_NAME" = "push" ]; then
-            # 1. Direct tree_id match against recent successful runs of this workflow
-            MATCH_RUN=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?status=success&per_page=30" \
-              --jq ".workflow_runs[] | select(.head_commit.tree_id == \"$TREE_SHA\") | .id" 2>/dev/null | head -n 1 || true)
+          # ── 1. Docs-only fast path on pull_request / merge_group (#2499) ──
+          if [ "$EVENT_NAME" = "pull_request" ] || [ "$EVENT_NAME" = "merge_group" ]; then
+            git fetch origin main --depth=50 2>/dev/null || true
+            CHANGED_FILES=$(git diff --name-only origin/main...HEAD 2>/dev/null || true)
+            if [ -n "$CHANGED_FILES" ]; then
+              NON_DOCS=$(echo "$CHANGED_FILES" | grep -v -E '^(docs/|changelog\.d/|CHANGELOG\.md$|README\.md$|.*\.md$)' || true)
+              if [ -z "$NON_DOCS" ]; then
+                DOCS_ONLY="true"
+                VERIFIED="true"
+                MATCH_RUN="docs-only"
+                echo "All changed files are documentation/changelog markdown — enabling docs-only fast path."
+                {
+                  echo "### ⚡ Docs-Only Fast Path (#2499)"
+                  echo "- **Git tree SHA (`HEAD^{tree}`)**: `$TREE_SHA`"
+                  echo "- **Changed files**: documentation/changelog markdown only (`docs/`, `changelog.d/`, `*.md`)"
+                  echo "- **Action**: Skipped `fast-gates` and 4x `test-shard` execution."
+                } >> "$GITHUB_STEP_SUMMARY"
+              fi
+            fi
+          fi
 
-            # 2. On merge_group at queue position 1, if the PR branch was not manually
-            #    rebased onto main, its pull_request run tested refs/pull/<N>/merge.
-            #    If refs/pull/<N>/merge has the identical git tree SHA ($TREE_SHA) AND
-            #    the PR head commit passed ci.yml after main's latest commit landed,
-            #    that pull_request run already verified this exact tree.
+          # Helper: verify a candidate ci.yml run actually executed Fast gates + all 4 shards
+          # (rejects transitive dedup runs or docs-only runs whose jobs were skipped).
+          verify_anchor_jobs() {
+            local run_id="$1"
+            local jobs_json
+            jobs_json=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?per_page=30" 2>/dev/null || true)
+            if [ -z "$jobs_json" ]; then
+              return 1
+            fi
+            echo "$jobs_json" | jq -e '
+              ([.jobs[] | select(.name == "Fast gates (typecheck + build)" and .conclusion == "success")] | length == 1) and
+              ([.jobs[] | select((.name | startswith("Tests (shard ")) and .conclusion == "success")] | length == 4)
+            ' >/dev/null 2>&1
+          }
+
+          # ── 2. Non-transitive 24h tree-dedup anchor on merge_group / push (#2497, #2499) ──
+          if [ "$VERIFIED" != "true" ] && { [ "$EVENT_NAME" = "merge_group" ] || [ "$EVENT_NAME" = "push" ]; }; then
+            CUTOFF_24H=$(date -u -d '24 hours ago' +"%Y-%m-%dT%H:%M:%SZ")
+            CANDIDATES=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?status=success&per_page=40" \
+              --jq ".workflow_runs[] | select(.head_commit.tree_id == \"$TREE_SHA\" and .run_started_at >= \"$CUTOFF_24H\") | .id" 2>/dev/null || true)
+
+            for cand_id in $CANDIDATES; do
+              if verify_anchor_jobs "$cand_id"; then
+                MATCH_RUN="$cand_id"
+                break
+              fi
+            done
+
+            # On merge_group at queue position 1, if the PR branch was not manually
+            # rebased onto main, its pull_request run tested refs/pull/<N>/merge.
             if [ -z "$MATCH_RUN" ] && [ "$EVENT_NAME" = "merge_group" ]; then
               PR_NUM=$(echo "$REF_NAME" | sed -n 's|^gh-readonly-queue/[^/]*/pr-\([0-9][0-9]*\)-.*|\1|p')
               if [ -n "$PR_NUM" ]; then
@@ -78,8 +122,14 @@ jobs:
                   MERGE_TREE=$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$PR_MERGE_SHA" --jq '.tree.sha // empty' 2>/dev/null || true)
                   MAIN_TIME=$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq '.commit.committer.date // empty' 2>/dev/null || true)
                   if [ "$MERGE_TREE" = "$TREE_SHA" ] && [ -n "$MAIN_TIME" ]; then
-                    MATCH_RUN=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$PR_HEAD_SHA&status=success&per_page=5" \
-                      --jq ".workflow_runs[] | select(.run_started_at > \"$MAIN_TIME\") | .id" 2>/dev/null | head -n 1 || true)
+                    PR_CANDS=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$PR_HEAD_SHA&status=success&per_page=10" \
+                      --jq ".workflow_runs[] | select(.run_started_at > \"$MAIN_TIME\" and .run_started_at >= \"$CUTOFF_24H\") | .id" 2>/dev/null || true)
+                    for cand_id in $PR_CANDS; do
+                      if verify_anchor_jobs "$cand_id"; then
+                        MATCH_RUN="$cand_id"
+                        break
+                      fi
+                    done
                   fi
                 fi
               fi
@@ -87,17 +137,21 @@ jobs:
 
             if [ -n "$MATCH_RUN" ]; then
               VERIFIED="true"
-              echo "Tree $TREE_SHA already verified by ci.yml run #$MATCH_RUN — skipping redundant test execution."
+              RUN_URL="https://github.com/$GITHUB_REPOSITORY/actions/runs/$MATCH_RUN"
+              echo "Tree $TREE_SHA already verified within 24h by full CI run #$MATCH_RUN ($RUN_URL) — skipping redundant test execution."
+              {
+                echo "### ⚡ Tree-Hash CI Deduplication (#2497, #2499)"
+                echo "- **Git tree SHA (`HEAD^{tree}`)**: `$TREE_SHA`"
+                echo "- **Verified by full anchor run**: [#$MATCH_RUN]($RUN_URL) (`Fast gates` + 4/4 `Tests` shards executed & passed within 24h)"
+              } >> "$GITHUB_STEP_SUMMARY"
             fi
           fi
 
           echo "tree_already_verified=$VERIFIED" >> "$GITHUB_OUTPUT"
           echo "verified_by_run_id=$MATCH_RUN" >> "$GITHUB_OUTPUT"
+          echo "docs_only=$DOCS_ONLY" >> "$GITHUB_OUTPUT"
 
   # ── Job 2: fast deterministic gates — typecheck + build ──
-  # Fails in ~2 minutes on type errors instead of after the full suite.
-  # Runs in parallel with the test shards; skipped on merge_group/push when
-  # the exact git tree SHA was already verified by an earlier CI run (#2497).
   fast-gates:
     name: Fast gates (typecheck + build)
     runs-on: ubuntu-24.04
@@ -116,7 +170,7 @@ jobs:
           cache: "npm"
 
       - name: 📦 Install Dependencies
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: 🔍 TypeScript Strict Type Check
         run: npm run typecheck
@@ -128,19 +182,11 @@ jobs:
         run: npx wrangler --version
 
   # ── Job 3: test suite sharded across 4 parallel runners ──
-  # Same tests, same coverage — roughly 1/4 the wall clock, and less load
-  # per runner (the load-dependent flakes came from one oversubscribed
-  # runner). A flaky shard can be re-run alone via "Re-run failed jobs".
-  # NOTE: job names are intentionally stable and environment-independent
-  # so the branch ruleset can require them by exact name. If you rename a
-  # job, update the required status checks in the ruleset to match.
   test-shard:
     name: Tests (shard ${{ matrix.shard }}/4)
     runs-on: ubuntu-24.04
     needs: load-environment
     if: needs.load-environment.outputs.tree_already_verified != 'true'
-    # Links this job to the GitHub Environment, pulling ET_API_KEY /
-    # ET_API_SECRET / ET_BASE_URL for the broker-dependent tests.
     environment: ${{ needs.load-environment.outputs.target_env }}
     strategy:
       fail-fast: false
@@ -164,20 +210,12 @@ jobs:
           cache: "npm"
 
       - name: 📦 Install Dependencies
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: 🧪 Execute Vitest Shard ${{ matrix.shard }}/4
         run: npx vitest run --shard=${{ matrix.shard }}/4 --reporter=verbose
 
   # ── Job 4: the required check (ruleset name, do not rename) ──
-  # `protectmain` requires a status check literally named
-  # "Test & Build (Node 22) [<env>]" (ruleset 25543527, refs/heads/main).
-  # Jobs 2-3 split that work across fast-gates + 4 test shards, so this job
-  # re-publishes the required name and fails unless every gate succeeded
-  # (or the exact git tree SHA was already verified by an earlier CI run).
-  # It must run on `if: always()`: a skipped job would make the required
-  # check disappear, and GitHub treats a missing required check as blocking
-  # at best and a skipped one as acceptable at worst (gitops §10).
   test-and-verify:
     name: Test & Build (Node 22) [${{ needs.load-environment.outputs.target_env }}]
     needs: [load-environment, fast-gates, test-shard]
@@ -191,6 +229,7 @@ jobs:
           echo "load-environment:      ${{ needs.load-environment.result }}"
           echo "tree_already_verified: ${{ needs.load-environment.outputs.tree_already_verified }}"
           echo "verified_by_run_id:    ${{ needs.load-environment.outputs.verified_by_run_id }}"
+          echo "docs_only:             ${{ needs.load-environment.outputs.docs_only }}"
           echo "fast-gates:            ${{ needs.fast-gates.result }}"
           echo "test-shard:            ${{ needs.test-shard.result }}"
 
@@ -203,7 +242,15 @@ jobs:
           if [ "${{ needs.load-environment.outputs.tree_already_verified }}" = "true" ] && \
              [ "${{ needs.fast-gates.result }}" = "skipped" ] && \
              [ "${{ needs.test-shard.result }}" = "skipped" ]; then
-            echo "Git tree already verified by prior CI run #${{ needs.load-environment.outputs.verified_by_run_id }}. All gates passed."
+            RUN_ID="${{ needs.load-environment.outputs.verified_by_run_id }}"
+            if [ "$RUN_ID" = "docs-only" ]; then
+              echo "Docs-only fast path verified. All gates passed."
+              echo "✅ **Docs-only fast path**: no code/test files changed." >> "$GITHUB_STEP_SUMMARY"
+            else
+              RUN_URL="https://github.com/$GITHUB_REPOSITORY/actions/runs/$RUN_ID"
+              echo "Git tree already verified within 24h by full CI run #$RUN_ID ($RUN_URL). All gates passed."
+              echo "✅ **Verified by full anchor run**: [#$RUN_ID]($RUN_URL) (`Fast gates` + 4/4 `Tests` shards executed & passed within 24h)." >> "$GITHUB_STEP_SUMMARY"
+            fi
             exit 0
           fi
           if [ "${{ needs.fast-gates.result }}" != "success" ] || \

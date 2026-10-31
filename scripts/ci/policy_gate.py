@@ -38,11 +38,12 @@ messages are not fallback context.
 """
 
 import argparse
+import json
 import os
 import re
 import subprocess
 import sys
-from typing import List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 
 def unreleased_section(text_content: str) -> List[str]:
@@ -112,9 +113,9 @@ def evaluate_policy(
     """Run all policy gate evaluations and return any failure reasons."""
     labels = labels or []
     # Evaluate the branch tree, not a merge-commit tree (see
-    # resolve_effective_head), except on merge_group where HEAD is already
-    # the queue-constructed target tree.
-    if os.environ.get("GITHUB_EVENT_NAME") != "merge_group":
+    # resolve_effective_head), except when evaluating the aggregate
+    # merge_group tree where HEAD is already the queue-constructed target tree.
+    if not diff_only or os.environ.get("GITHUB_EVENT_NAME") != "merge_group":
         head = resolve_effective_head(head)
 
     # Attribution reads the PR body and labels ONLY (owner direction
@@ -179,8 +180,18 @@ def evaluate_policy(
             errors="replace",
             check=True,
         ).stdout
-        with open("CHANGELOG.md", encoding="utf-8") as handle:
-            head_changelog = handle.read()
+        head_changelog_proc = subprocess.run(
+            ["git", "show", f"{head}:CHANGELOG.md"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        if head_changelog_proc.returncode == 0:
+            head_changelog = head_changelog_proc.stdout
+        else:
+            with open("CHANGELOG.md", encoding="utf-8") as handle:
+                head_changelog = handle.read()
 
         base_lines = {line for line in unreleased_section(base_changelog) if line.strip()}
         head_lines = unreleased_section(head_changelog)
@@ -583,6 +594,106 @@ def evaluate_policy(
     return failures
 
 
+def resolve_merge_group_prs(base: str, head: str) -> List[Dict[str, Any]]:
+    """Resolve the individual PRs in a merge_group for per-PR policy evaluation (#2499).
+
+    Supports MERGE_GROUP_PRS_JSON for deterministic offline unit tests in
+    tests/policy_gate_guards.test.ts, and queries the GitHub API in CI using
+    both the gh-readonly-queue ref name and commits/<sha>/pulls for every
+    commit in base..head.
+    """
+    override_json = os.environ.get("MERGE_GROUP_PRS_JSON")
+    if override_json:
+        return json.loads(override_json)
+
+    repo = os.environ.get("GITHUB_REPOSITORY") or ""
+    ref_name = os.environ.get("GITHUB_REF_NAME") or ""
+    pr_numbers: List[int] = []
+
+    ref_match = re.match(r"^gh-readonly-queue/[^/]+/pr-(\d+)-", ref_name)
+    if ref_match:
+        pr_numbers.append(int(ref_match.group(1)))
+
+    if repo:
+        try:
+            commits = subprocess.run(
+                ["git", "rev-list", f"{base}..{head}"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                check=True,
+            ).stdout.splitlines()
+            for sha in commits:
+                sha = sha.strip()
+                if not sha:
+                    continue
+                res = subprocess.run(
+                    [
+                        "gh",
+                        "api",
+                        f"repos/{repo}/commits/{sha}/pulls",
+                        "--jq",
+                        ".[].number",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                )
+                if res.returncode == 0:
+                    for line in res.stdout.splitlines():
+                        line = line.strip()
+                        if line.isdigit():
+                            num = int(line)
+                            if num not in pr_numbers:
+                                pr_numbers.append(num)
+        except Exception:
+            pass
+
+    prs: List[Dict[str, Any]] = []
+    for num in pr_numbers:
+        if not repo:
+            continue
+        res = subprocess.run(
+            ["gh", "api", f"repos/{repo}/pulls/{num}"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        if res.returncode != 0:
+            continue
+        try:
+            pr_data = json.loads(res.stdout)
+        except Exception:
+            continue
+        pr_head_sha = (pr_data.get("head") or {}).get("sha") or ""
+        if pr_head_sha:
+            subprocess.run(
+                ["git", "fetch", "--no-tags", "origin", f"pull/{num}/head"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+        labels = [
+            lbl.get("name", "")
+            for lbl in (pr_data.get("labels") or [])
+            if isinstance(lbl, dict) and lbl.get("name")
+        ]
+        prs.append(
+            {
+                "number": num,
+                "title": pr_data.get("title") or "",
+                "body": pr_data.get("body") or "",
+                "labels": labels,
+                "head": pr_head_sha or head,
+            }
+        )
+    return prs
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Evaluate cfagent Policy Gate.")
     parser.add_argument("--base", default="origin/main", help="Base git ref to compare against")
@@ -599,14 +710,45 @@ def main() -> int:
     labels = (os.environ.get("PR_LABELS") or "").split()
     is_merge_group = os.environ.get("GITHUB_EVENT_NAME") == "merge_group"
 
-    failures = evaluate_policy(
-        base=args.base,
-        head=args.head,
-        title=title,
-        body=body,
-        labels=labels,
-        diff_only=args.diff_only or is_merge_group,
-    )
+    failures: List[str] = []
+    if is_merge_group and not args.diff_only:
+        queued_prs = resolve_merge_group_prs(args.base, args.head)
+        if not queued_prs and os.environ.get("GITHUB_REPOSITORY"):
+            failures.append(
+                "(merge_group) could not resolve queued PR metadata from GitHub API "
+                "for per-PR policy evaluation"
+            )
+        for pr in queued_prs:
+            pr_failures = evaluate_policy(
+                base=args.base,
+                head=pr.get("head") or args.head,
+                title=pr.get("title") or "",
+                body=pr.get("body") or "",
+                labels=pr.get("labels") or [],
+                diff_only=False,
+            )
+            for pf in pr_failures:
+                failures.append(f"[PR #{pr.get('number')}] {pf}")
+        # Also evaluate the aggregate queue tree so combined tree invariants hold
+        agg_failures = evaluate_policy(
+            base=args.base,
+            head=args.head,
+            title="",
+            body="",
+            labels=[],
+            diff_only=True,
+        )
+        for af in agg_failures:
+            failures.append(f"[merge_group aggregate] {af}")
+    else:
+        failures = evaluate_policy(
+            base=args.base,
+            head=args.head,
+            title=title,
+            body=body,
+            labels=labels,
+            diff_only=args.diff_only,
+        )
 
     if failures:
         print("Policy gate FAILED:")

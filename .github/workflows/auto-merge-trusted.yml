@@ -108,10 +108,10 @@ jobs:
             exit 0
           fi
 
+          gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --add-label "auto-merge" || true
           if [ -n "$LANE_LABEL" ]; then
-            gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --add-label "auto-merge,$LANE_LABEL"
-          else
-            gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --add-label "auto-merge"
+            gh label create "$LANE_LABEL" --repo "$GITHUB_REPOSITORY" --color "ededed" --description "Agent ownership lane" --force 2>/dev/null || true
+            gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --add-label "$LANE_LABEL" || true
           fi
           if [ "$PR_IS_DRAFT" = "true" ]; then
             echo "Draft PR labeled. GitHub will allow merging after it is marked ready for review."

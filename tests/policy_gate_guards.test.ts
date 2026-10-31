@@ -758,33 +758,74 @@ describe("rewritten wrapper", () => {
     expect(res.stdout).toContain("Policy gate passed");
   });
 
-  it("passes on merge_group event without PR_BODY/PR_TITLE/PR_LABELS when tree checks pass (#2497)", () => {
+  it("evaluates each queued PR individually on merge_group so PR #2 cannot mask a missing changelog or body edit in PR #1 (#2499)", () => {
     runGit(tempRepoDir, ["checkout", "branch-fragment"]);
-    const res = runPolicyGate(
+    // Stacked merge_group where PR #1 (branch-no-changelog) has no changelog, while PR #2 (branch-fragment) does
+    const stackedBad = JSON.stringify([
+      {
+        number: 101,
+        title: "feat: first PR missing changelog (#1684)",
+        body: "Fixes #1684\n\n## Agent\n#CTO-mbshr\n\n- [x] Process documentation impact: none",
+        labels: ["lane:cto-mbshr"],
+        head: "branch-no-changelog",
+      },
+      {
+        number: 102,
+        title: "feat: second PR with fragment (#1684)",
+        body: "Fixes #1684\n\n## Agent\n#CTO-mbshr\n\n- [x] Process documentation impact: none",
+        labels: ["lane:cto-mbshr"],
+        head: "branch-fragment",
+      },
+    ]);
+    const resMasked = runPolicyGate(
       {
         GITHUB_EVENT_NAME: "merge_group",
-        PR_TITLE: "",
-        PR_BODY: "",
-        PR_LABELS: "",
+        MERGE_GROUP_PRS_JSON: stackedBad,
       },
       ["--base", "main", "--head", "branch-fragment"]
     );
-    expect(res.status).toBe(0);
-    expect(res.stdout).toContain("Policy gate passed");
+    expect(resMasked.status).toBe(1);
+    expect(resMasked.stdout).toContain("[PR #101] (d) CHANGELOG");
+
+    // Compliant queued PR passes both per-PR metadata/tree checks and aggregate tree check
+    const stackedGood = JSON.stringify([
+      {
+        number: 102,
+        title: "feat: second PR with fragment (#1684)",
+        body: "Fixes #1684\n\n## Agent\n#CTO-mbshr\n\n- [x] Process documentation impact: none",
+        labels: ["lane:cto-mbshr"],
+        head: "branch-fragment",
+      },
+    ]);
+    const resGood = runPolicyGate(
+      {
+        GITHUB_EVENT_NAME: "merge_group",
+        MERGE_GROUP_PRS_JSON: stackedGood,
+      },
+      ["--base", "main", "--head", "branch-fragment"]
+    );
+    expect(resGood.status).toBe(0);
+    expect(resGood.stdout).toContain("Policy gate passed");
   });
 
-  it("still rejects file deletions (i) on merge_group event (#2497)", () => {
+  it("still rejects file deletions (i) on merge_group event (#2497, #2499)", () => {
     const res = runPolicyGate(
       {
         GITHUB_EVENT_NAME: "merge_group",
-        PR_TITLE: "",
-        PR_BODY: "",
-        PR_LABELS: "",
+        MERGE_GROUP_PRS_JSON: JSON.stringify([
+          {
+            number: 103,
+            title: "refactor: delete src file (#1684)",
+            body: "Fixes #1684\n\n## Agent\n#CTO-mbshr\n\n- [x] Process documentation impact: none",
+            labels: ["lane:cto-mbshr"],
+            head: "branch-src-deletion",
+          },
+        ]),
       },
       ["--base", "main", "--head", "branch-src-deletion"]
     );
     expect(res.status).toBe(1);
-    expect(res.stdout).toContain("(i) no deletion");
+    expect(res.stdout).toContain("[PR #103] (i) no deletion");
     expect(res.stdout).toContain("src/index.ts");
   });
 

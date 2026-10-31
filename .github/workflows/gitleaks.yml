@@ -1,28 +1,22 @@
-# Secret Scanning (gitleaks) — Assessment P0 item 3, OpenAIMP/cfagent issue #143, #2497.
+# Secret Scanning (gitleaks) — Assessment P0 item 3, OpenAIMP/cfagent issue #143, #2497, #2499.
 #
 # WHAT: scans commits in the repository for secrets committed by accident.
-# Runs on push to main, pull requests, and merge_group so leaked credentials
-# are caught before they merge.
+# Runs as a required check on pull_request and merge_group (scanning merge-base..HEAD
+# in ~9s) and runs a nightly full-history backstop scan on schedule.
 #
-# #2497 FIX: gitleaks/gitleaks-action@v2 requires a paid GITLEAKS_LICENSE secret
-# when running under a GitHub Organization account (e.g. Qunsultant/cfagent).
-# Using the official MIT-licensed open-source gitleaks release binary scans the
-# exact commit range in ~2s with zero paid license requirement.
-#
-# FINE-TUNING: if the scan flags false positives, add a .gitleaks.toml
-# allowlist at the repo root (see the gitleaks docs); gitleaks picks it
-# up automatically.
+# #2497 / #2499: uses the official MIT-licensed open-source gitleaks v8.24.2 release
+# binary verified against its official SHA-256 digest before extraction.
 
 name: Secret Scanning
 
 on:
-  push:
-    branches:
-      - main
   pull_request:
     branches:
       - main
   merge_group:
+  schedule:
+    # Nightly full-history backstop at 04:23 UTC (#2499)
+    - cron: "23 4 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -40,30 +34,28 @@ jobs:
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 50
+          fetch-depth: 0
 
-      - name: 🔎 Scan for secrets with Gitleaks (OSS CLI)
+      - name: 🔎 Verify SHA-256 & Scan for Secrets with Gitleaks (OSS CLI)
         env:
           EVENT_NAME: ${{ github.event_name }}
-          BEFORE_SHA: ${{ github.event.before }}
-          HEAD_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           GITLEAKS_VERSION="8.24.2"
-          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
-            | sudo tar -xz -C /usr/local/bin gitleaks
+          GITLEAKS_SHA256="fa0500f6b7e41d28791ebc680f5dd9899cd42b58629218a5f041efa899151a8e"
+          TARBALL="/tmp/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o "$TARBALL"
+          echo "${GITLEAKS_SHA256}  ${TARBALL}" | sha256sum --check --strict
+          sudo tar -xz -f "$TARBALL" -C /usr/local/bin gitleaks
+          rm -f "$TARBALL"
           gitleaks version
 
           if [ "$EVENT_NAME" = "pull_request" ] || [ "$EVENT_NAME" = "merge_group" ]; then
-            git fetch origin main --depth=50 || true
-            BASE_MERGE=$(git merge-base origin/main HEAD 2>/dev/null || git rev-parse HEAD~1)
+            git fetch origin main
+            BASE_MERGE=$(git merge-base origin/main HEAD)
             gitleaks git --log-opts="${BASE_MERGE}..HEAD" --no-banner --redact --verbose
-          elif [ "$EVENT_NAME" = "push" ] && [ -n "$BEFORE_SHA" ] && [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
-            if git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
-              gitleaks git --log-opts="${BEFORE_SHA}..${HEAD_SHA}" --no-banner --redact --verbose
-            else
-              gitleaks git --log-opts="-n 20" --no-banner --redact --verbose
-            fi
           else
-            gitleaks git --log-opts="-n 20" --no-banner --redact --verbose
+            # Full-history backstop scan on nightly schedule and workflow_dispatch (#2499)
+            gitleaks git --no-banner --redact --verbose
           fi
