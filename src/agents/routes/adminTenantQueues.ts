@@ -21,9 +21,12 @@
  * - Fan-out: the admin's instance forwards to each target instance's
  *   EXISTING own-instance routes (GET /schedules, POST
  *   /schedules/cancel-all, POST /maintenance/clear-table) via
- *   ORCHESTRATOR_AGENT stub fetch. Target handlers operate on
- *   instance-local state, so scope is the instance, not the header —
- *   the forward cannot leak scope across instances.
+ *   SEARCH_AGENT stub fetch (#2516): the per-login instances live in
+ *   the SEARCH_AGENT namespace — the same addressing src/server.ts
+ *   and the chat client use — and that is where the target handlers'
+ *   state (schedules, maintenance tables) lives. Target handlers
+ *   operate on instance-local state, so scope is the instance, not
+ *   the header — the forward cannot leak scope across instances.
  * - Delegation headers (x-admin-actor, x-admin-tenant) are set ONLY
  *   by this module and annotate the target's audit payload; they
  *   never change scope or authorization. The target handlers read
@@ -64,7 +67,7 @@ import {
 } from "../../security/tenantQueueMapping";
 
 export interface AdminTenantQueueContext {
-  /** Worker env (carries the SESSION_STORE + ORCHESTRATOR_AGENT bindings). */
+  /** Worker env (carries the SESSION_STORE + SEARCH_AGENT bindings). */
   env: Env;
   /** Audit funnel (owner: OrchestratorAgent.audit). */
   audit(
@@ -157,12 +160,12 @@ function instanceStub(
   if (ctx.fetchInstance) return ctx.fetchInstance(login);
   const ns = (
     ctx.env as unknown as {
-      ORCHESTRATOR_AGENT?: {
+      SEARCH_AGENT?: {
         idFromName(name: string): unknown;
         get(id: unknown): InstanceStub;
       };
     }
-  ).ORCHESTRATOR_AGENT;
+  ).SEARCH_AGENT;
   if (!ns || typeof ns.idFromName !== "function" || typeof ns.get !== "function") {
     return null;
   }
