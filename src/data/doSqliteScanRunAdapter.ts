@@ -71,6 +71,8 @@ function summarize(id: string, result: OpportunityScanResult, userLogin?: string
     coverage: result.coverage,
     profileRef: result.profileRef ?? null,
     pdfKey: result.pdfKey ?? null,
+    xlsxKey: result.xlsxKey ?? null,
+    csvKey: result.csvKey ?? null,
     partial: result.partial ?? null,
     ...(userLogin !== undefined ? { userLogin } : {}),
   };
@@ -209,6 +211,56 @@ export class SqlScanRunStore implements ScanRunStore {
       return runner.run(
         this.storage,
         { operationName: "scanRuns.updatePdfKey", domain: "options-discovery" },
+        apply,
+      );
+    }
+    return apply();
+  }
+
+  async updateXlsxKey(id: string, xlsxKey: string, options: { userLogin?: string } = {}): Promise<boolean> {
+    if (!xlsxKey) return false;
+    this.ensure();
+    const apply = (): boolean => {
+      const rows = Array.from(this.sql.exec(GET_SQL, id)) as Array<{ summary_json: string; result_json: string }>;
+      if (!rows.length) return false;
+      const summary = JSON.parse(rows[0].summary_json) as ScanRunSummary;
+      if (!visibleToCaller(summary, options.userLogin)) return false;
+      const result = JSON.parse(rows[0].result_json) as OpportunityScanResult;
+      summary.xlsxKey = xlsxKey;
+      result.xlsxKey = xlsxKey;
+      this.sql.exec(UPDATE_PDF_KEY_SQL, JSON.stringify(summary), JSON.stringify(result), id);
+      return true;
+    };
+    const runner = this.storage ? getTransactionRunner() : null;
+    if (this.storage && runner) {
+      return runner.run(
+        this.storage,
+        { operationName: "scanRuns.updateXlsxKey", domain: "options-discovery" },
+        apply,
+      );
+    }
+    return apply();
+  }
+
+  async updateCsvKey(id: string, csvKey: string, options: { userLogin?: string } = {}): Promise<boolean> {
+    if (!csvKey) return false;
+    this.ensure();
+    const apply = (): boolean => {
+      const rows = Array.from(this.sql.exec(GET_SQL, id)) as Array<{ summary_json: string; result_json: string }>;
+      if (!rows.length) return false;
+      const summary = JSON.parse(rows[0].summary_json) as ScanRunSummary;
+      if (!visibleToCaller(summary, options.userLogin)) return false;
+      const result = JSON.parse(rows[0].result_json) as OpportunityScanResult;
+      summary.csvKey = csvKey;
+      result.csvKey = csvKey;
+      this.sql.exec(UPDATE_PDF_KEY_SQL, JSON.stringify(summary), JSON.stringify(result), id);
+      return true;
+    };
+    const runner = this.storage ? getTransactionRunner() : null;
+    if (this.storage && runner) {
+      return runner.run(
+        this.storage,
+        { operationName: "scanRuns.updateCsvKey", domain: "options-discovery" },
         apply,
       );
     }

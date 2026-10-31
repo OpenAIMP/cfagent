@@ -125,6 +125,12 @@ export interface ScanRunStore {
    *  for unknown ids; callers that must not fail a response treat
    *  false as "badge stays dark". */
   updatePdfKey(id: string, pdfKey: string, options?: { userLogin?: string }): Promise<boolean>;
+  /** XLSX twin of updatePdfKey: stamp a generated workbook key onto
+   *  an already-saved run (same visibility, blank-key and
+   *  unknown-id discipline — updates both summary and result). */
+  updateXlsxKey(id: string, xlsxKey: string, options?: { userLogin?: string }): Promise<boolean>;
+  /** CSV twin of updatePdfKey, same discipline as updateXlsxKey. */
+  updateCsvKey(id: string, csvKey: string, options?: { userLogin?: string }): Promise<boolean>;
   /** Delete rows older than the retention window (relative to `now`)
    *  and rows beyond the row cap; returns how many rows were deleted.
    *  Retention is global (not per-user), as before issue #103. */
