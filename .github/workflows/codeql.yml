@@ -1,21 +1,29 @@
 # CodeQL — static application security testing (SAST) for this repo.
 #
-# Issue #765 (RSI-InfoSec plan #764, P1 DevSecOps), updated in #2499:
-# Runs CodeQL's javascript-typescript analysis as an alert-only SAST gate on
-# code-touching pull requests and weekly on main, publishing results to the
+# Issue #765 (RSI-InfoSec plan #764, P1 DevSecOps), updated in #2499 and
+# in the CodeQL merge_group gate issue (see changelog fragment):
+# Runs CodeQL's javascript-typescript analysis as a REQUIRED gate on
+# merge_group commits and weekly on main, publishing results to the
 # repo's code-scanning tab (picked up by secops-findings-watch.yml).
+#
+# Why merge_group, not pull_request: a finding must block the merge, and
+# the merge_group commit is the exact tree that will land on main. Running
+# CodeQL on pull_request as well would run the same analysis twice per
+# PR lifecycle, so the pull_request trigger was removed by design.
+# CodeQL will NOT report on PR heads after this change — that is expected,
+# not a failure. It reports on merge_group and on the weekly schedule.
+#
+# Docs-only fast path: on merge_group only, a docs/changelog-only diff
+# skips Initialize/Autobuild/Analyze. The job still concludes success
+# (Checkout + docs detection succeed), so the required check can pass.
+# Schedule and workflow_dispatch runs never skip: an empty diff on main
+# must not be treated as docs-only.
 #
 # The workflow name matters: anything wired to workflow_run elsewhere must
 # match this `name:` exactly.
 name: CodeQL
 
 on:
-  pull_request:
-    branches: [main]
-    paths-ignore:
-      - "docs/**"
-      - "changelog.d/**"
-      - "*.md"
   merge_group:
   workflow_dispatch:
   schedule:
@@ -34,23 +42,49 @@ permissions:
 jobs:
   analyze:
     name: Analyze (javascript-typescript)
-    # Alert-only SAST (#2499): runs on code-touching PRs and weekly on main;
-    # skipped on merge_group so queue merges do not wait 2.5m on a non-required check.
-    if: github.event_name != 'merge_group'
+    # Required gate on merge_group (do NOT rename this job: the name is
+    # what ruleset 25543527 will require in a separate follow-up, after
+    # this workflow is on main and has reported on a merge_group commit).
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect docs-only diff (merge_group only)
+        id: docs
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != "merge_group" ]; then
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git fetch origin main
+          CHANGED_FILES=$(git diff --name-only origin/main...HEAD 2>/dev/null || true)
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          NON_DOCS=$(echo "$CHANGED_FILES" | grep -v -E '^(docs/|changelog\.d/|CHANGELOG\.md$|README\.md$|.*\.md$)' || true)
+          if [ -z "$NON_DOCS" ]; then
+            echo "docs_only=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Initialize CodeQL
+        if: steps.docs.outputs.docs_only != 'true'
         uses: github/codeql-action/init@v4
         with:
           languages: javascript-typescript
 
       - name: Autobuild
+        if: steps.docs.outputs.docs_only != 'true'
         uses: github/codeql-action/autobuild@v4
 
       - name: Perform CodeQL Analysis
+        if: steps.docs.outputs.docs_only != 'true'
         uses: github/codeql-action/analyze@v4
         with:
           category: "/language:javascript-typescript"
