@@ -117,4 +117,10 @@ jobs:
             echo "Draft PR labeled. GitHub will allow merging after it is marked ready for review."
             exit 0
           fi
-          gh pr merge --auto --rebase --repo "$GITHUB_REPOSITORY" "$PR_NUMBER"
+          # NOTE (issue #2519): no --rebase/--squash/--merge flag here.
+          # When a merge queue is active, passing any merge-strategy flag causes
+          # gh to emit "The merge strategy for main is set by the merge queue"
+          # and exit 0 WITHOUT enqueuing the PR. The queue owns the merge method
+          # (REBASE, per ruleset 25543527). Omitting the flag lets the CLI submit
+          # the PR to the queue and lets the queue enforce the strategy.
+          gh pr merge --auto --repo "$GITHUB_REPOSITORY" "$PR_NUMBER"

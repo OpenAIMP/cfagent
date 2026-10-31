@@ -896,4 +896,85 @@ describe("rewritten wrapper", () => {
     expect(res.stdout).toContain("(f) stale base reversion");
     expect(res.stdout).toContain("src/fresh.ts");
   });
+
+  it("merge_group per-PR check: does not false-fail (f)/(i) when main advanced after PR was cut (#2519)", () => {
+    // Regression test for issue #2519 root cause 2:
+    // Before the fix, policy_gate.py passed base=origin/main to evaluate_policy
+    // for each queued PR. If main advanced (another PR merged) between when the
+    // PR was opened and when the merge-group gate ran, git-diff(main, pr.head)
+    // treated every file added to main since branching as "deleted by this PR",
+    // producing spurious (f)/(i) failures.
+    //
+    // After the fix, the script computes pr_base = git merge-base main pr.head
+    // so each PR is only diffed against its own authored commits.
+    //
+    // Setup:
+    //   1. current main already has src/fresh.ts (from the test above).
+    //   2. We create a branch from main~1 (before fresh.ts), add mq_fix.ts +
+    //      changelog.
+    //   3. We create a merge commit on main that combines main + the PR branch
+    //      (this is the merge_group "merged head" — it has both fresh.ts AND
+    //      mq_fix.ts). The aggregate tree check uses this merge commit as --head
+    //      so it sees no deletions.
+    //   4. The per-PR check uses prHead (lacks fresh.ts) but with the merge-base
+    //      fix it diffs only against main~1, so fresh.ts is not seen as deleted.
+    const mainBeforeFresh = runGit(tempRepoDir, [
+      "rev-parse",
+      "main~1", // the commit just before fresh.ts was added to main
+    ]);
+    runGit(tempRepoDir, ["checkout", "-b", "branch-mq-no-false-positive", mainBeforeFresh]);
+
+    // Add a compliant src file and changelog fragment on this branch
+    fs.writeFileSync(
+      path.join(tempRepoDir, "src", "mq_fix.ts"),
+      "export const mqFix = true;\n"
+    );
+    fs.mkdirSync(path.join(tempRepoDir, "changelog.d"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tempRepoDir, "changelog.d", "2519-mq-fix.md"),
+      "### Fixed\n\n- **MQ deadlock fix (#2519):** per-PR merge-base diff\n"
+    );
+    runGit(tempRepoDir, ["add", "-A"]);
+    runGit(tempRepoDir, ["commit", "-m", "fix: mq false positive regression (#2519) #CFO-qunso"]);
+    const prHead = runGit(tempRepoDir, ["rev-parse", "HEAD"]);
+
+    // Build the merge_group merge commit: merge the PR branch into main.
+    // This commit has BOTH fresh.ts (from main) AND mq_fix.ts (from PR branch),
+    // so the aggregate tree check (base=currentMain, head=mergeCommit) sees
+    // only additions, never deletions.
+    const currentMain = runGit(tempRepoDir, ["rev-parse", "main"]);
+    runGit(tempRepoDir, ["checkout", "main"]);
+    runGit(tempRepoDir, ["merge", "branch-mq-no-false-positive", "--no-ff", "-m",
+      "ci(merge_group): merge branch-mq-no-false-positive into main"]);
+    const mergeCommit = runGit(tempRepoDir, ["rev-parse", "HEAD"]);
+
+    const prJson = JSON.stringify([
+      {
+        number: 200,
+        title: "fix: mq false positive regression (#2519) #CFO-qunso",
+        body: "Fixes #2519\n\n## Agent\n#CFO-qunso\n\n- [x] Process documentation impact: none",
+        labels: ["lane:cfo-qunso"],
+        // prHead is cut from main~1, so it lacks fresh.ts.
+        // The per-PR merge-base fix should diff it against main~1 only.
+        head: prHead,
+      },
+    ]);
+
+    // --base=currentMain (has fresh.ts), --head=mergeCommit (has both files).
+    // Aggregate: diff(currentMain..mergeCommit) = only mq_fix.ts + changelog added, no deletions.
+    // Per-PR:   merge-base(currentMain, prHead) = mainBeforeFresh;
+    //           diff(mainBeforeFresh..prHead) = only mq_fix.ts + changelog added, no deletions.
+    const res = runPolicyGate(
+      {
+        GITHUB_EVENT_NAME: "merge_group",
+        MERGE_GROUP_PRS_JSON: prJson,
+      },
+      ["--base", currentMain, "--head", mergeCommit]
+    );
+    expect(res.status).toBe(0);
+    expect(res.stdout).toContain("Policy gate passed");
+    // Confirm fresh.ts is NOT reported as a false (f) or (i) failure
+    expect(res.stdout).not.toContain("(f) stale base reversion");
+    expect(res.stdout).not.toContain("(i) no deletion");
+  });
 });

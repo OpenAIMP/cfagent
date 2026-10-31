@@ -719,9 +719,31 @@ def main() -> int:
                 "for per-PR policy evaluation"
             )
         for pr in queued_prs:
+            pr_head = pr.get("head") or args.head
+            # Compute the merge-base between origin/main and the PR's authored
+            # head so that per-PR checks only see the PR's own authored diff,
+            # not new commits that landed on main after the PR was cut.
+            # Without this, git-diff(origin/main, pr.head) treats every file
+            # added to main since branching as "deleted by this PR", producing
+            # spurious (f)/(i) failures whenever main advances while a PR waits
+            # in the queue (issue #2519 root cause).  The aggregate check below
+            # (diff_only=True, head=args.head) validates the combined merged
+            # tree for real deletions, so narrowing the per-PR base cannot
+            # mask true deletions.
+            try:
+                pr_base = subprocess.run(
+                    ["git", "merge-base", args.base, pr_head],
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    check=True,
+                ).stdout.strip() or args.base
+            except Exception:
+                pr_base = args.base
             pr_failures = evaluate_policy(
-                base=args.base,
-                head=pr.get("head") or args.head,
+                base=pr_base,
+                head=pr_head,
                 title=pr.get("title") or "",
                 body=pr.get("body") or "",
                 labels=pr.get("labels") or [],
