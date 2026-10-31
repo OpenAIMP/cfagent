@@ -283,6 +283,7 @@ const HANDLER_FILE: Record<string, string> = {
   "handleMaintenanceRoutes": "maintenance.ts",
   "handleServiceUserRoutes": "serviceUser.ts",
   "handleAdminTenantQueueRoutes": "adminTenantQueues.ts",
+  "handleKvWipeRoutes": "kvWipe.ts",
   "handleSchedulesRoutes": "schedules.ts"
 };
 
@@ -318,6 +319,7 @@ const EXPECTED_DELEGATIONS = [
   "handleMaintenanceRoutes",
   "handleServiceUserRoutes",
   "handleAdminTenantQueueRoutes",
+  "handleKvWipeRoutes",
   "handleSchedulesRoutes"
 ];
 
@@ -593,6 +595,7 @@ const EXPECTED_INVENTORY = [
   "handleScreenerResearchRoutes :: endsWith(\"/screening/outcomes\")",
   "handleScreenerResearchRoutes :: endsWith(\"/screening/goal-screen\")",
   "handleScreenerResearchRoutes :: endsWith(\"/screening/backtest\")",
+  "handleMaintenanceRoutes :: endsWith(\"/maintenance/events-export\")",
   "handleMaintenanceRoutes :: endsWith(\"/maintenance/clear-table\")",
   "handleServiceUserRoutes :: endsWith(\"/admin/service-user/provision\")",
   "handleServiceUserRoutes :: endsWith(\"/admin/service-user/revoke\")",
@@ -602,6 +605,7 @@ const EXPECTED_INVENTORY = [
   "handleAdminTenantQueueRoutes :: endsWith(\"/queues/dump\")",
   "handleAdminTenantQueueRoutes :: endsWith(\"/queues/cancel-all\")",
   "handleAdminTenantQueueRoutes :: endsWith(\"/queues/clear-table\")",
+  "handleKvWipeRoutes :: endsWith(\"/maintenance/kv-wipe\")",
   "handleSchedulesRoutes :: endsWith(\"/schedules\")",
   "handleSchedulesRoutes :: endsWith(\"/api/schedules\")",
   "handleSchedulesRoutes :: === \"/schedules\"",

@@ -503,6 +503,7 @@ const PORTED_TABLE_WRITERS: Record<string, { layer: string[]; bypass?: Record<st
   },
   mas_events: {
     layer: ["src/data/ormSchema.ts", "src/data/masRetentionIndexSchema.ts"],
+    bypass: { "src/agents/routes/maintenance.ts": "#2489 auditConfirm-gated selective wipe" },
   },
   mas_memory: { layer: ["src/data/doSqliteOrmAdapters.ts", "src/data/ormSchema.ts"] },
   mas_watchlists: { layer: ["src/data/ormSchema.ts"] },
@@ -525,7 +526,10 @@ const PORTED_TABLE_WRITERS: Record<string, { layer: string[]; bypass?: Record<st
   mas_job_outcomes: {
     layer: ["src/data/doSqliteJobOutcomeAdapter.ts"],
   },
-  mas_job_outcomes_meta: { layer: ["src/data/doSqliteJobOutcomeAdapter.ts"] },
+  mas_job_outcomes_meta: {
+    layer: ["src/data/doSqliteJobOutcomeAdapter.ts"],
+    bypass: { "src/agents/routes/maintenance.ts": "#2489 selective wipe watermark reset" },
+  },
   mas_strategy_reviews: { layer: ["src/data/doSqliteStrategyReviewAdapter.ts"] },
   mas_outcome_tracking: { layer: ["src/data/doSqliteOutcomeTrackingAdapter.ts"] },
   mas_comparison_arm_outcomes: { layer: ["src/data/doSqliteComparisonLedgerAdapter.ts"] },
@@ -708,6 +712,9 @@ function funnelCallSites(): Array<[string, string, string]> {
 const STEP5_FUNNEL_SITES: Array<[string, string, string]> = [
   ["src/agents/routes/adminTenantQueues.ts", "listStoreEntries", "sessions"],
   ["src/agents/routes/adminTenantQueues.ts", "listStoreEntries", "sessions"],
+  ["src/agents/routes/kvWipe.ts", "createStoreKv", "etrade"],
+  ["src/agents/routes/kvWipe.ts", "listStoreEntries", "etrade"],
+  ["src/agents/routes/kvWipe.ts", "listStoreEntries", "sessions"],
   ["src/data/createSessionPorts.ts", "createStoreKv", "sessions"],
   ["src/data/createSessionPorts.ts", "createStoreKv", "sessions"],
   ["src/data/createSessionPorts.ts", "listStoreEntries", "sessions"],
@@ -818,6 +825,7 @@ describe("global D-D census: step 5b — session family port composition sites (
     expect(rest).toEqual([
       ["src/agents/routes/adminTenantQueues.ts", "listStoreEntries", "sessions"],
       ["src/agents/routes/adminTenantQueues.ts", "listStoreEntries", "sessions"],
+      ["src/agents/routes/kvWipe.ts", "listStoreEntries", "sessions"],
       ["src/security/iaaaAuditStore.ts", "createStoreSender", "sessions"],
       ["src/security/iaaaAuditStore.ts", "listStoreEntries", "sessions"],
     ]);

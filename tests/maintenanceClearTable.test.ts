@@ -92,10 +92,9 @@ describe("POST /api/maintenance/clear-table (#2280)", () => {
     expect(count(db, "SELECT COUNT(*) AS n FROM mas_async_jobs")).toBe(5);
   });
 
-  it("never clears audit history, and routes messages and the framework queue elsewhere", async () => {
+  it("routes messages and the framework queue elsewhere; audit history needs the second confirmation (#2489 supersedes the old never-clearable rule)", async () => {
     const ctx = makeCtx(db);
     for (const [table, hint] of [
-      ["mas_events", "never bulk-clearable"],
       ["mas_messages", "/clear"],
       ["cf_agents_jobs", "cancel-all"],
     ] as const) {
@@ -103,6 +102,10 @@ describe("POST /api/maintenance/clear-table (#2280)", () => {
       expect(status).toBe(400);
       expect(body.error).toContain(hint);
     }
+    // mas_events without auditConfirm is still refused.
+    const refused = await postClear(ctx, { table: "mas_events", confirm: true });
+    expect(refused.status).toBe(400);
+    expect(refused.body.error).toContain("auditConfirm");
   });
 
   it("preview counts without deleting and without auditing", async () => {

@@ -112,7 +112,7 @@ describe("step-4a family census (#2358)", () => {
   it("the maintenance bypasses are closed: outcome/paused deletes live only in their adapters", () => {
     const maintenance = readFileSync("src/agents/routes/maintenance.ts", "utf8");
     expect(maintenance).not.toContain("DELETE FROM mas_async_jobs");
-    expect(maintenance).not.toContain("DELETE FROM mas_job_outcomes");
+    expect(maintenance).not.toMatch(/DELETE FROM mas_job_outcomes(?!_meta)/);
     expect(maintenance).not.toContain("DELETE FROM paused_schedules");
     expect(maintenance).toContain("createAsyncJobPorts");
     expect(maintenance).toContain("countRows()");
