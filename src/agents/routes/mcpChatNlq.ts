@@ -40,14 +40,14 @@ import { unauthenticatedResponse } from "./routeIdentity";
 import type { AgentName, AsyncJobRecord, AsyncJobSubmission, Env } from "../../types";
 import type { DatabaseORM } from "../../orm";
 import {
-  handleMCPRequest,
   MCP_PROMPTS,
   MCP_RESOURCES,
   MCP_SERVER_INFO,
   MCP_TOOLS,
-} from "../../mcp";
+} from "../../mcps/openaimp";
+import { handleOpenaimpMcpHttpRequest } from "../../mcps/openaimp/handler";
 import { createObservabilitySink } from "../../observability/createObservabilityPorts";
-import { resolveMcpPrincipalFromHeaders } from "../../permissions/mcpPermissionPorts";
+import { resolveMcpPrincipalFromHeaders } from "../../mcps/openaimp/mcpPermissionPorts";
 import { executeNaturalLanguageQuery, type NLQSchedulingPort, type NLQSocialBriefPort } from "../nlq";
 import {
   NLQ_MODE_SWITCH,
@@ -170,8 +170,11 @@ export async function handleMcpChatNlqRoutes(
 
     if (request.method === "POST") {
       try {
-        const body = (await request.json().catch(() => ({}))) as any;
-        const response = await handleMCPRequest(body, {
+        // Issue #2494: the wire protocol is served by the SDK handler
+        // (src/mcps/openaimp/handler); this shell keeps owning the
+        // route context — identity, audit, job ports — exactly as
+        // before. The GET discovery document above is unchanged.
+        return await handleOpenaimpMcpHttpRequest(request, {
           env: ctx.env,
           orm,
           sessionId,
@@ -191,7 +194,6 @@ export async function handleMcpChatNlqRoutes(
           getJob: (jobId) => ctx.getAsyncJob(jobId),
           listJobs: () => ctx.listAsyncJobs().map(({ result: _result, ...job }) => job),
         });
-        return Response.json(response);
       } catch (err: any) {
         return Response.json(
           { jsonrpc: "2.0", id: null, error: { code: -32603, message: err.message || "Internal error" } },

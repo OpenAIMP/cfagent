@@ -180,7 +180,7 @@ import {
   AlpacaPositionsCommand,
   AlpacaOrdersCommand,
   AlpacaPlaceOrderCommand,
-} from "../src/mcp/marketDataCommands";
+} from "../src/mcps/openaimp/marketDataCommands";
 import {
   handleMarketDataQuoteResearchRoutes,
   type MarketDataResearchRouteContext,

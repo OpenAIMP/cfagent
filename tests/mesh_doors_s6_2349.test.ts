@@ -54,9 +54,9 @@ import {
   GetTradingQuoteCommand,
   ListReportAssetsCommand,
   GetReportAssetCommand,
-} from "../src/mcp/meshDoorCommands";
-import { McpToolFactory } from "../src/mcp/commands";
-import { MCP_TOOL_SCOPES } from "../src/permissions/mcpPermissionPorts";
+} from "../src/mcps/openaimp/meshDoorCommands";
+import { McpToolFactory } from "../src/mcps/openaimp/commands";
+import { MCP_TOOL_SCOPES } from "../src/mcps/openaimp/mcpPermissionPorts";
 import { McpAgentToolAdapter } from "../src/agents/mcpAdapter";
 import {
   submitAsyncJob,
@@ -387,7 +387,7 @@ describe("mesh doors batch B: identity fails closed before dispatch (#2349)", ()
 
 describe("mesh doors batch B: the approval-door boundary, as re-scoped by S9 (#2349, #2375)", () => {
   it("no door module source calls the synchronous settle — the workflow's step is its only caller", () => {
-    for (const file of ["src/agents/orchestrator/meshDoors.ts", "src/mcp/meshDoorCommands.ts"]) {
+    for (const file of ["src/agents/orchestrator/meshDoors.ts", "src/mcps/openaimp/meshDoorCommands.ts"]) {
       const text = readFileSync(join(__dirname, "..", file), "utf8");
       expect(text, file).not.toMatch(/\.executeApprovedOrder\s*\(/);
     }

@@ -362,7 +362,7 @@ describe("issue #2428 — A2A trace propagation", () => {
 
 describe("issue #2428 — agentdb.trace.get read surface", () => {
   it("assembles a trace from the hop store + job history, tenant-scoped", async () => {
-    const { traceForMcp } = await import("../src/mcp/agentDbReadCommands");
+    const { traceForMcp } = await import("../src/mcps/openaimp/agentDbReadCommands");
     const traceStore = new InMemoryMeshTraceStore();
     const trace = newTraceContext();
     const jobId = "screener:chat:NASDAQ100:2026-10-30T00:00:00.000Z:abcd1234";
@@ -392,7 +392,7 @@ describe("issue #2428 — agentdb.trace.get read surface", () => {
   });
 
   it("hides hops recorded under another tenant (tenancy at the repository boundary)", async () => {
-    const { traceForMcp } = await import("../src/mcp/agentDbReadCommands");
+    const { traceForMcp } = await import("../src/mcps/openaimp/agentDbReadCommands");
     const traceStore = new InMemoryMeshTraceStore();
     const trace = newTraceContext();
     await traceStore.record({
@@ -413,8 +413,8 @@ describe("issue #2428 — agentdb.trace.get read surface", () => {
   });
 
   it("is registered in the catalog with exactly one read scope", async () => {
-    const { McpToolFactory } = await import("../src/mcp/commands");
-    const { MCP_TOOL_SCOPES } = await import("../src/permissions/mcpPermissionPorts");
+    const { McpToolFactory } = await import("../src/mcps/openaimp/commands");
+    const { MCP_TOOL_SCOPES } = await import("../src/mcps/openaimp/mcpPermissionPorts");
     const names = McpToolFactory.getAllTools().map((t) => t.name);
     expect(names).toContain("agentdb.trace.get");
     expect(MCP_TOOL_SCOPES["agentdb.trace.get"]).toBe("mcp:read");

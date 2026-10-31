@@ -5,7 +5,7 @@
  * their A2A surfaces, channels, tool families, doors, and workflows.
  * This module is a CHECKED PROJECTION, not a source of truth — the
  * facts live in wrangler.jsonc (bindings), src/a2a/ (cards and
- * resolutions), src/mcp/ (the command catalog), and the class
+ * resolutions), src/mcps/openaimp/ (the command catalog), and the class
  * declarations under src/. tests/mesh_registry_s1_2322.test.ts pins
  * every section below against those sources; if a source moves, the
  * pin fails and this file is updated in the same PR (gitops §7).
@@ -268,7 +268,7 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     statusReason:
       "Degraded: the ai_search_namespaces binding is dashboard-issued and NOT declared in wrangler.jsonc, so the namespace path is config-gated; the class degrades honestly to its MCP-endpoint and REST paths (see notes).",
     notes:
-      "Landed after the mesh survey base (migration v12). The ai_search_namespaces binding is NOT declared in wrangler.jsonc — its namespace value is dashboard-issued (see src/types.ts) — so the namespace path is config-gated and degrades honestly to the other two paths. Chat reach (G1, verified in #2351): the chat turn already reaches this agent through the ai_search_agent_search command (#2250, src/mcp/cloudflareAgentCommands.ts) — a typed stub over the AI_SEARCH_AGENT binding on the fixed service instance \"aisearch\", threading the turn's session login as callerLogin so report-type results are served only to their owner. No mesh-door command is added for it: a second door to the same agent would be a parallel implementation.",
+      "Landed after the mesh survey base (migration v12). The ai_search_namespaces binding is NOT declared in wrangler.jsonc — its namespace value is dashboard-issued (see src/types.ts) — so the namespace path is config-gated and degrades honestly to the other two paths. Chat reach (G1, verified in #2351): the chat turn already reaches this agent through the ai_search_agent_search command (#2250, src/mcps/openaimp/cloudflareAgentCommands.ts) — a typed stub over the AI_SEARCH_AGENT binding on the fixed service instance \"aisearch\", threading the turn's session login as callerLogin so report-type results are served only to their owner. No mesh-door command is added for it: a second door to the same agent would be a parallel implementation.",
   },
   {
     className: "TickerAgent",
@@ -311,7 +311,7 @@ export const MESH_AGENTS: MeshAgentEntry[] = [
     kind: "mcp-agent",
     base: "McpAgent",
     bindings: ["OPTIONS_SCANNER_MCP"],
-    sourceFile: "src/services/cloudflareWalletsScanner.ts",
+    sourceFile: "src/mcps/scanner/cloudflareWalletsScanner.ts",
     role: "Paid options-scanner MCP server (x402).",
     status: "live",
     statusReason:
@@ -677,7 +677,7 @@ export const MESH_TOOL_FAMILIES: MeshToolFamilyEntry[] = [
   {
     id: "core-mcp-commands",
     name: "Core MCP commands",
-    source: "src/mcp/commands.ts",
+    source: "src/mcps/openaimp/commands.ts",
     status: "live",
     commands: [
       "knowledge_search",
@@ -698,14 +698,14 @@ export const MESH_TOOL_FAMILIES: MeshToolFamilyEntry[] = [
       "manage_session_memory",
       "get_audit_events",
     ],
-    commandSources: [{ file: "src/mcp/commands.ts", kind: "readonly-name" }],
+    commandSources: [{ file: "src/mcps/openaimp/commands.ts", kind: "readonly-name" }],
     notes:
       "Grounding caveat (survey §8 row 1, verified by S14/#2417): knowledge_search and query_platform_knowledge ground on the in-repo platform-knowledge corpus (src/services/platformKnowledge.ts) — a shipped, structured knowledge base of the platform's own capabilities, not the AI Search instance. The survey's caution stands: that grounding must not be counted as a search surface. The AI Search surfaces are the ai-search-service and ai-search-platform families.",
   },
   {
     id: "cloudflare-agent-mcp-commands",
     name: "Cloudflare-agent MCP commands",
-    source: "src/mcp/cloudflareAgentCommands.ts",
+    source: "src/mcps/openaimp/cloudflareAgentCommands.ts",
     status: "live",
     commands: [
       "browser_inspect_page",
@@ -718,12 +718,12 @@ export const MESH_TOOL_FAMILIES: MeshToolFamilyEntry[] = [
       "execute_durable_twap",
       "ai_search_agent_search",
     ],
-    commandSources: [{ file: "src/mcp/cloudflareAgentCommands.ts", kind: "readonly-name" }],
+    commandSources: [{ file: "src/mcps/openaimp/cloudflareAgentCommands.ts", kind: "readonly-name" }],
   },
   {
     id: "etrade-mcp-commands",
     name: "E*TRADE MCP commands",
-    source: "src/mcp/etradeCommands.ts",
+    source: "src/mcps/openaimp/etradeCommands.ts",
     status: "live",
     commands: [
       "etrade_market_scan",
@@ -734,29 +734,29 @@ export const MESH_TOOL_FAMILIES: MeshToolFamilyEntry[] = [
       "etrade_auth_status",
       "etrade_account_discovery",
     ],
-    commandSources: [{ file: "src/mcp/etradeCommands.ts", kind: "readonly-name" }],
+    commandSources: [{ file: "src/mcps/openaimp/etradeCommands.ts", kind: "readonly-name" }],
   },
   {
     id: "agentic-payment-mcp-commands",
     name: "Agentic-payment MCP commands",
-    source: "src/mcp/agenticPaymentCommands.ts",
+    source: "src/mcps/openaimp/agenticPaymentCommands.ts",
     status: "live",
     commands: ["paid_options_screener", "paid_market_research", "agentic_wallet_status"],
-    commandSources: [{ file: "src/mcp/agenticPaymentCommands.ts", kind: "readonly-name" }],
+    commandSources: [{ file: "src/mcps/openaimp/agenticPaymentCommands.ts", kind: "readonly-name" }],
   },
   {
     id: "goal-chain-mcp-commands",
     name: "Goal/chain MCP commands",
-    source: "src/mcp/goalChainCommands.ts",
+    source: "src/mcps/openaimp/goalChainCommands.ts",
     status: "live",
     commands: ["goal.compile", "goal.schedule", "chain.run"],
-    commandSources: [{ file: "src/mcp/goalChainCommands.ts", kind: "readonly-name" }],
+    commandSources: [{ file: "src/mcps/openaimp/goalChainCommands.ts", kind: "readonly-name" }],
     notes: "chain.run reports unimplemented in the MCP context; the server-route binding is the recorded follow-up.",
   },
   {
     id: "market-data-mcp-commands",
     name: "Market-data MCP commands",
-    source: "src/mcp/marketDataCommands.ts",
+    source: "src/mcps/openaimp/marketDataCommands.ts",
     status: "live",
     commands: [
       "market_data_get_quote",
@@ -779,8 +779,8 @@ export const MESH_TOOL_FAMILIES: MeshToolFamilyEntry[] = [
       "foss_alpaca_place_order",
     ],
     commandSources: [
-      { file: "src/mcp/marketDataCommands.ts", kind: "readonly-name" },
-      { file: "src/mcp/commands.ts", kind: "deprecated-alias" },
+      { file: "src/mcps/openaimp/marketDataCommands.ts", kind: "readonly-name" },
+      { file: "src/mcps/openaimp/commands.ts", kind: "deprecated-alias" }, // each alias superseded by its canonical command (see notes)
     ],
     notes:
       "The foss_* names are deprecated aliases (#1906) wrapping the canonical commands; each foss_* alias is superseded by the canonical market_data_*/alpaca_* name for the same command. Alias removal is a follow-up slice.",
@@ -788,7 +788,7 @@ export const MESH_TOOL_FAMILIES: MeshToolFamilyEntry[] = [
   {
     id: "agentdb-read-mcp-commands",
     name: "AgentDB read MCP commands",
-    source: "src/mcp/agentDbReadCommands.ts",
+    source: "src/mcps/openaimp/agentDbReadCommands.ts",
     status: "live",
     commands: [
       "agentdb.chain.status",
@@ -797,12 +797,12 @@ export const MESH_TOOL_FAMILIES: MeshToolFamilyEntry[] = [
       "agentdb.reports.list",
       "agentdb.trace.get",
     ],
-    commandSources: [{ file: "src/mcp/agentDbReadCommands.ts", kind: "readonly-name" }],
+    commandSources: [{ file: "src/mcps/openaimp/agentDbReadCommands.ts", kind: "readonly-name" }],
   },
   {
     id: "mesh-door-mcp-commands",
     name: "Mesh door MCP commands (G1)",
-    source: "src/mcp/meshDoorCommands.ts",
+    source: "src/mcps/openaimp/meshDoorCommands.ts",
     status: "live",
     commands: [
       "list_scheduled_goals",
@@ -826,7 +826,7 @@ export const MESH_TOOL_FAMILIES: MeshToolFamilyEntry[] = [
       "get_trade_approval_status",
       "run_stock_screen",
     ],
-    commandSources: [{ file: "src/mcp/meshDoorCommands.ts", kind: "readonly-name" }],
+    commandSources: [{ file: "src/mcps/openaimp/meshDoorCommands.ts", kind: "readonly-name" }],
     notes:
       "G1 outbound doors, batches A (#2341) + B (#2349) + C (#2351), plus S9/G4 batch D (#2375): the chat turn reaches ScheduledAgent, PaymentsAgent, TradingAgent, ReportAssetAgent, BrowserAgent, and SlackAgent through the typed doors in src/agents/orchestrator/meshDoors.ts. The commands require the turn's acting identity (the context actingLogin carrier) and fail closed without one, so they serve the chat door; external MCP callers use the A2A doors for these agents. The TradingAgent door exposes proposals (preview only) and reads, and — since #2375 — the approval door's workflow operations (start_trade_approval / decide_trade_approval / get_trade_approval_status): a chat trade runs as a TradingTradeWorkflow through the approval door, with the authorizer derived server-side; the synchronous settle (executeApprovedOrder) is never on the door. The Browser/Slack doors take no caller-supplied webhookUrl: delivery targets are env configuration only. AiSearchAgent is deliberately not in this family — the chat turn already reaches it through ai_search_agent_search (#2250, see its agent record). Batch E (#2488) adds run_stock_screen over the mesh screen door (src/agents/orchestrator/meshScreenDoor.ts): the chat turn's universe stock screen as a ScreenerScreenWorkflow run, executed by the door layer's own NLQ-free service — the screen path no longer depends on the NLQ stock-screen port, and the door has no direct-ScreenerAgent fallback.",
   },
@@ -850,7 +850,7 @@ export const MESH_TOOL_FAMILIES: MeshToolFamilyEntry[] = [
   {
     id: "remote-mcp-servers",
     name: "Remotely consumed MCP servers",
-    source: "src/services/mcpClient.ts (RemoteMcpClient) + src/services/publicMcp.ts (PublicMcpClient)",
+    source: "src/mcps/client/mcpClient.ts (RemoteMcpClient) + src/mcps/public/publicMcp.ts (PublicMcpClient)",
     status: "live",
     commands: [],
     notes:
@@ -972,7 +972,7 @@ export const MESH_DOORS: MeshDoorEntry[] = [
   {
     id: "mcp",
     name: "MCP (external protocol surface)",
-    entryPoint: "src/mcp/index.ts MCP server over the McpToolFactory catalog (src/mcp/commands.ts)",
+    entryPoint: "src/mcps/openaimp/index.ts MCP server over the McpToolFactory catalog (src/mcps/openaimp/commands.ts)",
     gate: "MCP permission scopes (#1744) at the MCP factory/adapter — a separate enforcement point from the chat turn's in-process tool calls over the same registry.",
   },
   {
@@ -1153,7 +1153,7 @@ export const MESH_WORKFLOWS: MeshWorkflowEntry[] = [
 // Derivation, per door: A2A from AGENT_CARDS + A2A_RESOLUTIONS +
 // the per-agent dispatch constants + the classes' handleA2A
 // wiring; chat-turn from the mesh-door command registry
-// (src/mcp/meshDoorCommands.ts) and the turn's own paths; MCP from
+// (src/mcps/openaimp/meshDoorCommands.ts) and the turn's own paths; MCP from
 // the catalog's class-addressing commands; HTTP from the route
 // records above; agent-as-a-tool from the runAgentTool call sites
 // in src/. tests/mesh_every_door_s15_2421.test.ts pins the census
@@ -1890,7 +1890,7 @@ export const MESH_TRACE_SPINE: MeshTraceSpineEntry[] = [
     hop: "door",
     status: "carried",
     carrier:
-      "McpToolContext.traceparent resolver, read by every mesh door command before dispatch (src/mcp/meshDoorCommands.ts recordDoorHop), under the S5 server-side-only carrier discipline — never a tool argument.",
+      "McpToolContext.traceparent resolver, read by every mesh door command before dispatch (src/mcps/openaimp/meshDoorCommands.ts recordDoorHop), under the S5 server-side-only carrier discipline — never a tool argument.",
     evidence: "Hop per door call (kind \"door\", caller = acting login, agent = door target class).",
   },
   {

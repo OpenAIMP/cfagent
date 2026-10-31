@@ -137,8 +137,8 @@ export interface McpToolContext {
    * (mcpChatNlq) always sets `principal` from the forwarded
    * identity headers; agent turns set kind agent-turn.
    */
-  principal?: import("../permissions/mcpPermissionPorts").McpPrincipal;
-  permissionPort?: import("../permissions/mcpPermissionPorts").ToolPermissionPort;
+  principal?: import("../mcps/openaimp/mcpPermissionPorts").McpPrincipal;
+  permissionPort?: import("../mcps/openaimp/mcpPermissionPorts").ToolPermissionPort;
   permissionDecisionSink?: import("../observability/observabilityPorts").ObservabilitySink;
   /** #1744: execution id of the gated execution running this command (correlation only). */
   executionId?: string;

@@ -10,7 +10,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { MCP_TOOL_SCOPES } from "../src/permissions/mcpPermissionPorts";
+import { MCP_TOOL_SCOPES } from "../src/mcps/openaimp/mcpPermissionPorts";
 
 describe("Tool-attribution audit coverage (#1763)", () => {
   it("audit doc names all 82 factory tools and the 4 scanner tools", () => {

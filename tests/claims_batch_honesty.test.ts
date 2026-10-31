@@ -32,7 +32,7 @@ import { MockSqlStorage } from "./mock-sql";
 import { ScheduledTasksService } from "../src/services/scheduledTasks";
 import { ETradeWebhookService } from "../src/services/tradingWebhooks";
 import { verifyHmacSha256Signature } from "../src/security/webhookSecurity";
-import { DispatchTradingWebhookCommand } from "../src/mcp/cloudflareAgentCommands";
+import { DispatchTradingWebhookCommand } from "../src/mcps/openaimp/cloudflareAgentCommands";
 import { executionCardPresentation } from "../src/client/executionCard";
 import { ScheduledOptionsManager } from "../src/client/ScheduledOptionsManager";
 import type { Env } from "../src/types";

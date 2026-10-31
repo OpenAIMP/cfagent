@@ -663,7 +663,7 @@ describe("#2389 source-scan pins", () => {
       "src/trading/alpaca/platform.ts": 0,
       "src/trading/channels/approval.ts": 0,
       "src/agents/routes/etradeBrokerOrders.ts": 1,
-      "src/mcp/etradeCommands.ts": 1,
+      "src/mcps/openaimp/etradeCommands.ts": 1,
       "src/services/etrade.ts": 1,
     };
     for (const [file, expected] of Object.entries(allowed)) {

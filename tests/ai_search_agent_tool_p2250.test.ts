@@ -28,9 +28,9 @@
  *   and declares the mcp:read scope.
  */
 import { describe, it, expect } from "vitest";
-import { AISearchAgentSearchCommand } from "../src/mcp/cloudflareAgentCommands";
-import { McpToolFactory } from "../src/mcp/commands";
-import { MCP_TOOL_SCOPES } from "../src/permissions/mcpPermissionPorts";
+import { AISearchAgentSearchCommand } from "../src/mcps/openaimp/cloudflareAgentCommands";
+import { McpToolFactory } from "../src/mcps/openaimp/commands";
+import { MCP_TOOL_SCOPES } from "../src/mcps/openaimp/mcpPermissionPorts";
 import type { AiSearchAgentSearchResult } from "../src/agents/aiSearchPaths";
 
 const SERVICE_INSTANCE = "aisearch";

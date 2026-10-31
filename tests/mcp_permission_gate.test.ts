@@ -11,8 +11,8 @@
  * a forged `scope` argument is ignored.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { handleMCPRequest } from "../src/mcp";
-import { McpToolFactory } from "../src/mcp/commands";
+import { handleMCPRequest } from "../src/mcps/openaimp/handler";
+import { McpToolFactory } from "../src/mcps/openaimp/commands";
 import { DatabaseORM } from "../src/orm";
 import { BusinessError } from "../src/outcomes/outcomeAspects";
 import type { ObservabilitySink } from "../src/observability/observabilityPorts";
@@ -26,7 +26,7 @@ import {
   resolveMcpPrincipalFromHeaders,
   type McpPrincipal,
   type McpScope,
-} from "../src/permissions/mcpPermissionPorts";
+} from "../src/mcps/openaimp/mcpPermissionPorts";
 
 const READ_ONLY = createInMemoryMcpPermissionPort({
   overrides: new Map<string, readonly McpScope[]>([

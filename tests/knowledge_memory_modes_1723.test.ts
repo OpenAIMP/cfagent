@@ -45,9 +45,9 @@ import {
   KnowledgeSearchCommand,
   ManageSessionMemoryCommand,
   QueryPlatformKnowledgeCommand,
-} from "../src/mcp/commands";
+} from "../src/mcps/openaimp/commands";
 import { handleMemoryResetRoutes, type MemoryResetRouteContext } from "../src/agents/routes/memoryReset";
-import { readMCPResource } from "../src/mcp/index";
+import { readMCPResource } from "../src/mcps/openaimp/index";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -410,7 +410,7 @@ describe("scope boundaries (no merge into corpus, no new store)", () => {
     expect(memoryRoute).not.toMatch(/CREATE TABLE/i);
   });
   it("audit resource session filter is untouched by this slice", () => {
-    const idx = readFileSync("src/mcp/index.ts", "utf8");
+    const idx = readFileSync("src/mcps/openaimp/index.ts", "utf8");
     expect(idx).toContain('where: { sessionId }, orderBy: "created_at DESC", limit: 30');
   });
 });

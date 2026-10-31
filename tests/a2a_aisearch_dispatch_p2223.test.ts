@@ -44,7 +44,7 @@ import {
 } from "../src/agents/aiSearchDispatch";
 import { getAgentCard } from "../src/a2a/agent-cards";
 import { resolveA2AAgent, resolveA2AInstanceName } from "../src/a2a/resolution";
-import { RemoteMcpClient } from "../src/services/mcpClient";
+import { RemoteMcpClient } from "../src/mcps/client/mcpClient";
 
 type EnvLike = Parameters<typeof runAiSearchPaths>[0];
 

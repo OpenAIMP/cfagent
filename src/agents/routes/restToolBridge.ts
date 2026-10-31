@@ -10,13 +10,13 @@
  * Two context shapes, one rule: a command reduced here MUST NOT read
  * context.env or context.facade (verified per command in the #1644 issue
  * map). Commands that need the facade (e.g. get_payment_gateways) go
- * through executeMCPTool from src/mcp/index.ts, which builds a real
+ * through executeMCPTool from src/mcps/openaimp/index.ts, which builds a real
  * McpSystemFacade from the route's env — see payments.ts. This bridge is
  * for the env-free commands only, so route contexts that carry no env
  * (schema, ads/revenue, audit, memory) need no new required fields and
  * existing test literals keep typechecking.
  */
-import { McpToolFactory } from "../../mcp/commands";
+import { McpToolFactory } from "../../mcps/openaimp/commands";
 import type { DatabaseORM } from "../../orm";
 import type { McpToolContext } from "../../patterns/interfaces";
 

@@ -32,7 +32,7 @@ import {
 } from "../src/agents/registry";
 import { AGENT_CARDS } from "../src/a2a/agent-cards";
 import { A2A_RESOLUTIONS } from "../src/a2a/resolution";
-import { McpToolFactory } from "../src/mcp/commands";
+import { McpToolFactory } from "../src/mcps/openaimp/commands";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (rel: string) => readFileSync(resolve(root, rel), "utf8");

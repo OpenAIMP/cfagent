@@ -6,8 +6,8 @@ import {
   MarketDataResearchService,
 } from "../src/services/marketDataResearch";
 import { AGENT_DIDS } from "../src/agents/did";
-import { McpToolFactory } from "../src/mcp/commands";
-import { MCP_RESOURCES, MCP_PROMPTS, readMCPResource } from "../src/mcp/index";
+import { McpToolFactory } from "../src/mcps/openaimp/commands";
+import { MCP_RESOURCES, MCP_PROMPTS, readMCPResource } from "../src/mcps/openaimp/index";
 import { planNLQ, executeNLQQuery } from "../src/agents/nlq";
 import { DatabaseORM } from "../src/orm";
 import { MockSqlStorage } from "./mock-sql";

@@ -17,7 +17,7 @@ import {
   ManageCategoriesCommand,
   DraftPaymentCommand,
   ConfirmPaymentDraftCommand,
-} from "../src/mcp/commands";
+} from "../src/mcps/openaimp/commands";
 import { McpAgentToolAdapter, createAgentMcpTools } from "../src/agents/mcpAdapter";
 import { McpSystemFacade } from "../src/patterns/facade";
 import {

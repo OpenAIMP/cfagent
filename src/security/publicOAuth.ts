@@ -50,7 +50,7 @@ import {
   createPkcePair,
   type AuthorizationServerMetadata,
 } from "./oauth2Core";
-import { PublicMcpClient, PUBLIC_MCP_URL } from "../services/publicMcp";
+import { PublicMcpClient, PUBLIC_MCP_URL } from "../mcps/public/publicMcp";
 
 export const DEFAULT_PUBLIC_OAUTH_SCOPES = "openid offline_access marketdata trading.read";
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { searchPlatformKnowledge, PLATFORM_WORKFLOWS_KNOWLEDGE } from "../src/services/platformKnowledge";
-import { McpToolFactory, QueryPlatformKnowledgeCommand, KnowledgeSearchCommand } from "../src/mcp/commands";
+import { McpToolFactory, QueryPlatformKnowledgeCommand, KnowledgeSearchCommand } from "../src/mcps/openaimp/commands";
 import { createAgentMcpTools } from "../src/agents/mcpAdapter";
 import { McpSystemFacade } from "../src/patterns/facade";
 import { LLMJudge } from "../src/agents/judge";

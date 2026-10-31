@@ -89,7 +89,7 @@ import {
 } from "../../services/nativeWebhook";
 import type { AgentName, Env, TransactionRecord } from "../../types";
 import { DatabaseORM, type SqlStorage } from "../../orm";
-import { executeMCPTool } from "../../mcp/index";
+import { executeMCPTool } from "../../mcps/openaimp/index";
 import { runRestTool } from "./restToolBridge";
 import {
   paymentsConfigErrorEvent,

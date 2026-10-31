@@ -105,7 +105,7 @@ import {
   compileGoalForMcp,
   runChain,
   synthesizePendingForMcp,
-} from "../src/mcp/goalChainCommands";
+} from "../src/mcps/openaimp/goalChainCommands";
 import {
   chainStatusToMcpResult,
   jobsToMcpResult,
@@ -115,14 +115,14 @@ import {
   AgentDbJobsHistoryCommand,
   AgentDbAuditHistoryCommand,
   AgentDbReportsListCommand,
-} from "../src/mcp/agentDbReadCommands";
+} from "../src/mcps/openaimp/agentDbReadCommands";
 import { handleChainStatusRoute } from "../src/data/chainStatusRoute";
 import { handleJobHistoryRoute } from "../src/data/shardJobRoute";
 import {
   handleAuditHistoryRoute,
   handleReportsRoute,
 } from "../src/data/auditReportRoute";
-import { handleMCPRequest } from "../src/mcp";
+import { handleMCPRequest } from "../src/mcps/openaimp/handler";
 import { compileGoal } from "../src/orchestrate";
 import { VectorMemory } from "../src/memory/vector-memory";
 import { recordPlanOutcome } from "../src/agentic/compositionMemory";
@@ -377,7 +377,7 @@ describe("G02 pinned: goal.schedule pending only, REST create live behind an all
     const schedules = readFileSync(resolve(__dirname, "../src/agents/routes/schedules.ts"), "utf8");
     expect(schedules).toContain("creatableScheduleCallbacks");
     expect(schedules).toContain("is not allowed: POST /api/schedules/create only accepts");
-    const goalChain = readFileSync(resolve(__dirname, "../src/mcp/goalChainCommands.ts"), "utf8");
+    const goalChain = readFileSync(resolve(__dirname, "../src/mcps/openaimp/goalChainCommands.ts"), "utf8");
     expect(goalChain).toContain("approveSynthesizedRecord");
   });
 });
@@ -442,7 +442,7 @@ describe("G01/G04 no-new-surface pins (#1729)", () => {
       expect(Object.keys(tool.jsonSchema.properties)).not.toContain("tenantId");
       expect(Object.keys(tool.jsonSchema.properties)).not.toContain("tenant");
     }
-    const agentDb = readFileSync(resolve(__dirname, "../src/mcp/agentDbReadCommands.ts"), "utf8");
+    const agentDb = readFileSync(resolve(__dirname, "../src/mcps/openaimp/agentDbReadCommands.ts"), "utf8");
     expect(agentDb).toContain("resolveIaaaTenant");
     expect(agentDb).not.toContain("input.tenantId");
   });
@@ -590,7 +590,7 @@ describe("G04 pinned: MCP mapper === REST route body for the same projection row
     const server = readFileSync(resolve(__dirname, "../src/server.ts"), "utf8");
     expect(server).toContain('path === "/api/audit/history"');
     expect(server).toContain('path === "/api/reports/list"');
-    const agentDb = readFileSync(resolve(__dirname, "../src/mcp/agentDbReadCommands.ts"), "utf8");
+    const agentDb = readFileSync(resolve(__dirname, "../src/mcps/openaimp/agentDbReadCommands.ts"), "utf8");
     expect(agentDb).toContain("projection only");
     expect(agentDb).not.toContain("mas_events");
   });
