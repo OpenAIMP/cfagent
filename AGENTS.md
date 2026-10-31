@@ -55,6 +55,12 @@ In brief:
   in code files (`src/`, `scripts/`) must name what superseded it
   (e.g. "superseded by src/new_module.ts"); a marker without a
   successor fails gate check (j). Docs/prose are excluded.
+- **Zero-touch documentation merges (#2555).** PRs whose touched files
+  are strictly confined to `docs/` and root documentation markdown files
+  (excluding `changelog.d/`, `src/`, `tests/`, `scripts/`, `.github/`)
+  bypass issue linking, lane labels, agent hashtags, process checklist,
+  and CHANGELOG fragment requirements. Zero deletions (§22) and docs scope
+  (no code or tests) remain strictly enforced.
 - The gate enforces both whether or not you read this section —
   a red check with a message is how an agent that skipped it learns.
   Read gitops §22 for the full rule and #1894 for why it exists.

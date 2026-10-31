@@ -1,0 +1,3 @@
+### Fixed
+
+- **GitHub App token fallback & pure documentation fast-path (#2555):** add `continue-on-error: true` and fallback to `secrets.GITHUB_TOKEN` on `auto-update-prs-app.yml` when GitHub App token generation fails (preventing CI run failures when the App is not installed on the repository owner), and update `scripts/ci/policy_gate.py` to identify pure documentation PRs (diff touching only `docs/` and root `.md` files outside `changelog.d/`, `src/`, `tests/`, `scripts/`, `.github/`) so they bypass agent issue/lane/hashtag/changelog ceremonies while strictly enforcing zero deletions and docs-only boundaries.

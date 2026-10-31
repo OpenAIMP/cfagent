@@ -38,7 +38,7 @@ describe("auto-update-prs-app.yml workflow configuration", () => {
 
   it("uses the App token with pagination and updateBranch API without manual dispatches", () => {
     expect(workflowContent).toContain("actions/github-script@");
-    expect(workflowContent).toContain("github-token: ${{ steps.app-token.outputs.token }}");
+    expect(workflowContent).toContain("github-token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}");
     expect(workflowContent).toContain("github.paginate(github.rest.pulls.list");
     expect(workflowContent).toContain("github.rest.pulls.updateBranch");
     expect(workflowContent).not.toContain("github.rest.actions.createWorkflowDispatch");
