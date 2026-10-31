@@ -22,6 +22,7 @@ import {
   saveStoredAdBannerConfig,
 } from "./adBannerConfig";
 import { useAutoRefresh } from "./autoRefresh";
+import { getPollingConfig } from "./pollingConfig";
 import {
   FONT_SCALE_PRESETS,
   getStoredFontScale,
@@ -809,7 +810,7 @@ export function SettingsMenu({
                     ariaLabel="Auto-refresh cadence"
                     size="sm"
                     variant="default"
-                    options={[10, 15, 30, 60, 120, 300].map((sec) => ({ id: String(sec), label: sec < 60 ? `${sec}s` : `${sec / 60}m`, tooltip: `Auto-refresh every ${sec < 60 ? `${sec} seconds` : `${sec / 60} min`}` }))}
+                    options={getPollingConfig().autoRefreshIntervalOptionsS.map((sec) => ({ id: String(sec), label: sec < 60 ? `${sec}s` : `${sec / 60}m`, tooltip: `Auto-refresh every ${sec < 60 ? `${sec} seconds` : `${sec / 60} min`}` }))}
                     value={String(effectiveAutoRefreshInterval)}
                     onChange={(v) => handleSetAutoRefresh(true, Number(v))}
                   />

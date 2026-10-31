@@ -54,6 +54,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { POLLING_CONFIG_DEFAULTS } from "./pollingConfig";
 
 export const AUTO_REFRESH_ENABLED_KEY = "cfagent_global_autorefresh_enabled";
 export const AUTO_REFRESH_INTERVAL_KEY = "cfagent_global_autorefresh_interval";
@@ -70,7 +71,8 @@ const LEGACY_INTERVAL_KEYS = [
   "cfagent_options_research_autorefresh_interval",
 ];
 
-export const AUTO_REFRESH_DEFAULT_INTERVAL_S = 15;
+/** Issue #2513 — the default interval now comes from the polling config (15s), not a standalone magic constant. The tenant row, once loaded, still wins over this default. */
+export const AUTO_REFRESH_DEFAULT_INTERVAL_S = POLLING_CONFIG_DEFAULTS.autoRefreshDefaultS;
 
 export interface AutoRefreshState {
   enabled: boolean;

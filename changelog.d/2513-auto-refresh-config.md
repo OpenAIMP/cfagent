@@ -1,0 +1,2 @@
+### Changed
+- Externalized the auto-refresh interval options, default, min, and max into `src/client/pollingConfig.ts` (#2513): the dynamic panel now reads its cadence pills from the polling config, the auto-refresh default comes from the polling config default (15s), and the server clamps posted intervals to the configured min/max (default 10/300s). No option values, defaults, or pill behaviour changed, and no slider was added.
