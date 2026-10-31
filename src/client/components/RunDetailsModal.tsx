@@ -6,7 +6,7 @@
  * with token-only styling (repo AGENTS.md §20).
  */
 import { useState } from "react";
-import { Badge, Button, Modal, SegmentedControl, Table } from "./ui";
+import { Badge, Button, Modal, SegmentedControl, Table } from "../components/ui";
 import { formatRunDetailTimestamp, runDetailVisibleSections, type RunDetail, type RunDetailLevelFilter } from "../runDetails";
 
 function Unknown({ store }: { store: string }) {
