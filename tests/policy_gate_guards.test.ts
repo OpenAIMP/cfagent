@@ -1036,4 +1036,40 @@ describe("rewritten wrapper", () => {
     expect(res.stdout).not.toContain("(d) CHANGELOG");
     expect(res.stdout).not.toContain("(h) process documentation");
   });
+
+  it("allows zero-touch docs PR in merge_group after merging main (#2555)", () => {
+    // When main has new commits and was merged into a pure docs PR,
+    // merge_group evaluates the per-PR check without (f) stale base reversion.
+    runGit(tempRepoDir, ["checkout", "main"]);
+    fs.writeFileSync(path.join(tempRepoDir, "src", "new_feature.ts"), "export const b = 2;\n");
+    runGit(tempRepoDir, ["add", "-A"]);
+    runGit(tempRepoDir, ["commit", "-m", "feat: new feature on main"]);
+    const currentMain = runGit(tempRepoDir, ["rev-parse", "main"]);
+
+    runGit(tempRepoDir, ["checkout", "branch-pure-docs"]);
+    runGit(tempRepoDir, ["merge", "main", "--no-ff", "-m", "Merge branch 'main' into branch-pure-docs"]);
+    const docsHead = runGit(tempRepoDir, ["rev-parse", "HEAD"]);
+
+    const prJson = JSON.stringify([
+      {
+        number: 2554,
+        title: "Create docs/agentic-org/platforms.md",
+        body: "Adding platforms documentation.",
+        labels: [],
+        head: docsHead,
+      },
+    ]);
+
+    const res = runPolicyGate(
+      {
+        GITHUB_EVENT_NAME: "merge_group",
+        MERGE_GROUP_PRS_JSON: prJson,
+      },
+      ["--base", currentMain, "--head", docsHead]
+    );
+
+    expect(res.status).toBe(0);
+    expect(res.stdout).toContain("Policy gate passed");
+    expect(res.stdout).not.toContain("(f) stale base reversion");
+  });
 });
