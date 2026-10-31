@@ -78,6 +78,23 @@ rebase merge creates a commit CI has never tested. Before merging any PR:
 - Prefer the merge queue when configured (§11); it tests each PR
   against the latest `main` plus earlier queued PRs, which is what
   catches clean-looking merges that break each other semantically.
+- **Fresh branch requirement (cut from latest main):** Always fetch `main` and
+  rebase onto `origin/main` before opening a PR or marking it ready for review.
+  Branches cut from stale bases lack recent workflow changes and check triggers
+  (e.g. CodeQL pull_request triggers), causing PRs to stall in BLOCKED status
+  waiting for checks that never run.
+- **Merge Queue auto-merge enrollment:** When a merge queue is configured,
+  never pass strategy flags (`--rebase`, `--squash`, or `--merge`) to `gh pr merge --auto`.
+  Use `gh pr merge --auto` directly — the Merge Queue ruleset manages the merge method
+  (REBASE). Passing strategy flags causes the CLI to exit without enqueuing.
+- **Linear history and rebases:** Maintain linear history by rebasing (`git rebase origin/main`)
+  rather than creating merge commits on the PR branch. While Policy Gate dynamically
+  resolves PR branch parents on merge commits (#2546), clean rebased commits prevent
+  accidental history distortion and speed up Merge Queue evaluation.
+- **Required check pre-flight verification:** Confirm that all checks required by ruleset
+  25543527 (`Load Active Environment`, `Test & Build (Node 22) [PROD]`, `Policy Gate`,
+  `Gitleaks secret scan`, `Analyze (javascript-typescript)`) are present and running on the
+  PR branch head before waiting for queue admission.
 
 Repository settings (human owner, not agents): branch protection on
 `main` should require a PR, require the typecheck/test/build checks,

@@ -62,7 +62,7 @@ def unreleased_section(text_content: str) -> List[str]:
     return section
 
 
-def resolve_effective_head(head: str) -> str:
+def resolve_effective_head(head: str, base: str = "origin/main") -> str:
     """Resolve the tree the gate must evaluate.
 
     In CI, actions/checkout on pull_request events checks out the MERGE
@@ -70,9 +70,13 @@ def resolve_effective_head(head: str) -> str:
     to it. Evaluating the merge tree makes check (f) vacuous: the merge
     base of main and a merge commit is main itself, so no file ever
     counts as added-to-main-since-branching. A merge commit's second
-    parent is the PR branch head — evaluate that instead. A
-    single-parent head resolves to itself. Unresolvable heads fall back
-    to the given ref rather than crashing the gate.
+    parent is the PR branch head in GitHub-synthesized merge commits (where
+    parent 0 is main). When main has been merged into a PR branch, parent 0
+    is the PR branch and parent 1 is main. The gate dynamically selects the
+    parent that is NOT an ancestor of base so it always inspects the branch
+    tree, falling back to parent 1 or head. A single-parent head resolves to
+    itself. Unresolvable heads fall back to the given ref rather than
+    crashing the gate.
     """
     try:
         sha = subprocess.run(
@@ -98,6 +102,21 @@ def resolve_effective_head(head: str) -> str:
     except Exception:
         return head
     if len(parents) >= 2:
+        try:
+            r0 = subprocess.run(
+                ["git", "merge-base", "--is-ancestor", parents[0], base],
+                capture_output=True,
+            ).returncode
+            r1 = subprocess.run(
+                ["git", "merge-base", "--is-ancestor", parents[1], base],
+                capture_output=True,
+            ).returncode
+            if r0 == 0 and r1 != 0:
+                return parents[1]
+            if r1 == 0 and r0 != 0:
+                return parents[0]
+        except Exception:
+            pass
         return parents[1]
     return head
 
@@ -116,7 +135,7 @@ def evaluate_policy(
     # resolve_effective_head), except when evaluating the aggregate
     # merge_group tree where HEAD is already the queue-constructed target tree.
     if not diff_only or os.environ.get("GITHUB_EVENT_NAME") != "merge_group":
-        head = resolve_effective_head(head)
+        head = resolve_effective_head(head, base=base)
 
     # Attribution reads the PR body and labels ONLY (owner direction
     # 2026-10-27, issue #1894). Commit messages are NOT fallback context:

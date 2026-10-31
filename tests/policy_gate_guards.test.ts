@@ -977,4 +977,31 @@ describe("rewritten wrapper", () => {
     expect(res.stdout).not.toContain("(f) stale base reversion");
     expect(res.stdout).not.toContain("(i) no deletion");
   });
+
+  it("resolves branch parent when main was merged into the PR branch (#2546)", () => {
+    // When main is merged into the PR branch, parent 0 is the branch and parent 1 is main.
+    // policy_gate must inspect the branch parent, not main, ensuring CHANGELOG fragment is detected.
+    runGit(tempRepoDir, ["checkout", "main"]);
+    runGit(tempRepoDir, ["checkout", "-b", "branch-merge-main"]);
+    fs.mkdirSync(path.join(tempRepoDir, "changelog.d"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tempRepoDir, "changelog.d", "2546-sim.md"),
+      "### Added\n\n- **Sim fragment (#2546):** merge main into branch test\n"
+    );
+    runGit(tempRepoDir, ["add", "-A"]);
+    runGit(tempRepoDir, ["commit", "-m", "feat: branch commit with changelog"]);
+    runGit(tempRepoDir, ["merge", "main", "--no-ff", "-m", "Merge branch 'main' into branch-merge-main"]);
+    const branchHead = runGit(tempRepoDir, ["rev-parse", "HEAD"]);
+    const res = runPolicyGate(
+      {
+        PR_TITLE: "feat: branch with merged main (#2546) #COO-spr9",
+        PR_BODY: "Fixes #2546\n\n## Agent\n#COO-spr9\n\n- [ ] Process documentation impact: none",
+        PR_LABELS: "lane:coo-spr9",
+      },
+      ["--base", "main", "--head", branchHead]
+    );
+    expect(res.status).toBe(0);
+    expect(res.stdout).toContain("Policy gate passed");
+    expect(res.stdout).not.toContain("(d) CHANGELOG");
+  });
 });
