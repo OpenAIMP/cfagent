@@ -1079,6 +1079,7 @@ export class OrchestratorAgent extends PortThink {
           csvKey: res.data?.csvKey ?? null,
           reportUrl: res.data?.reportUrl ?? null,
           canonicalReportId: res.data?.canonicalReportId ?? null,
+          scanRunId: (res.data as unknown as { scanRunId?: string }).scanRunId ?? null,
           userLogin: userLogin || undefined,
         },
       );
