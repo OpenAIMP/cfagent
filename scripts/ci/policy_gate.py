@@ -449,7 +449,7 @@ def evaluate_policy(
             return True
 
         status_lines = subprocess.run(
-            ["git", "diff", "--name-status", "-M", base, head],
+            ["git", "diff", "--name-status", "-M", f"{merge_base}...{head}"],
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -465,7 +465,7 @@ def evaluate_policy(
         allowed: List[str] = []
         if deleted_all:
             paired_lines = subprocess.run(
-                ["git", "diff", "--name-status", "--find-renames=20%", base, head],
+                ["git", "diff", "--name-status", "--find-renames=20%", f"{merge_base}...{head}"],
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
@@ -481,7 +481,7 @@ def evaluate_policy(
             for deleted in deleted_all:
                 excused_with = None
                 if _is_test_file(deleted):
-                    old_content = _show(base, deleted)
+                    old_content = _show(merge_base, deleted)
                     old_names = _test_names(old_content) if old_content is not None else []
                     if old_names:
                         for added in added_all:
