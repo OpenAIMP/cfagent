@@ -469,6 +469,23 @@ export async function executeUnifiedOptions(args: {
       console.warn("[Orchestrator] Manual options CSV generation failed:", csvErr instanceof Error ? csvErr.message : String(csvErr));
     }
 
+    // XLSX/CSV twin of the PDF backfill above: the scan row was
+    // saved before these artifacts existed, so stamp their keys
+    // back onto it now (same non-fatal discipline — a failed stamp
+    // never fails the response, the badge simply stays dark).
+    if (scannerXlsxKey || scannerCsvKey) {
+      try {
+        const scanRunId = (result.data as { scanRunId?: unknown } | null)?.scanRunId;
+        if (typeof scanRunId === "string" && scanRunId) {
+          const scanStore = createOptionsDiscoveryPorts({ sql: ctx.agentCtx.storage.sql, storage: ctx.agentCtx.storage }).scanRuns;
+          if (scannerXlsxKey) await scanStore.updateXlsxKey(scanRunId, scannerXlsxKey, { userLogin });
+          if (scannerCsvKey) await scanStore.updateCsvKey(scanRunId, scannerCsvKey, { userLogin });
+        }
+      } catch (stampErr) {
+        console.warn("[Orchestrator] Failed to stamp XLSX/CSV keys on scan run:", stampErr instanceof Error ? stampErr.message : String(stampErr));
+      }
+    }
+
     const shouldNotifySlack = reqData.pushToSlack !== false && reqData.pushToSlack !== "false";
     if (shouldNotifySlack) {
       const slackChannel = reqData.slackChannel || (ctx.env as any).SCREENER_SLACK_CHANNEL || (ctx.env as any).SLACK_CHANNEL;
