@@ -730,6 +730,53 @@ export async function handleReportsRoutes(
     }
   }
 
+  // Issue #2534: Run Details read surface. GET /api/runs/details
+  // returns the traceability model for one run (request, provenance,
+  // lineage, stage trace, why-no-data reasons) built from the same
+  // merged Runs rows the Docs list reads — never a second divergent
+  // copy, never a new run, never a record. Scoping matches /api/runs:
+  // canonical rows use the header login or stay unscoped, scan /
+  // discovery stores use the header login only.
+  if (path.endsWith("/runs/details") && request.method === "GET") {
+    try {
+      const wanted = (url.searchParams.get("runId") || url.searchParams.get("id") || "").trim();
+      if (!wanted) return Response.json({ error: "runId is required" }, { status: 400 });
+      const headerLogin = request.headers.get("x-user-login");
+      const reportLogin = headerLogin && headerLogin.trim() ? headerLogin : undefined;
+      const sql = ctx.ensureTables();
+      const { listScheduledReports, ensureScheduledReportsTable, resolveCanonicalReportBodyWithBackfill } = await import("../../services/scheduledReports");
+      const { runSummaryFromReport, runSummaryFromScanRun, runSummaryFromDiscoveryRun, mergeRunSummaries } = await import("../../services/runSummaries");
+      const { buildRunDetail } = await import("../../services/runDetails");
+      ensureScheduledReportsTable(sql);
+      const hits = listScheduledReports(sql, { userLogin: reportLogin, limit: 100 });
+      const reportEnv = (ctx as any).env || {};
+      const resolved = await Promise.all(
+        hits.map(async (h) => ({ ...h, body: (await resolveCanonicalReportBodyWithBackfill(sql, reportEnv, h)) ?? "" })),
+      );
+      const lists: RunSummary[][] = [resolved.map(runSummaryFromReport)];
+      const bodies = new Map<string, unknown>();
+      for (const h of resolved) bodies.set(h.id, h.body);
+      if (reportLogin) {
+        try {
+          const { createOptionsDiscoveryPorts } = await import("../../data/createOptionsDiscoveryPorts");
+          const ports = createOptionsDiscoveryPorts({ sql });
+          lists.push((await ports.scanRuns.list({ limit: 100, userLogin: reportLogin })).map(runSummaryFromScanRun));
+          lists.push((await ports.discoveryRuns.list({ limit: 100, userLogin: reportLogin })).map(runSummaryFromDiscoveryRun));
+        } catch {
+          // Scan/discovery detail is best-effort; the canonical row
+          // still yields a detail with those fields unknown.
+        }
+      }
+      const merged = mergeRunSummaries(lists, 100);
+      const summary = merged.find((r) => r.runId === wanted || r.id === wanted);
+      if (!summary) return Response.json({ error: "run not found" }, { status: 404 });
+      const body = summary.reportId ? bodies.get(summary.reportId) : undefined;
+      return Response.json({ detail: buildRunDetail({ ...summary, body }) });
+    } catch (err: any) {
+      return Response.json({ error: err?.message || "Failed to load run details" }, { status: 500 });
+    }
+  }
+
   // Issue #1057 (consolidation S5): the one Runs read surface. Merges
   // run summaries from all four run stores (mas_reports,
   // mas_opportunity_scans, mas_discovery_runs, and the ScreenerAgent

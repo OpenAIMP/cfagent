@@ -241,8 +241,13 @@ describe("DocsAndReportsPanel scroll + sort", () => {
     await renderPanel();
 
     const headers = [...container.querySelectorAll("th")];
-    expect(headers).toHaveLength(7);
-    for (const th of headers) {
+    // Issue #2534: the Run Details column adds an eighth header; it
+    // is an action column, not a sort column, so only the original
+    // seven headers carry sort buttons.
+    expect(headers).toHaveLength(8);
+    expect(headers.filter((th) => th.querySelector("button"))).toHaveLength(7);
+    expect(headers.some((th) => th.textContent?.includes("Run Details"))).toBe(true);
+    for (const th of headers.filter((h) => !h.textContent?.includes("Run Details"))) {
       expect(th.querySelector("button")).not.toBeNull();
     }
     expect(headerByText("Date-Time").getAttribute("aria-sort")).toBe("descending");
