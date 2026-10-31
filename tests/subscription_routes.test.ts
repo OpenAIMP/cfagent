@@ -282,6 +282,25 @@ describe("subscription checkout + purchase", () => {
     expect(replay?.status).toBe(409);
   });
 
+  it("activation audit carries previous → new effective tier (#2522)", async () => {
+    const { ctx } = await setup({ monetization: true, stripe: true });
+    const plan = await createPlan(ctx, { name: "P", priceUSD: 5, periodDays: 30, includedRuns: 0 });
+    stubStripe();
+    await call(ctx, "POST", "/payments/agentic/commercial/account", "op1", { userId: "u1", tenantId: "t1", tier: "Free" });
+    const checkout = await bodyOf(
+      await call(ctx, "POST", "/payments/agentic/commercial/subscription/checkout", "u1", { planId: plan.id, tenantId: "t1", email: "u1@example.com" }),
+    );
+    const bought = await bodyOf(await call(ctx, "POST", "/payments/agentic/commercial/subscription/purchase", "u1", {
+      planId: plan.id, tenantId: "t1", checkoutRequestId: checkout.checkoutRequestId, checkoutSessionId: checkout.checkoutSessionId,
+    }));
+    expect(bought.effectiveTier).toBe("Subscribed");
+    const activated = (ctx.audit as any).mock.calls.find(([t]: [string]) => t === "commercial.subscription.activated");
+    expect(activated).toBeDefined();
+    expect(activated[2].previousEffectiveTier).toBe("Free");
+    expect(activated[2].newEffectiveTier).toBe("Subscribed");
+    expect(activated[2].planId).toBe(plan.id);
+  });
+
   it("purchase posts Dr 1000 / Cr 2100 deferred revenue to the journal; a refused purchase posts nothing (#2155 follow-up)", async () => {
     const { ctx, env } = await setup({ monetization: true, stripe: true });
     const plan = await createPlan(ctx, { name: "Pro", priceUSD: 20, periodDays: 30, includedRuns: 10 });
@@ -404,6 +423,28 @@ describe("subscription cancel + status", () => {
     expect((ctx.audit as any).mock.calls.some(([t]: [string]) => t === "commercial.subscription.canceled")).toBe(true);
     const opCancel = await bodyOf(await call(ctx, "POST", "/payments/agentic/commercial/subscription/cancel", "op1", { userId: "u1" }));
     expect(opCancel.canceled).toEqual([]);
+  });
+
+  it("cancel audit states the effective tier at cancel time, unchanged by cancel (#2522)", async () => {
+    const { ctx } = await setup({ monetization: true, stripe: true });
+    stubStripe();
+    const plan = await createPlan(ctx, { name: "P", priceUSD: 5, periodDays: 30, includedRuns: 0 });
+    await call(ctx, "POST", "/payments/agentic/commercial/account", "op1", { userId: "u1", tenantId: "t1", tier: "Free" });
+    const checkout = await bodyOf(
+      await call(ctx, "POST", "/payments/agentic/commercial/subscription/checkout", "u1", { planId: plan.id, tenantId: "t1", email: "u1@example.com" }),
+    );
+    await call(ctx, "POST", "/payments/agentic/commercial/subscription/purchase", "u1", {
+      planId: plan.id, tenantId: "t1", checkoutRequestId: checkout.checkoutRequestId, checkoutSessionId: checkout.checkoutSessionId,
+    });
+    const canceled = await bodyOf(await call(ctx, "POST", "/payments/agentic/commercial/subscription/cancel", "u1", {}));
+    expect(canceled.canceled).toHaveLength(1);
+    const cancelAudit = (ctx.audit as any).mock.calls.find(([t]: [string]) => t === "commercial.subscription.canceled");
+    expect(cancelAudit).toBeDefined();
+    // Cancel-at-period-end touches no periodEndMs, so the tier at
+    // cancel time is still Subscribed — the audit states it, it
+    // does not claim a change.
+    expect(cancelAudit[2].effectiveTier).toBe("Subscribed");
+    expect(cancelAudit[2].accessThroughMs).toBe(canceled.accessThroughMs);
   });
 
   it("status read auth: anonymous 401, other user 403, operator 200", async () => {
