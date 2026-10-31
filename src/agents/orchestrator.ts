@@ -2178,6 +2178,13 @@ export class OrchestratorAgent extends PortThink {
       return this.routeRequest(request);
     }
 
+    // Issue #2501: same trap for the service-user provision route:
+    // "admin" is not an immediate prefix, so a provision POST would
+    // queue as an async job and return 202. Same pattern as above.
+    if (/(?:^|\/api)\/admin\/service-user\/provision(?:\/|$)/.test(path) && request.method === "POST") {
+      return this.routeRequest(request);
+    }
+
     // The Worker strips the /api prefix when forwarding and marks queue-eligible requests.
     const isMcpEndpoint = /\/mcp(?:\/|$)/i.test(path);
     const isScheduleEndpoint = /(?:^|\/)(?:api\/)?schedules(?:\/|$)/i.test(path);
