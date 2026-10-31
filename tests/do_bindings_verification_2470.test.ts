@@ -31,7 +31,7 @@ const wrangler = readFileSync("wrangler.jsonc", "utf8");
 
 describe("DO bindings verification (#2470 S3)", () => {
   it("SEARCH_AGENT is bound and used by the merged cross-tenant fan-out (#2465, repointed by #2516)", () => {
-    expect(wrangler).toMatch(/"name":\s*"SEARCH_AGENT",\s*"class_name":\s*"SearchAgent"/);
+    expect(wrangler).toMatch(/"name":\s*"SEARCH_AGENT",\s*"class_name":\s*"OrchestratorAgent"/);
     const queues = readFileSync("src/agents/routes/adminTenantQueues.ts", "utf8");
     expect(queues).toContain("SEARCH_AGENT");
     expect(queues).toContain("idFromName");

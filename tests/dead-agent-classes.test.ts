@@ -4,8 +4,9 @@
  *
  * `src/agents/{search,tasks,memory,payments}.ts` were dead AIChatAgent
  * classes, verified unreferenced across src/tests/config, whose names
- * collided with live classes (SearchAgent = the orchestrator's export
- * alias; PaymentsAgent = the payments Durable Object). Live behavior
+ * collided with live classes (SearchAgent was the orchestrator's
+ * export alias, renamed OrchestratorAgent in #2523; PaymentsAgent =
+ * the payments Durable Object). Live behavior
  * for those domains is the mas.ts tool factory. If one of these paths
  * reappears, it must arrive wired and exported deliberately — this
  * test forces that conversation instead of a silent resurrection.
@@ -32,7 +33,7 @@ describe("removed standalone agent classes (F5)", () => {
   it("the live export surface in src/server.ts is unchanged", () => {
     const server = fs.readFileSync(path.join(root, "src/server.ts"), "utf8");
     for (const name of [
-      "OrchestratorAgent as SearchAgent",
+      'export { OrchestratorAgent } from "./agents/orchestrator"',
       "OptionsScannerMCP",
       "BrowserAgent",
       "SlackAgent",
