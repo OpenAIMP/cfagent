@@ -6,12 +6,11 @@ on:
       - main
 
 jobs:
-  # Deprecated in place (#2499, Policy Gate (i)/(j)): superseded by GitHub Merge Queue
-  # in protectmain ruleset 25543527. Disabled unconditionally (if: false) so it can never
-  # eject queued PRs or trigger O(N^2) rebase storms.
+  # Auto-sync open unqueued PRs (#2546).
+  # Kept scoped to unqueued auto-merge PRs that are behind main so Merge Queue
+  # remains the sole updater for queued PRs (no O(N^2) storms or queue ejections).
   update-prs:
     name: Update open PRs with main
-    if: false
     runs-on: ubuntu-24.04
     steps:
       - name: Create short-lived GitHub App token
@@ -48,10 +47,44 @@ jobs:
                 continue;
               }
 
+              if (pr.draft) {
+                console.log(`Skipping draft PR #${pr.number}`);
+                continue;
+              }
+
+              const hasAutoMerge = (pr.labels || []).some((l) => l.name === 'auto-merge');
+              if (!hasAutoMerge) {
+                console.log(`Skipping PR #${pr.number} (auto-merge label not present).`);
+                continue;
+              }
+
               const baseRepo = `${context.repo.owner}/${context.repo.repo}`;
               if (pr.head?.repo?.full_name !== baseRepo) {
                 console.log(`Skipping fork PR #${pr.number} (${pr.head?.repo?.full_name ?? 'deleted fork'}); the App is installed only on ${baseRepo}.`);
                 continue;
+              }
+
+              const queueQuery = `
+                query($owner: String!, $repo: String!, $number: Int!) {
+                  repository(owner: $owner, name: $repo) {
+                    pullRequest(number: $number) {
+                      isInMergeQueue
+                    }
+                  }
+                }
+              `;
+              try {
+                const qRes = await github.graphql(queueQuery, {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  number: pr.number,
+                });
+                if (qRes?.repository?.pullRequest?.isInMergeQueue) {
+                  console.log(`Skipping PR #${pr.number} (${pr.head.ref}); already in merge queue.`);
+                  continue;
+                }
+              } catch (e) {
+                console.log(`Could not query merge queue status for PR #${pr.number}: ${e.message}`);
               }
 
               try {

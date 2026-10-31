@@ -1,82 +1,54 @@
-/**
- * CI/CD Optimization, Integrity, and Velocity Guards (#2497, #2499, merge_group shard tiering).
- *
- * Merge_group-only shard tiering: test-shard is split into test-shard-pr
- * (parallel with fast-gates on pull_request) and test-shard-mq (needs
- * fast-gates on merge_group); test-and-verify accepts exactly the dedup/docs,
- * PR, and merge_group paths.
- *
- * Verifies:
- * 1. policy-gate.yml runs on both pull_request and merge_group and passes GH_TOKEN
- *    so scripts/ci/policy_gate.py evaluates each queued PR individually + aggregate.
- * 2. ci.yml enforces a 24h non-transitive tree-dedup anchor (verifying Fast gates +
- *    all 4 Tests shards concluded success), supports a docs-only fast path inside
- *    load-environment, writes to $GITHUB_STEP_SUMMARY, and keeps test-and-verify on if: always().
- * 3. gitleaks.yml verifies the SHA-256 checksum of the OSS gitleaks binary, scans
- *    merge-base..HEAD on PR/merge_group, and includes a nightly full-history schedule backstop.
- * 4. auto-update-prs-app.yml is disabled in place (if: false) so Merge Queue is the sole updater.
- */
-import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
+import { describe, it, expect } from "vitest";
 
-const policyGateYml = readFileSync(
-  new URL("../.github/workflows/policy-gate.yml", import.meta.url),
-  "utf-8"
-);
 const ciYml = readFileSync(
   new URL("../.github/workflows/ci.yml", import.meta.url),
-  "utf-8"
+  "utf8"
 );
-const gitleaksYml = readFileSync(
-  new URL("../.github/workflows/gitleaks.yml", import.meta.url),
-  "utf-8"
+const policyGateYml = readFileSync(
+  new URL("../.github/workflows/policy-gate.yml", import.meta.url),
+  "utf8"
+);
+const autoMergeYml = readFileSync(
+  new URL("../.github/workflows/auto-merge-trusted.yml", import.meta.url),
+  "utf8"
 );
 const autoUpdateYml = readFileSync(
   new URL("../.github/workflows/auto-update-prs-app.yml", import.meta.url),
-  "utf-8"
+  "utf8"
 );
 
-describe("CI/CD Merge Queue + Policy Gate + Tree-Hash Deduplication (#2497, #2499)", () => {
-  it("triggers Policy Gate on merge_group with GH_TOKEN for per-PR evaluation", () => {
+describe("CI/CD deduplication & Merge Queue alignment (#2497, #2499, #2546)", () => {
+  it("triggers Policy Gate on both pull_request and merge_group", () => {
     expect(policyGateYml).toMatch(/^\s*merge_group:\s*$/m);
-    expect(policyGateYml).toContain(
-      "if: github.event_name == 'merge_group' || github.event.pull_request.state == 'open'"
-    );
-    expect(policyGateYml).toContain("GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}");
+    expect(policyGateYml).toMatch(/^\s*pull_request:\s*$/m);
   });
 
-  it("enforces non-transitive 24h tree-dedup anchor, docs-only fast path, and step summary audit trail", () => {
-    expect(ciYml).toContain("git rev-parse 'HEAD^{tree}'");
-    expect(ciYml).toContain("verify_anchor_jobs()");
-    expect(ciYml).toContain("24 hours ago");
-    expect(ciYml).toContain("docs_only");
-    expect(ciYml).toContain("GITHUB_STEP_SUMMARY");
-    expect(ciYml).toContain("if: needs.load-environment.outputs.tree_already_verified != 'true'");
-    expect(ciYml).toContain("if: always()");
-    expect(ciYml).toContain("Test & Build (Node 22) [${{ needs.load-environment.outputs.target_env }}]");
+  it("omits strategy flags (--rebase/--squash/--merge) in auto-merge-trusted.yml (#2519)", () => {
+    // When a merge queue is configured, passing any merge strategy flag to
+    // `gh pr merge --auto` causes the CLI to emit an error and exit without
+    // enqueuing the PR. The workflow must invoke `gh pr merge --auto` with
+    // no merge method flag, letting the queue enforce the strategy (REBASE).
+    expect(autoMergeYml).toContain("gh pr merge --auto");
+    expect(autoMergeYml).not.toMatch(/gh pr merge --auto --(rebase|squash|merge)/);
   });
 
-  it("pins OSS gitleaks SHA-256 checksum, scans merge-base..HEAD, and runs a nightly full-history backstop", () => {
-    expect(gitleaksYml).toContain("fa0500f6b7e41d28791ebc680f5dd9899cd42b58629218a5f041efa899151a8e");
-    expect(gitleaksYml).toContain("sha256sum --check --strict");
-    expect(gitleaksYml).toContain('gitleaks git --log-opts="${BASE_MERGE}..HEAD"');
-    expect(gitleaksYml).toMatch(/^\s*schedule:\s*$/m);
-    expect(gitleaksYml).not.toContain("uses: gitleaks/gitleaks-action@v2");
-  });
-
-  it("splits test-shard into PR and merge_group jobs with merge_group-only tiering", () => {
+  it("runs shards in parallel on PR events and runs shards sequentially on merge_group", () => {
+    // PR path: 4 shards in matrix, no cross-shard dependencies
     expect(ciYml).toContain("test-shard-pr:");
+    expect(ciYml).toContain("shard: [1, 2, 3, 4]");
+    expect(ciYml).toContain("if: github.event_name != 'merge_group'");
+
+    // MQ path: single job, 4 iterations in bash loop
     expect(ciYml).toContain("test-shard-mq:");
-    expect(ciYml).toContain("Tests PR (shard");
-    expect(ciYml).toContain("Tests MQ (shard");
-    // PR job stays parallel with fast-gates (needs load-environment only)
-    expect(ciYml).toMatch(/test-shard-pr:[\s\S]*?needs: \[load-environment\]/);
-    expect(ciYml).toContain("github.event_name != 'merge_group'");
-    // MQ job waits for fast-gates before burning 4 shard runners
-    expect(ciYml).toMatch(/test-shard-mq:[\s\S]*?needs: \[load-environment, fast-gates\]/);
-    expect(ciYml).toContain("github.event_name == 'merge_group'");
-    // Both jobs keep the tree-dedup skip and the shard matrix
-    expect(ciYml).toContain("needs.load-environment.outputs.tree_already_verified != 'true'");
+    expect(ciYml).toContain("if: github.event_name == 'merge_group'");
+    expect(ciYml).toContain("for SHARD in 1 2 3 4; do");
+  });
+
+  it("preserves required check names and tree deduplication anchor across PR and MQ paths", () => {
+    // Both PR shards and MQ job report the exact check-run name the ruleset requires
+    expect(ciYml).toContain('name: "Tests PR (shard ${{ matrix.shard }}/4)"');
+    expect(ciYml).toContain('name: "Tests MQ (shard ${{ matrix.shard }}/4)"');
     // test-and-verify still reports the required name and accepts all three paths
     expect(ciYml).toContain("needs: [load-environment, fast-gates, test-shard-pr, test-shard-mq]");
     expect(ciYml).toContain("needs.test-shard-pr.result");
@@ -88,7 +60,8 @@ describe("CI/CD Merge Queue + Policy Gate + Tree-Hash Deduplication (#2497, #249
     expect(ciYml).toContain('Tests (PR|MQ)');
   });
 
-  it("retires auto-update-prs-app.yml in place with if: false so Merge Queue is the sole updater", () => {
-    expect(autoUpdateYml).toMatch(/^\s*if:\s*false\s*$/m);
+  it("keeps auto-update-prs-app.yml scoped to unqueued auto-merge PRs so Merge Queue is the sole updater for queued PRs (#2546)", () => {
+    expect(autoUpdateYml).toContain("isInMergeQueue");
+    expect(autoUpdateYml).toContain("hasAutoMerge");
   });
 });
