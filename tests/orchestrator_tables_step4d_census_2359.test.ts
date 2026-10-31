@@ -200,7 +200,9 @@ describe("4d family census: surface-1 execution sites", () => {
       ["src/data/doSqlitePolicyVerdictAdapter.ts", 4],
       ["src/data/doSqliteReportConfirmationAdapter.ts", 9],
       ["src/data/doSqliteScreenerPresetAdapter.ts", 6],
-      ["src/data/doSqliteCanonicalReportStoreAdapter.ts", 21],
+      // 21 at step 4d; 22 since #2528 slice 1: updateBody (see
+      // global_dd_census_2356 pin note).
+      ["src/data/doSqliteCanonicalReportStoreAdapter.ts", 22],
       ["src/data/doSqliteUsageEventAdapter.ts", 4],
     ]);
     for (const [f, n] of layer) {
