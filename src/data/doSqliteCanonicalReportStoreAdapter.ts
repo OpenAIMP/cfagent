@@ -208,6 +208,14 @@ export class DoSqliteCanonicalReportStore
     );
   }
 
+  updateBody(reportId: string, bodyJson: string): void {
+    this.sql.exec(
+      `UPDATE ${TABLE} SET body = ? WHERE id = ?`,
+      bodyJson,
+      reportId
+    );
+  }
+
   getFanoutOutcomeRaw(reportId: string): string | null {
     const rows = Array.from(
       this.sql.exec(

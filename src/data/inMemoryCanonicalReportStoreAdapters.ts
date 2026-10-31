@@ -106,6 +106,11 @@ export class InMemoryCanonicalReportStore
     if (r) r.fanout_outcome = fanoutOutcomeJson;
   }
 
+  updateBody(reportId: string, bodyJson: string): void {
+    const r = this.rows.get(reportId);
+    if (r) r.body = bodyJson;
+  }
+
   getFanoutOutcomeRaw(reportId: string): string | null {
     return this.rows.get(reportId)?.fanout_outcome ?? null;
   }
